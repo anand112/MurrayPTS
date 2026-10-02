@@ -1,0 +1,3 @@
+# This directory is for runtime data storage
+# The actual data files are excluded by .gitignore for security
+# To initialize the project with sample data, copy pts-data.json.example to pts-data.json

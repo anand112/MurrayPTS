@@ -1,0 +1,605 @@
+{
+    "projects": [
+        {
+            "id": 1,
+            "code": "SIT-01",
+            "name": "Tavan Tolgoi East Expansion",
+            "status": "Ongoing",
+            "progress": 64,
+            "manager": "Sarangerel Bold",
+            "due": "2026-12-15",
+            "type": "Site projects"
+        },
+        {
+            "id": 2,
+            "code": "SIT-02",
+            "name": "Oyu Tolgoi Haul Road Upgrade",
+            "status": "Blocked",
+            "progress": 38,
+            "manager": "Ganbold Erdene",
+            "due": "2026-11-02",
+            "type": "Site projects"
+        },
+        {
+            "id": 3,
+            "code": "MFG-01",
+            "name": "Erdenet Crusher Modernisation",
+            "status": "Ongoing",
+            "progress": 71,
+            "manager": "Erdenechuluun Bat",
+            "due": "2027-03-20",
+            "type": "Manufacturing"
+        },
+        {
+            "id": 4,
+            "code": "SIT-03",
+            "name": "Nalaikh Tailings Remediation",
+            "status": "Not started",
+            "progress": 12,
+            "manager": "Altantsetseg Khan",
+            "due": "2027-06-30",
+            "type": "Site projects"
+        },
+        {
+            "id": 5,
+            "code": "SIT-04",
+            "name": "Tsaidam Lithium Exploration",
+            "status": "Ongoing",
+            "progress": 45,
+            "manager": "Solongo Ganbaatar",
+            "due": "2026-10-18",
+            "type": "Site projects"
+        },
+        {
+            "id": 6,
+            "code": "SIT-05",
+            "name": "Boroo Gold Pit Stage 3",
+            "status": "Completed",
+            "progress": 100,
+            "manager": "Temuulen Amgalan",
+            "due": "2026-08-01",
+            "type": "Site projects"
+        },
+        {
+            "id": 7,
+            "code": "SIT-06",
+            "name": "Zuunmod Camp Construction",
+            "status": "Ongoing",
+            "progress": 58,
+            "manager": "Khulan Serjee",
+            "due": "2026-12-01",
+            "type": "Site projects"
+        },
+        {
+            "id": 8,
+            "code": "RMS-01",
+            "name": "Darkhan Conveyor Replacement",
+            "status": "Blocked",
+            "progress": 26,
+            "manager": "Batbayar Nyam",
+            "due": "2026-10-25",
+            "type": "Repair/ Maintenance/ Other Services"
+        },
+        {
+            "id": 9,
+            "code": "SIT-07",
+            "name": "Sainshand Solar Farm Integration",
+            "status": "Not started",
+            "progress": 8,
+            "manager": "Uyanga Lkham",
+            "due": "2027-05-12",
+            "type": "Site projects"
+        },
+        {
+            "id": 10,
+            "code": "MFG-02",
+            "name": "Ulaangom Gravel Production",
+            "status": "Completed",
+            "progress": 100,
+            "manager": "Ganbaatar Khos",
+            "due": "2026-07-15",
+            "type": "Manufacturing"
+        },
+        {
+            "id": 11,
+            "code": "SIT-08",
+            "name": "Murun Truck Shop Extension",
+            "status": "Ongoing",
+            "progress": 52,
+            "manager": "Jargalsaikhan Otgonbayar",
+            "due": "2027-01-30",
+            "type": "Site projects"
+        },
+        {
+            "id": 12,
+            "code": "RMS-02",
+            "name": "Choibalsan Bridge Repair",
+            "status": "Blocked",
+            "progress": 33,
+            "manager": "Chuluun Munkh",
+            "due": "2026-11-20",
+            "type": "Repair/ Maintenance/ Other Services"
+        },
+        {
+            "id": 13,
+            "code": "LAB-01",
+            "name": "Altai Operations Crew Supply",
+            "status": "Ongoing",
+            "progress": 67,
+            "manager": "Anujin Tseren",
+            "due": "2026-12-22",
+            "type": "Labour supply"
+        },
+        {
+            "id": 14,
+            "code": "RMS-03",
+            "name": "Khovsgel Slope Stabilisation",
+            "status": "Not started",
+            "progress": 15,
+            "manager": "Erdenesukh Baasandorj",
+            "due": "2027-04-08",
+            "type": "Repair/ Maintenance/ Other Services"
+        },
+        {
+            "id": 15,
+            "code": "LAB-02",
+            "name": "Oyu Tolgoi Underground Crew Supply",
+            "status": "On hold",
+            "progress": 49,
+            "manager": "Munkhbat Tsogt",
+            "due": "2027-02-14",
+            "type": "Labour supply"
+        },
+        {
+            "id": 16,
+            "code": "SIT-09",
+            "name": "Erdenet Training Centre Fit-out",
+            "status": "Completed",
+            "progress": 100,
+            "manager": "Myagmarjav Enkhjin",
+            "due": "2026-09-01",
+            "type": "Site projects"
+        }
+    ],
+    "assignedTasks": [
+        {
+            "title": "Review SIT-01 blast vibration report",
+            "project": "Tavan Tolgoi East Expansion",
+            "due": "2026-10-03",
+            "priority": "High",
+            "assignee": "EMP0002",
+            "status": "Blocked",
+            "id": 1,
+            "bucket": "Management"
+        },
+        {
+            "title": "Approve RMS-01 conveyor gearbox purchase",
+            "project": "Darkhan Conveyor Replacement",
+            "due": "2026-10-06",
+            "priority": "High",
+            "assignee": "EMP0011",
+            "status": "Not started",
+            "id": 2,
+            "bucket": "Management"
+        },
+        {
+            "title": "Sign off SIT-02 recovery schedule",
+            "project": "Oyu Tolgoi Haul Road Upgrade",
+            "due": "2026-10-10",
+            "priority": "Medium",
+            "assignee": "EMP0003",
+            "status": "In progress",
+            "id": 3,
+            "bucket": "Management"
+        }
+    ],
+    "team": [
+        {
+            "employeeNumber": "EMP0000",
+            "name": "Super Admin",
+            "department": "IT / Systems",
+            "position": "Super Admin"
+        },
+        {
+            "employeeNumber": "EMP0001",
+            "name": "Baatar Uuganbayar",
+            "department": "Executive",
+            "position": "CEO"
+        },
+        {
+            "employeeNumber": "EMP0002",
+            "name": "Sarangerel Bold",
+            "department": "Projects",
+            "position": "Project Manager"
+        },
+        {
+            "employeeNumber": "EMP0003",
+            "name": "Ganbold Erdene",
+            "department": "Operations",
+            "position": "Site Supervisor"
+        },
+        {
+            "employeeNumber": "EMP0004",
+            "name": "Oyunchimeg Dorj",
+            "department": "Human Resources",
+            "position": "HR Lead"
+        },
+        {
+            "employeeNumber": "EMP0005",
+            "name": "Munkhbat Tsogt",
+            "department": "HSE",
+            "position": "Safety Officer"
+        },
+        {
+            "employeeNumber": "EMP0006",
+            "name": "Altantsetseg Khan",
+            "department": "HSE",
+            "position": "Environmental Advisor"
+        },
+        {
+            "employeeNumber": "EMP0007",
+            "name": "Erdenechuluun Bat",
+            "department": "Engineering",
+            "position": "Mining Engineer"
+        },
+        {
+            "employeeNumber": "EMP0008",
+            "name": "Solongo Ganbaatar",
+            "department": "Geology",
+            "position": "Geologist"
+        },
+        {
+            "employeeNumber": "EMP0009",
+            "name": "Temuulen Amgalan",
+            "department": "Engineering",
+            "position": "Drill & Blast Engineer"
+        },
+        {
+            "employeeNumber": "EMP0010",
+            "name": "Narantsetseg Purev",
+            "department": "Procurement",
+            "position": "Procurement Lead"
+        },
+        {
+            "employeeNumber": "EMP0011",
+            "name": "Batbayar Nyam",
+            "department": "Engineering",
+            "position": "Mechanical Engineer"
+        },
+        {
+            "employeeNumber": "EMP0012",
+            "name": "Uyanga Lkham",
+            "department": "Engineering",
+            "position": "Electrical Engineer"
+        },
+        {
+            "employeeNumber": "EMP0013",
+            "name": "Chuluun Munkh",
+            "department": "Survey",
+            "position": "Surveyor"
+        },
+        {
+            "employeeNumber": "EMP0014",
+            "name": "Anujin Tseren",
+            "department": "Quality",
+            "position": "QA/QC Engineer"
+        },
+        {
+            "employeeNumber": "EMP0015",
+            "name": "Ganbaatar Khos",
+            "department": "Logistics",
+            "position": "Logistics Coordinator"
+        },
+        {
+            "employeeNumber": "EMP0016",
+            "name": "Munkhzaya Dorj",
+            "department": "Finance",
+            "position": "Finance Analyst"
+        },
+        {
+            "employeeNumber": "EMP0017",
+            "name": "Erdenesukh Baasandorj",
+            "department": "HSE",
+            "position": "HSE Advisor"
+        },
+        {
+            "employeeNumber": "EMP0018",
+            "name": "Tsetsegmaa Ulziibayar",
+            "department": "Community Relations",
+            "position": "Community Liaison"
+        },
+        {
+            "employeeNumber": "EMP0019",
+            "name": "Boldbaatar Gantulga",
+            "department": "Operations",
+            "position": "Heavy Equipment Operator"
+        },
+        {
+            "employeeNumber": "EMP0020",
+            "name": "Khulan Serjee",
+            "department": "Administration",
+            "position": "Camp Administrator"
+        },
+        {
+            "employeeNumber": "EMP0021",
+            "name": "Jargalsaikhan Otgonbayar",
+            "department": "Logistics",
+            "position": "Fleet Manager"
+        },
+        {
+            "employeeNumber": "EMP0022",
+            "name": "Myagmarjav Enkhjin",
+            "department": "Human Resources",
+            "position": "Training Coordinator"
+        }
+    ],
+    "forecasts": [
+        {
+            "project": "Tavan Tolgoi East Expansion",
+            "period": "Q4 2026",
+            "hours": "12,400 hrs",
+            "note": "Crusher civils peak; two crews planned."
+        },
+        {
+            "project": "Oyu Tolgoi Haul Road Upgrade",
+            "period": "Q4 2026",
+            "hours": "8,900 hrs",
+            "note": "Recovery plan adds night shift from November."
+        },
+        {
+            "project": "Erdenet Crusher Modernisation",
+            "period": "Q1 2027",
+            "hours": "6,200 hrs",
+            "note": "Commissioning window with tapered crew."
+        }
+    ],
+    "lessons": [
+        {
+            "title": "Early procurement of long-lead items",
+            "project": "Boroo Gold Pit Stage 3",
+            "summary": "Ordering the crusher liner six months ahead saved five weeks of schedule."
+        },
+        {
+            "title": "Monsoon drainage planning",
+            "project": "Choibalsan Bridge Repair",
+            "summary": "Undersized culverts caused rework; the design standard needs revising."
+        },
+        {
+            "title": "Camp capacity buffers",
+            "project": "Zuunmod Camp Construction",
+            "summary": "Keeping 10% spare beds avoided rotation delays during peak crew changes."
+        }
+    ],
+    "otherTasks": [
+        {
+            "title": "Update HSE induction deck",
+            "project": "",
+            "due": "2026-10-15",
+            "priority": "Low",
+            "assignee": "",
+            "status": "Not started",
+            "id": 0,
+            "bucket": "Management"
+        },
+        {
+            "title": "Refresh project code register",
+            "project": "",
+            "due": "2026-10-30",
+            "priority": "Medium",
+            "assignee": "",
+            "status": "Not started",
+            "id": 0,
+            "bucket": "Management"
+        }
+    ],
+    "buckets": [
+        "Management",
+        "Baldan"
+    ],
+    "todos": [
+        {
+            "id": 1,
+            "title": "Confirm Q4 fleet servicing slots",
+            "done": false,
+            "list": 1
+        },
+        {
+            "id": 2,
+            "title": "Confirm emails",
+            "done": false,
+            "list": 1
+        }
+    ],
+    "todoLists": [
+        {
+            "id": 1,
+            "name": "General"
+        },
+        {
+            "id": 2,
+            "name": "21"
+        },
+        {
+            "id": 3,
+            "name": "new folder"
+        }
+    ],
+    "access": [
+        {
+            "employeeNumber": "EMP0000",
+            "name": "Super Admin",
+            "position": "Super Admin",
+            "access": "Admin",
+            "password": ""
+        },
+        {
+            "employeeNumber": "EMP0001",
+            "name": "Baatar Uuganbayar",
+            "position": "CEO",
+            "access": "Admin",
+            "password": ""
+        },
+        {
+            "employeeNumber": "EMP0002",
+            "name": "Sarangerel Bold",
+            "position": "Project Manager",
+            "access": "Manager",
+            "password": ""
+        },
+        {
+            "employeeNumber": "EMP0003",
+            "name": "Ganbold Erdene",
+            "position": "Site Supervisor",
+            "access": "Manager",
+            "password": ""
+        },
+        {
+            "employeeNumber": "EMP0016",
+            "name": "Munkhzaya Dorj",
+            "position": "Finance Analyst",
+            "access": "Viewer",
+            "password": ""
+        },
+        {
+            "employeeNumber": "EMP0020",
+            "name": "Khulan Serjee",
+            "position": "Heavy Equipment Operator",
+            "access": "Viewer",
+            "password": ""
+        }
+    ],
+    "positions": [
+        {
+            "id": 1,
+            "name": "Super Admin",
+            "permissionLevel": "Admin",
+            "description": "Full system access including position management"
+        },
+        {
+            "id": 2,
+            "name": "CEO",
+            "permissionLevel": "Admin",
+            "description": "Executive level access with full permissions"
+        },
+        {
+            "id": 3,
+            "name": "Project Manager",
+            "permissionLevel": "Manager",
+            "description": "Can manage projects and assigned tasks"
+        },
+        {
+            "id": 4,
+            "name": "Site Supervisor",
+            "permissionLevel": "Manager",
+            "description": "Can manage projects and assigned tasks"
+        },
+        {
+            "id": 5,
+            "name": "HR Lead",
+            "permissionLevel": "Manager",
+            "description": "Can manage team and access control"
+        },
+        {
+            "id": 6,
+            "name": "Finance Analyst",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 7,
+            "name": "Camp Administrator",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 8,
+            "name": "Safety Officer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 9,
+            "name": "Mining Engineer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 10,
+            "name": "Geologist",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 11,
+            "name": "Drill & Blast Engineer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 12,
+            "name": "Procurement Lead",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 13,
+            "name": "Mechanical Engineer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 14,
+            "name": "Electrical Engineer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 15,
+            "name": "Surveyor",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 16,
+            "name": "QA/QC Engineer",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 17,
+            "name": "Logistics Coordinator",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 18,
+            "name": "HSE Advisor",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 19,
+            "name": "Community Liaison",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 20,
+            "name": "Heavy Equipment Operator",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 21,
+            "name": "Fleet Manager",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        },
+        {
+            "id": 22,
+            "name": "Training Coordinator",
+            "permissionLevel": "Viewer",
+            "description": "Read-only access to projects and tasks"
+        }
+    ]
+}
