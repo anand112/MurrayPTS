@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 import java.io.File
 import kotlinx.serialization.json.Json
@@ -29,14 +30,9 @@ object JsonStore {
                 File("$file.bak").writeText(text)
             }
         }
-        var effective = loaded ?: DemoData.seed().also { write(it) }
-        if (loaded != null) {
-            val migrated = migrate(effective)
-            if (migrated != effective) {
-                write(migrated)
-                effective = migrated
-            }
-        }
+        val base = loaded ?: DemoData.seed()
+        val effective = migrate(base)
+        if (loaded == null || effective != base) write(effective)
         cache = effective
         loadedAt = if (file.exists()) file.lastModified() else -1L
         effective
@@ -142,6 +138,31 @@ object JsonStore {
                 t
             }
             out = out.copy(todos = withIds)
+        }
+
+        // 10. Emails: fill auto-generated addresses for accounts created before the field existed.
+        if (out.access.any { it.email.isBlank() }) {
+            out = out.copy(
+                access = out.access.map { row ->
+                    if (row.email.isNotBlank()) row else row.copy(email = autoEmail(row.name))
+                },
+            )
+        }
+
+        // 11. To-do boards are personal. Legacy lists/tasks without an owner belong to the super admin;
+        //     a task always follows its list's owner.
+        if (out.todoLists.any { it.owner.isEmpty() }) {
+            out = out.copy(
+                todoLists = out.todoLists.map { if (it.owner.isEmpty()) it.copy(owner = "EMP0000") else it },
+            )
+        }
+        if (out.todos.any { it.owner.isEmpty() }) {
+            val listOwner = out.todoLists.associate { it.id to it.owner }
+            out = out.copy(
+                todos = out.todos.map { todo ->
+                    if (todo.owner.isNotEmpty()) todo else todo.copy(owner = listOwner[todo.list] ?: "EMP0000")
+                },
+            )
         }
 
         return out

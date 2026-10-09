@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
@@ -24,7 +25,7 @@ import kotlinx.html.title
 import kotlinx.html.unsafe
 
 private fun icon(path: String): String =
-    """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">$path</svg>"""
+    """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">$path</svg>"""
 
 val ICONS = mapOf(
     "folder" to icon("""<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>"""),
@@ -33,21 +34,23 @@ val ICONS = mapOf(
     "message" to icon("""<path d="M4 5h16v10H9l-5 4z"/>"""),
     "star" to icon("""<path d="m12 4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L3.2 9.7l5.4-.8z"/>"""),
     "user" to icon("""<circle cx="12" cy="8" r="3.4"/><path d="M5 19.5c.8-3.6 3.4-5.5 7-5.5s6.2 1.9 7 5.5"/>"""),
-    "calendar" to icon("""<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/><path d="m9.5 15 2 2 3.5-3.5"/>"""),
+    "calendar" to icon("""<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M8 3v4M16 3v4M4 10h16"/>"""),
     "shield" to icon("""<path d="M12 3 5 6v6c0 4.4 3 7.6 7 9 4-1.4 7-4.6 7-9V6z"/>"""),
     "gear" to icon("""<circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M18.5 5.5l-2.1 2.1M7.6 16.4l-2.1 2.1"/>"""),
+    "list" to icon("""<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>"""),
 )
 
 data class NavItem(val id: String, val path: String, val label: String, val icon: String, val count: Int?)
 
-fun navItems(): List<NavItem> = listOf(
+fun navItems(employeeNumber: String): List<NavItem> = listOf(
     NavItem("projects", "/app/projects", "Projects", ICONS["folder"]!!, DemoData.projects.size),
     NavItem("assigned-tasks", "/app/assigned-tasks", "Assigned tasks", ICONS["check"]!!, DemoData.assignedTasks.size),
+    NavItem("calendar", "/app/calendar", "Calendar", ICONS["calendar"]!!, null),
     NavItem("team", "/app/team", "Team", ICONS["users"]!!, DemoData.team.size),
     NavItem("forecasts", "/app/forecasts", "Forecasts", ICONS["message"]!!, DemoData.forecasts.size),
     NavItem("lessons", "/app/lessons", "Lesson learnt", ICONS["star"]!!, DemoData.lessons.size),
     NavItem("other-tasks", "/app/other-tasks", "Other tasks", ICONS["user"]!!, DemoData.otherTasks.size),
-    NavItem("todo", "/app/todo", "To-do", ICONS["calendar"]!!, DemoData.todos.size),
+    NavItem("todo", "/app/todo", "To-do", ICONS["list"]!!, DemoData.todos.count { it.owner == employeeNumber }),
     NavItem("access-control", "/app/access-control", "Access control", ICONS["shield"]!!, null),
     NavItem("settings", "/app/settings", "Settings", ICONS["gear"]!!, null),
 )
@@ -62,15 +65,17 @@ fun HTML.appPage(session: UserSession, section: String, title: String, block: DI
     body("app-body") {
         div("app") {
             aside("sidebar") {
-                img(src = "/static/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
-                    attributes["class"] = "logo-img side-logo"
+                a(href = "/app") {
+                    img(src = "/static/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
+                        attributes["class"] = "logo-img side-logo"
+                    }
                 }
                 div("side-caption") {
                     +"PROJECT TRACKING SYSTEM "
                     span("accent") { +"(PTS)" }
                 }
                 nav {
-                    navItems().forEach { item ->
+                    navItems(session.employeeNumber).forEach { item ->
                         a(classes = if (item.id == section) "nav-item active" else "nav-item") {
                             href = item.path
                             unsafe { +item.icon }
@@ -81,7 +86,7 @@ fun HTML.appPage(session: UserSession, section: String, title: String, block: DI
                 }
                 div("pinned") {
                     h2 { +"Pinned projects" }
-                    val pinned = session.pinned.mapNotNull { pid -> DemoData.projects.firstOrNull { it.id == pid } }
+                    val pinned = pinnedIds(session.employeeNumber).mapNotNull { pid -> DemoData.projects.firstOrNull { it.id == pid } }
                     if (pinned.isEmpty()) {
                         p("empty") {
                             +"No pinned projects yet. Pin a project from its board, or from the list on the Projects page, to see it here."
@@ -89,7 +94,7 @@ fun HTML.appPage(session: UserSession, section: String, title: String, block: DI
                     } else {
                         pinned.forEach { project ->
                             div("pinned-row") {
-                                a(href = "/app/projects") { +project.name }
+                                a(href = "/app/projects/${project.id}") { +project.name }
                                 form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
                                     button(type = ButtonType.submit, classes = "pin-btn on") { +"×" }
                                 }
@@ -219,8 +224,11 @@ table.grid tr:last-child td { border-bottom: none; }
 .status-form { display: inline-flex; margin-right: 10px; }
 .status-select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
 form.cell-edit { margin: 0; }
-form.cell-edit input[type="text"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; }
+form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; }
 form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: #c92a3d; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.delete-btn:hover { background: rgba(220, 53, 69, .16); }
+.field-err { color: #c92a3d; font-size: 12.5px; font-weight: 600; margin: 4px 0 0; }
 .kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: start; }
 .kanban-other { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
 .kcol { background: rgba(0, 0, 0, .035); border-radius: 12px; padding: 12px; min-height: 190px; }
@@ -288,23 +296,71 @@ html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
 .lesson-text { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-top: 6px; }
 .todo-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 14px; color: var(--title); border-bottom: 1px solid var(--input-border); }
 .todo-row:last-child { border-bottom: none; }
-.todo-box { width: 18px; height: 18px; flex: 0 0 18px; border: 1.5px solid var(--input-border); border-radius: 5px; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
-.todo-box.done { background: var(--accent); border-color: var(--accent); }
-.todo-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
-.todo-head h3 { margin: 0; }
+.todo-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; cursor: grab; }
+.todo-head h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .todo-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+.todo-due { margin: 0 0 8px; }
+.todo-due-form { margin: 0; display: flex; align-items: center; gap: 6px; }
+.todo-due-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: 5px 8px; font-size: 12px; }
 .todo-del-form { margin: 0 0 0 auto; }
+.calendar-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.calendar-grid th { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 4px; border-bottom: 1px solid var(--input-border); }
+.calendar-grid td { padding: 0; border: 1px solid var(--input-border); vertical-align: top; min-height: 100px; }
+.calendar-cell { width: 14.28%; min-height: 100px; position: relative; }
+.calendar-day { padding: 6px 8px; font-weight: 600; font-size: 12px; color: var(--title); }
+.calendar-day.today { background: var(--accent-soft); color: var(--accent-strong); }
+.calendar-task-bar { color: #fff; padding: 4px 6px; margin-top: 4px; font-size: 11px; font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.calendar-task-bar:hover { opacity: 0.9; }
+.calendar-task-link { color: #fff; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-task-link:hover { text-decoration: underline; }
+.calendar-bar-assignee { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); }
+.modal-content { background-color: var(--card-bg); margin: 10% auto; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; position: relative; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); }
+.close { color: var(--muted); float: right; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
+.close:hover { color: var(--title); }
+.modal-body { margin-top: 16px; }
+.modal-row { display: flex; margin-bottom: 12px; align-items: center; }
+.modal-label { font-weight: 600; color: var(--muted); width: 100px; flex-shrink: 0; }
+.modal-value { color: var(--title); }
+.modal-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--input-border); }
+.modal-btn { display: inline-block; padding: 8px 16px; background: var(--accent); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.modal-btn:hover { background: var(--accent-strong); }
 .todo-del { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; }
 .todo-del:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
-.todo-toggle { margin: 0; }
-.todo-toggle button { cursor: pointer; border: none; background: transparent; padding: 0; }
 .todo-title { flex: 1; }
 .todo-title.done { text-decoration: line-through; color: var(--muted); }
-.todo-add { display: flex; gap: 8px; margin-top: 12px; }
-.todo-add input[type="text"] { flex: 1; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.todo-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.todo-add input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 11px 14px; font-size: 14px; }
+.todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: 10px 10px; font-size: 13px; }
+.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: 8px 6px; font-size: 11.5px; }
+.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: 4px 6px; font-size: 11.5px; }
+.todo-due-form input[type="date"]::-webkit-calendar-picker-indicator,
+.todo-add input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+.todo-due-form input[type="date"],
+.todo-add input[type="date"] { background: transparent; border-color: transparent; }
+.todo-due-form input[type="date"]:focus,
+.todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--input-border); }
+.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.todo-board { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
+.todo-board .todo-list { flex: 0 0 330px; max-width: 330px; }
+.todo-check { margin: 0; display: flex; align-items: center; }
+.todo-check input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.todo-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.todo-head-actions .todo-del-form { margin: 0; }
+.todo-move-form { margin: 0; display: flex; gap: 2px; }
+.todo-move { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; padding: 4px 7px; border-radius: 6px; }
+.todo-move:hover:not([disabled]) { color: var(--accent-strong); background: var(--accent-soft); }
+.todo-move[disabled] { opacity: .3; cursor: default; }
+.todo-list.done { opacity: .72; }
+.todo-list.done .todo-head h3 { text-decoration: line-through; color: var(--muted); }
+.todo-list.dragging { opacity: .55; outline: 2px dashed var(--accent); outline-offset: -2px; }
 .set-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--input-border); font-size: 13.5px; color: var(--title); }
 .set-row:last-of-type { border-bottom: none; }
 .set-key { color: var(--muted); }
+.flash { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+.flash.ok { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.flash.err { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0; }
 select {
     width: 100%;
     padding: 11px 12px;
@@ -350,6 +406,61 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .assignee.none { color: var(--muted); font-style: italic; }
 .pw-edit { display: flex; gap: 6px; align-items: center; }
 .pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
+.team-table tbody tr[data-emp] { cursor: pointer; }
+.team-table tbody tr[data-emp]:hover td { background: var(--input-bg); }
+.mhint { color: var(--muted); font-size: 15px; font-weight: 700; }
+.team-table tbody tr[data-emp]:hover .mhint { color: var(--accent-strong); }
+.mpop { position: absolute; z-index: 900; width: 400px; max-width: calc(100vw - 24px); background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 12px; box-shadow: 0 18px 44px rgba(0, 0, 0, .22); overflow: hidden; }
+.mpop[hidden] { display: none; }
+.mpop-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--accent-soft); }
+.mpop-head .avatar.sm { background: var(--accent-strong); }
+.mpop-id { flex: 1; min-width: 0; }
+.mpop-name { font-size: 14px; font-weight: 700; color: var(--title); }
+.mpop-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.mpop-x { border: none; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; }
+.mpop-x:hover { color: var(--title); background: rgba(0, 0, 0, .07); }
+.mpop-body { padding: 4px 14px 12px; max-height: min(60vh, 480px); overflow-y: auto; }
+.mpop-sechead { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.mpop-empty { font-size: 12.5px; color: var(--note); font-style: italic; padding: 4px 0 2px; }
+.mpop-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--input-border); }
+.mpop-row:last-child { border-bottom: none; }
+.mpop-main { flex: 1; min-width: 0; }
+.mpop-title { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
+.mpop-title .code { margin-right: 4px; }
+.mpop-title .tcode { margin-right: 6px; }
+.tcode.m { font-size: 9.5px; padding: 1px 5px; }
+.mpop-meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 3px; flex-wrap: wrap; }
+.mdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 8px; }
+.mprog { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--input-bg); overflow: hidden; margin-left: 4px; }
+.mprog-bar { display: block; height: 100%; background: var(--accent); }
+.mrole { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--input-bg); color: var(--muted); margin-top: 2px; }
+.mrole.mgr { background: var(--accent-soft); color: var(--accent-strong); }
+.tasks-toggle { min-width: 32px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.tasks-toggle:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+.tasks-toggle.open { background: var(--accent-soft); border-color: var(--accent-strong); color: var(--accent-strong); }
+.tasks-toggle.zero { color: var(--muted); font-weight: 600; }
+.quick-add { margin-left: 6px; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.4; cursor: pointer; }
+.quick-add:hover { color: var(--accent-strong); border-color: var(--accent-strong); background: var(--accent-soft); }
+tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
+tr.member-tasks[hidden] { display: none; }
+tr.member-tasks .mpop-row { padding: 7px 0; }
+.mtd-empty { font-size: 12.5px; color: var(--note); font-style: italic; }
+.other-tag { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--input-bg); color: var(--muted); margin-right: 4px; }
+.manager-set { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.manager-set select { flex: 0 1 380px; width: auto; min-width: 260px; padding: 7px 10px; font-size: 13px; }
+.manager-set .submit { margin-top: 0; }
+.acct-email { font-size: 13px; color: var(--muted); }
+table.grid td.num { text-align: center; width: 1%; white-space: nowrap; }
+.count-btn { min-width: 34px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--accent-strong); font-size: 12.5px; font-weight: 800; font-family: inherit; cursor: pointer; }
+.count-btn:hover { border-color: var(--accent-strong); background: var(--accent-soft); }
+.count-btn.open { background: var(--accent-soft); border-color: var(--accent-strong); }
+.count-zero { font-size: 13px; color: var(--muted); opacity: 0.55; }
+tr.acct-detail > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
+tr.acct-detail[hidden] { display: none; }
+tr.acct-detail .mpop-row { padding: 7px 0; }
+.acct-pane[hidden] { display: none; }
+.acct-pane + .acct-pane { border-top: 1px dashed var(--input-border); margin-top: 6px; padding-top: 6px; }
+.acct-pane-head { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 4px 0 2px; }
 """
 
 // Theme JavaScript is kept inline for the current Ktor HTML serving approach

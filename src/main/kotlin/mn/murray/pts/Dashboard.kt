@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 // This file now serves as a routing hub. All dashboard functions have been moved to separate files:
 // - Projects.kt: projectsContent(), projectTable()

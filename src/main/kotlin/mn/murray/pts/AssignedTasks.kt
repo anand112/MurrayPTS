@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
@@ -97,6 +98,10 @@ fun DIV.assignedTasksContent(session: UserSession, canManage: Boolean) {
                                 option { value = member.employeeNumber; +"${member.employeeNumber} · ${member.name} (${member.position})" }
                             }
                         }
+                    }
+                    div("field") {
+                        label { +"Start date" }
+                        input(type = InputType.date, name = "started")
                     }
                     div("field") {
                         label { +"Due date" }

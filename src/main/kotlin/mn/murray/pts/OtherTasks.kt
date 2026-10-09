@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 import kotlinx.html.DIV
 import kotlinx.html.FormMethod
@@ -18,6 +19,7 @@ fun DIV.taskRow(task: TaskItem, session: UserSession? = null, canManage: Boolean
             div("task-title") { +task.title }
             div("task-meta") {
                 +(if (task.project.isEmpty()) "Due ${task.due}" else "${task.project} · due ${task.due}")
+                if (task.started.isNotEmpty()) +" · started ${task.started}"
                 +" · ${task.priority} priority"
             }
         }

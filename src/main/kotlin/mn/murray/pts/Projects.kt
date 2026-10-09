@@ -1,4 +1,5 @@
 package mn.murray.pts
+import mn.murray.pts.domain.*
 
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
@@ -94,7 +95,13 @@ fun DIV.projectsContent(session: UserSession, typeFilter: String?) {
                 }
                 div("field") {
                     label { +"Manager" }
-                    input(type = InputType.text, name = "manager") { placeholder = "Full name" }
+                    select {
+                        name = "manager"
+                        option { value = ""; +"— No manager —" }
+                        DemoData.team.forEach { member ->
+                            option { value = member.name; +"${member.employeeNumber} · ${member.name} (${member.position})" }
+                        }
+                    }
                 }
                 div("field") {
                     label { +"Due date" }
@@ -136,7 +143,7 @@ fun DIV.projectTable(shown: List<Project>, session: UserSession) {
                     td { +project.due }
                     td {
                         form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
-                            val pinned = session.pinned.contains(project.id)
+                            val pinned = pinnedIds(session.employeeNumber).contains(project.id)
                             button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
                                 +(if (pinned) "★ Pinned" else "☆ Pin")
                             }
@@ -148,7 +155,7 @@ fun DIV.projectTable(shown: List<Project>, session: UserSession) {
     }
 }
 
-fun DIV.projectDetailContent(session: UserSession, project: Project) {
+fun DIV.projectDetailContent(session: UserSession, project: Project, canManage: Boolean) {
     div("detail-head") {
         a(href = "/app/projects", classes = "back-link") { +"← Back to projects" }
     }
@@ -158,7 +165,7 @@ fun DIV.projectDetailContent(session: UserSession, project: Project) {
             span("code") { +project.code }
             span("chip ${chipClass(project.status)}") { +project.status }
             form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
-                val pinned = session.pinned.contains(project.id)
+                val pinned = pinnedIds(session.employeeNumber).contains(project.id)
                 button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
                     +(if (pinned) "★ Pinned" else "☆ Pin")
                 }
@@ -181,14 +188,82 @@ fun DIV.projectDetailContent(session: UserSession, project: Project) {
         }
     }
     val manager = DemoData.team.firstOrNull { it.name == project.manager }
-    if (manager != null) {
-        div("card-panel") {
-            h3 { +"Project manager" }
+    div("card-panel") {
+        h3 { +"Project manager" }
+        if (manager != null) {
             div("todo-row") {
                 span("avatar sm") { +initials(manager.name) }
                 div("assignee") {
                     div("assignee-name") { +manager.name }
                     div("assignee-id") { +"${manager.employeeNumber} · ${manager.position.ifEmpty { manager.department }}" }
+                }
+            }
+        } else if (project.manager.isNotBlank()) {
+            p("task-meta") { +"${project.manager} is not on the team roster. Assign one of the accounts below." }
+        } else {
+            p("task-meta") { +"No manager assigned yet." }
+        }
+        if (canManage) {
+            form(action = "/app/projects/${project.id}/manager", method = FormMethod.post) {
+                div("manager-set") {
+                    select {
+                        name = "manager"
+                        option { value = ""; +"— No manager —" }
+                        DemoData.team.forEach { member ->
+                            option {
+                                value = member.name
+                                selected = manager?.employeeNumber == member.employeeNumber
+                                +"${member.employeeNumber} · ${member.name} (${member.position})"
+                            }
+                        }
+                    }
+                    button(type = ButtonType.submit, classes = "submit") { +"Set manager" }
+                }
+            }
+        }
+    }
+    div("card-panel") {
+        h3 { +"Project assignees" }
+        if (project.assignees.isEmpty()) {
+            p("task-meta") { +"No assignees yet. Add the team members who work on this project." }
+        } else {
+            project.assignees.forEach { emp ->
+                val member = DemoData.team.firstOrNull { it.employeeNumber == emp }
+                val name = member?.name ?: emp
+                val sub = when {
+                    member == null -> "$emp · not on the team roster"
+                    member.position.isNotEmpty() -> "${member.employeeNumber} · ${member.position}"
+                    else -> "${member.employeeNumber} · ${member.department}"
+                }
+                div("todo-row") {
+                    span("avatar sm") { +initials(name) }
+                    div("assignee") {
+                        div("assignee-name") { +name }
+                        div("assignee-id") { +sub }
+                    }
+                    if (canManage) {
+                        form(action = "/app/projects/${project.id}/assignees/remove", method = FormMethod.post, classes = "todo-del-form") {
+                            input(type = InputType.hidden, name = "assignee") { value = emp }
+                            button(type = ButtonType.submit, classes = "todo-del") {
+                                attributes["title"] = "Remove $name from this project"
+                                +"×"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (canManage) {
+            form(action = "/app/projects/${project.id}/assignees/add", method = FormMethod.post) {
+                div("manager-set") {
+                    select {
+                        name = "assignee"
+                        option { value = ""; +"— Add team member —" }
+                        DemoData.team.filter { it.employeeNumber !in project.assignees }.forEach { member ->
+                            option { value = member.employeeNumber; +"${member.employeeNumber} · ${member.name} (${member.position})" }
+                        }
+                    }
+                    button(type = ButtonType.submit, classes = "submit") { +"Add assignee" }
                 }
             }
         }
