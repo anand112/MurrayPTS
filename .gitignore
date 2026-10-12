@@ -1,0 +1,98 @@
+# Gradle
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Kotlin
+*.kotlin_module
+.kotlin/
+
+# Data files (contains sensitive user data)
+data/*.json
+!data/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS
+Thumbs.db
+.DS_Store
+*.bak
+*.tmp
+
+# Gradle daemon
+.gradle/
+
+# Build outputs
+out/
+build/
+
+# Package Files
+*.jar
+*.war
+*.nar
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# The Gradle wrapper jar has to be tracked or `./gradlew` on a fresh clone cannot bootstrap, and it
+# also makes the repo buildable without a locally installed Gradle. The negation must come AFTER the
+# `*.jar` rule above: in .gitignore the last matching pattern wins, so a `!` line placed before it
+# (where it sat until now) silently did nothing and the wrapper jar was never committed.
+!gradle/wrapper/gradle-wrapper.jar
+
+# JVM
+*.class
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# Application specific
+data/pts-data.json
+data/pts-data.json.bak
+
+# --- Launch hygiene (Stage 8) -------------------------------------------------
+# Local config holds PTS_SESSION_SECRET / PTS_ADMIN_PASSWORD. .env.example is the template
+# that IS tracked.
+.env
+.env.*
+!.env.example
+
+# SQLite database and its WAL side files: real accounts and bcrypt hashes.
+data/*.db
+data/*.db-shm
+data/*.db-wal
+# Archived legacy JSON left behind by the one-shot importer, and every manual backup/
+# snapshot copy of it (pts-data.json.bak, .backup-predelete, .pre-run-backup-*).
+data/*.migrated-*
+data/*.json.*
+# The one JSON file that IS meant to be tracked is the documented example store.
+!data/pts-data.json.example
+
+# TLS material for the compose proxy.
+deploy/certs/
+
+# Artefacts of deploy/use-local-name.ps1: its run log and the timestamped hosts snapshots it takes
+# before editing. A hosts snapshot is another machine's private name table — no reason to ship it.
+deploy/local-name.log
+deploy/hosts.before-*.bak
+
+# v1 leftovers that are not part of this project. MMS/ is a nested clone of the old repo (it has its
+# own .git, so git only ever recorded a dangling gitlink for it), and build_old/ holds six stale v1
+# resources Stage 7 deleted from src/. Both stay on disk; neither belongs in the v2 tree.
+MMS/
+build_old/

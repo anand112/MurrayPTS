@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# MURRAY PTS v2 — Docker Compose for a cloud VM / VPS
+#
+#   PTS_SESSION_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+#
+# Topology: nginx terminates TLS on 443 and forwards to the app over the private compose
+# network. The app itself listens on plain HTTP on 8081, bound to loopback only, so it can
+# never be reached directly and the Secure-cookie / HSTS settings match what the browser sees.
+#
+# Required secrets come from the host environment (or an .env file next to this compose file,
+# which Compose reads automatically — note the app reads its own .env too, see README).
+# Compose refuses to start with a missing secret rather than booting an insecure instance.
+# ---------------------------------------------------------------------------
+services:
+  pts:
+    build: .
+    image: murray-pts:2.0.0
+    container_name: pts
+    restart: unless-stopped
+    environment:
+      PTS_ENV: production
+      PTS_SESSION_SECRET: ${PTS_SESSION_SECRET:?set PTS_SESSION_SECRET to 32+ random hex chars (openssl rand -hex 32)}
+      PTS_ADMIN_PASSWORD: ${PTS_ADMIN_PASSWORD:-}
+      # The app sits behind nginx, so X-Forwarded-* is the only way to see the real client IP
+      # (login rate limiting) and the correct scheme. Safe here: 8081 is not published.
+      PTS_TRUST_PROXY: "true"
+      PTS_SECURE_COOKIES: "true"
+      PTS_LOG_REQUESTS: "true"
+      PTS_LOG_LEVEL: ${PTS_LOG_LEVEL:-INFO}
+      PTS_SEED_DEMO: ${PTS_SEED_DEMO:-false}
+    volumes:
+      - pts-data:/app/data
+      - pts-logs:/app/logs
+    # Published on loopback only: reachable from the host (and from nginx via the network),
+    # not from the internet.
+    ports:
+      - "127.0.0.1:8081:8080"
+    networks:
+      - pts
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: pts-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # put murraypts.mn.pem / murraypts.mn.key here, matching deploy/nginx.conf
+      # (or swap this service for Caddy/Traefik for ACME)
+      - ./deploy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - pts
+    networks:
+      - pts
+
+volumes:
+  pts-data:
+  pts-logs:
+
+networks:
+  pts:
+    driver: bridge

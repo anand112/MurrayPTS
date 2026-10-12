@@ -1,0 +1,29 @@
+# Keep the build context small and, more importantly, keep real data out of the image.
+# Everything the Dockerfile needs is build.gradle.kts, settings.gradle.kts,
+# gradle.properties, gradlew, gradle/ and src/.
+.git
+.gradle
+.kotlin
+build
+out
+.idea
+.vscode
+*.iml
+
+# Local state that must never be baked into a layer or shipped to a host:
+# the SQLite file and the legacy JSON both contain real accounts and bcrypt hashes.
+data
+logs
+*.log
+.env
+.env.*
+!.env.example
+
+# Legacy/duplicate trees from the v1 layout.
+build_old
+MMS
+
+# Docs and dev scripts are not needed to build the app.
+*.md
+LICENSE
+deploy
