@@ -1,605 +1,605 @@
 {
-    "projects": [
-        {
-            "id": 1,
-            "code": "SIT-01",
-            "name": "Tavan Tolgoi East Expansion",
-            "status": "Ongoing",
-            "progress": 64,
-            "manager": "Sarangerel Bold",
-            "due": "2026-12-15",
-            "type": "Site projects"
-        },
-        {
-            "id": 2,
-            "code": "SIT-02",
-            "name": "Oyu Tolgoi Haul Road Upgrade",
-            "status": "Blocked",
-            "progress": 38,
-            "manager": "Ganbold Erdene",
-            "due": "2026-11-02",
-            "type": "Site projects"
-        },
-        {
-            "id": 3,
-            "code": "MFG-01",
-            "name": "Erdenet Crusher Modernisation",
-            "status": "Ongoing",
-            "progress": 71,
-            "manager": "Erdenechuluun Bat",
-            "due": "2027-03-20",
-            "type": "Manufacturing"
-        },
-        {
-            "id": 4,
-            "code": "SIT-03",
-            "name": "Nalaikh Tailings Remediation",
-            "status": "Not started",
-            "progress": 12,
-            "manager": "Altantsetseg Khan",
-            "due": "2027-06-30",
-            "type": "Site projects"
-        },
-        {
-            "id": 5,
-            "code": "SIT-04",
-            "name": "Tsaidam Lithium Exploration",
-            "status": "Ongoing",
-            "progress": 45,
-            "manager": "Solongo Ganbaatar",
-            "due": "2026-10-18",
-            "type": "Site projects"
-        },
-        {
-            "id": 6,
-            "code": "SIT-05",
-            "name": "Boroo Gold Pit Stage 3",
-            "status": "Completed",
-            "progress": 100,
-            "manager": "Temuulen Amgalan",
-            "due": "2026-08-01",
-            "type": "Site projects"
-        },
-        {
-            "id": 7,
-            "code": "SIT-06",
-            "name": "Zuunmod Camp Construction",
-            "status": "Ongoing",
-            "progress": 58,
-            "manager": "Khulan Serjee",
-            "due": "2026-12-01",
-            "type": "Site projects"
-        },
-        {
-            "id": 8,
-            "code": "RMS-01",
-            "name": "Darkhan Conveyor Replacement",
-            "status": "Blocked",
-            "progress": 26,
-            "manager": "Batbayar Nyam",
-            "due": "2026-10-25",
-            "type": "Repair/ Maintenance/ Other Services"
-        },
-        {
-            "id": 9,
-            "code": "SIT-07",
-            "name": "Sainshand Solar Farm Integration",
-            "status": "Not started",
-            "progress": 8,
-            "manager": "Uyanga Lkham",
-            "due": "2027-05-12",
-            "type": "Site projects"
-        },
-        {
-            "id": 10,
-            "code": "MFG-02",
-            "name": "Ulaangom Gravel Production",
-            "status": "Completed",
-            "progress": 100,
-            "manager": "Ganbaatar Khos",
-            "due": "2026-07-15",
-            "type": "Manufacturing"
-        },
-        {
-            "id": 11,
-            "code": "SIT-08",
-            "name": "Murun Truck Shop Extension",
-            "status": "Ongoing",
-            "progress": 52,
-            "manager": "Jargalsaikhan Otgonbayar",
-            "due": "2027-01-30",
-            "type": "Site projects"
-        },
-        {
-            "id": 12,
-            "code": "RMS-02",
-            "name": "Choibalsan Bridge Repair",
-            "status": "Blocked",
-            "progress": 33,
-            "manager": "Chuluun Munkh",
-            "due": "2026-11-20",
-            "type": "Repair/ Maintenance/ Other Services"
-        },
-        {
-            "id": 13,
-            "code": "LAB-01",
-            "name": "Altai Operations Crew Supply",
-            "status": "Ongoing",
-            "progress": 67,
-            "manager": "Anujin Tseren",
-            "due": "2026-12-22",
-            "type": "Labour supply"
-        },
-        {
-            "id": 14,
-            "code": "RMS-03",
-            "name": "Khovsgel Slope Stabilisation",
-            "status": "Not started",
-            "progress": 15,
-            "manager": "Erdenesukh Baasandorj",
-            "due": "2027-04-08",
-            "type": "Repair/ Maintenance/ Other Services"
-        },
-        {
-            "id": 15,
-            "code": "LAB-02",
-            "name": "Oyu Tolgoi Underground Crew Supply",
-            "status": "On hold",
-            "progress": 49,
-            "manager": "Munkhbat Tsogt",
-            "due": "2027-02-14",
-            "type": "Labour supply"
-        },
-        {
-            "id": 16,
-            "code": "SIT-09",
-            "name": "Erdenet Training Centre Fit-out",
-            "status": "Completed",
-            "progress": 100,
-            "manager": "Myagmarjav Enkhjin",
-            "due": "2026-09-01",
-            "type": "Site projects"
-        }
-    ],
-    "assignedTasks": [
-        {
-            "title": "Review SIT-01 blast vibration report",
-            "project": "Tavan Tolgoi East Expansion",
-            "due": "2026-10-03",
-            "priority": "High",
-            "assignee": "EMP0002",
-            "status": "Blocked",
-            "id": 1,
-            "bucket": "Management"
-        },
-        {
-            "title": "Approve RMS-01 conveyor gearbox purchase",
-            "project": "Darkhan Conveyor Replacement",
-            "due": "2026-10-06",
-            "priority": "High",
-            "assignee": "EMP0011",
-            "status": "Not started",
-            "id": 2,
-            "bucket": "Management"
-        },
-        {
-            "title": "Sign off SIT-02 recovery schedule",
-            "project": "Oyu Tolgoi Haul Road Upgrade",
-            "due": "2026-10-10",
-            "priority": "Medium",
-            "assignee": "EMP0003",
-            "status": "In progress",
-            "id": 3,
-            "bucket": "Management"
-        }
-    ],
-    "team": [
-        {
-            "employeeNumber": "EMP0000",
-            "name": "Super Admin",
-            "department": "IT / Systems",
-            "position": "Super Admin"
-        },
-        {
-            "employeeNumber": "EMP0001",
-            "name": "Baatar Uuganbayar",
-            "department": "Executive",
-            "position": "CEO"
-        },
-        {
-            "employeeNumber": "EMP0002",
-            "name": "Sarangerel Bold",
-            "department": "Projects",
-            "position": "Project Manager"
-        },
-        {
-            "employeeNumber": "EMP0003",
-            "name": "Ganbold Erdene",
-            "department": "Operations",
-            "position": "Site Supervisor"
-        },
-        {
-            "employeeNumber": "EMP0004",
-            "name": "Oyunchimeg Dorj",
-            "department": "Human Resources",
-            "position": "HR Lead"
-        },
-        {
-            "employeeNumber": "EMP0005",
-            "name": "Munkhbat Tsogt",
-            "department": "HSE",
-            "position": "Safety Officer"
-        },
-        {
-            "employeeNumber": "EMP0006",
-            "name": "Altantsetseg Khan",
-            "department": "HSE",
-            "position": "Environmental Advisor"
-        },
-        {
-            "employeeNumber": "EMP0007",
-            "name": "Erdenechuluun Bat",
-            "department": "Engineering",
-            "position": "Mining Engineer"
-        },
-        {
-            "employeeNumber": "EMP0008",
-            "name": "Solongo Ganbaatar",
-            "department": "Geology",
-            "position": "Geologist"
-        },
-        {
-            "employeeNumber": "EMP0009",
-            "name": "Temuulen Amgalan",
-            "department": "Engineering",
-            "position": "Drill & Blast Engineer"
-        },
-        {
-            "employeeNumber": "EMP0010",
-            "name": "Narantsetseg Purev",
-            "department": "Procurement",
-            "position": "Procurement Lead"
-        },
-        {
-            "employeeNumber": "EMP0011",
-            "name": "Batbayar Nyam",
-            "department": "Engineering",
-            "position": "Mechanical Engineer"
-        },
-        {
-            "employeeNumber": "EMP0012",
-            "name": "Uyanga Lkham",
-            "department": "Engineering",
-            "position": "Electrical Engineer"
-        },
-        {
-            "employeeNumber": "EMP0013",
-            "name": "Chuluun Munkh",
-            "department": "Survey",
-            "position": "Surveyor"
-        },
-        {
-            "employeeNumber": "EMP0014",
-            "name": "Anujin Tseren",
-            "department": "Quality",
-            "position": "QA/QC Engineer"
-        },
-        {
-            "employeeNumber": "EMP0015",
-            "name": "Ganbaatar Khos",
-            "department": "Logistics",
-            "position": "Logistics Coordinator"
-        },
-        {
-            "employeeNumber": "EMP0016",
-            "name": "Munkhzaya Dorj",
-            "department": "Finance",
-            "position": "Finance Analyst"
-        },
-        {
-            "employeeNumber": "EMP0017",
-            "name": "Erdenesukh Baasandorj",
-            "department": "HSE",
-            "position": "HSE Advisor"
-        },
-        {
-            "employeeNumber": "EMP0018",
-            "name": "Tsetsegmaa Ulziibayar",
-            "department": "Community Relations",
-            "position": "Community Liaison"
-        },
-        {
-            "employeeNumber": "EMP0019",
-            "name": "Boldbaatar Gantulga",
-            "department": "Operations",
-            "position": "Heavy Equipment Operator"
-        },
-        {
-            "employeeNumber": "EMP0020",
-            "name": "Khulan Serjee",
-            "department": "Administration",
-            "position": "Camp Administrator"
-        },
-        {
-            "employeeNumber": "EMP0021",
-            "name": "Jargalsaikhan Otgonbayar",
-            "department": "Logistics",
-            "position": "Fleet Manager"
-        },
-        {
-            "employeeNumber": "EMP0022",
-            "name": "Myagmarjav Enkhjin",
-            "department": "Human Resources",
-            "position": "Training Coordinator"
-        }
-    ],
-    "forecasts": [
-        {
-            "project": "Tavan Tolgoi East Expansion",
-            "period": "Q4 2026",
-            "hours": "12,400 hrs",
-            "note": "Crusher civils peak; two crews planned."
-        },
-        {
-            "project": "Oyu Tolgoi Haul Road Upgrade",
-            "period": "Q4 2026",
-            "hours": "8,900 hrs",
-            "note": "Recovery plan adds night shift from November."
-        },
-        {
-            "project": "Erdenet Crusher Modernisation",
-            "period": "Q1 2027",
-            "hours": "6,200 hrs",
-            "note": "Commissioning window with tapered crew."
-        }
-    ],
-    "lessons": [
-        {
-            "title": "Early procurement of long-lead items",
-            "project": "Boroo Gold Pit Stage 3",
-            "summary": "Ordering the crusher liner six months ahead saved five weeks of schedule."
-        },
-        {
-            "title": "Monsoon drainage planning",
-            "project": "Choibalsan Bridge Repair",
-            "summary": "Undersized culverts caused rework; the design standard needs revising."
-        },
-        {
-            "title": "Camp capacity buffers",
-            "project": "Zuunmod Camp Construction",
-            "summary": "Keeping 10% spare beds avoided rotation delays during peak crew changes."
-        }
-    ],
-    "otherTasks": [
-        {
-            "title": "Update HSE induction deck",
-            "project": "",
-            "due": "2026-10-15",
-            "priority": "Low",
-            "assignee": "",
-            "status": "Not started",
-            "id": 0,
-            "bucket": "Management"
-        },
-        {
-            "title": "Refresh project code register",
-            "project": "",
-            "due": "2026-10-30",
-            "priority": "Medium",
-            "assignee": "",
-            "status": "Not started",
-            "id": 0,
-            "bucket": "Management"
-        }
-    ],
-    "buckets": [
-        "Management",
-        "Baldan"
-    ],
-    "todos": [
-        {
-            "id": 1,
-            "title": "Confirm Q4 fleet servicing slots",
-            "done": false,
-            "list": 1
-        },
-        {
-            "id": 2,
-            "title": "Confirm emails",
-            "done": false,
-            "list": 1
-        }
-    ],
-    "todoLists": [
-        {
-            "id": 1,
-            "name": "General"
-        },
-        {
-            "id": 2,
-            "name": "21"
-        },
-        {
-            "id": 3,
-            "name": "new folder"
-        }
-    ],
-    "access": [
-        {
-            "employeeNumber": "EMP0000",
-            "name": "Super Admin",
-            "position": "Super Admin",
-            "access": "Admin",
-            "password": ""
-        },
-        {
-            "employeeNumber": "EMP0001",
-            "name": "Baatar Uuganbayar",
-            "position": "CEO",
-            "access": "Admin",
-            "password": ""
-        },
-        {
-            "employeeNumber": "EMP0002",
-            "name": "Sarangerel Bold",
-            "position": "Project Manager",
-            "access": "Manager",
-            "password": ""
-        },
-        {
-            "employeeNumber": "EMP0003",
-            "name": "Ganbold Erdene",
-            "position": "Site Supervisor",
-            "access": "Manager",
-            "password": ""
-        },
-        {
-            "employeeNumber": "EMP0016",
-            "name": "Munkhzaya Dorj",
-            "position": "Finance Analyst",
-            "access": "Viewer",
-            "password": ""
-        },
-        {
-            "employeeNumber": "EMP0020",
-            "name": "Khulan Serjee",
-            "position": "Heavy Equipment Operator",
-            "access": "Viewer",
-            "password": ""
-        }
-    ],
-    "positions": [
-        {
-            "id": 1,
-            "name": "Super Admin",
-            "permissionLevel": "Admin",
-            "description": "Full system access including position management"
-        },
-        {
-            "id": 2,
-            "name": "CEO",
-            "permissionLevel": "Admin",
-            "description": "Executive level access with full permissions"
-        },
-        {
-            "id": 3,
-            "name": "Project Manager",
-            "permissionLevel": "Manager",
-            "description": "Can manage projects and assigned tasks"
-        },
-        {
-            "id": 4,
-            "name": "Site Supervisor",
-            "permissionLevel": "Manager",
-            "description": "Can manage projects and assigned tasks"
-        },
-        {
-            "id": 5,
-            "name": "HR Lead",
-            "permissionLevel": "Manager",
-            "description": "Can manage team and access control"
-        },
-        {
-            "id": 6,
-            "name": "Finance Analyst",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 7,
-            "name": "Camp Administrator",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 8,
-            "name": "Safety Officer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 9,
-            "name": "Mining Engineer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 10,
-            "name": "Geologist",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 11,
-            "name": "Drill & Blast Engineer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 12,
-            "name": "Procurement Lead",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 13,
-            "name": "Mechanical Engineer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 14,
-            "name": "Electrical Engineer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 15,
-            "name": "Surveyor",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 16,
-            "name": "QA/QC Engineer",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 17,
-            "name": "Logistics Coordinator",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 18,
-            "name": "HSE Advisor",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 19,
-            "name": "Community Liaison",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 20,
-            "name": "Heavy Equipment Operator",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 21,
-            "name": "Fleet Manager",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        },
-        {
-            "id": 22,
-            "name": "Training Coordinator",
-            "permissionLevel": "Viewer",
-            "description": "Read-only access to projects and tasks"
-        }
-    ]
+    "projects":  [
+                     {
+                         "id":  1,
+                         "code":  "PRJ-01",
+                         "name":  "Sample Project 01",
+                         "status":  "Ongoing",
+                         "progress":  64,
+                         "manager":  "Team Member 03",
+                         "due":  "2026-12-15",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  2,
+                         "code":  "PRJ-02",
+                         "name":  "Sample Project 02",
+                         "status":  "Blocked",
+                         "progress":  38,
+                         "manager":  "Team Member 04",
+                         "due":  "2026-11-02",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  3,
+                         "code":  "PRJ-03",
+                         "name":  "Sample Project 03",
+                         "status":  "Ongoing",
+                         "progress":  71,
+                         "manager":  "Team Member 08",
+                         "due":  "2027-03-20",
+                         "type":  "type-b"
+                     },
+                     {
+                         "id":  4,
+                         "code":  "PRJ-04",
+                         "name":  "Sample Project 04",
+                         "status":  "Not started",
+                         "progress":  12,
+                         "manager":  "Team Member 07",
+                         "due":  "2027-06-30",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  5,
+                         "code":  "PRJ-05",
+                         "name":  "Sample Project 05",
+                         "status":  "Ongoing",
+                         "progress":  45,
+                         "manager":  "Team Member 09",
+                         "due":  "2026-10-18",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  6,
+                         "code":  "PRJ-06",
+                         "name":  "Sample Project 06",
+                         "status":  "Completed",
+                         "progress":  100,
+                         "manager":  "Team Member 10",
+                         "due":  "2026-08-01",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  7,
+                         "code":  "PRJ-07",
+                         "name":  "Sample Project 07",
+                         "status":  "Ongoing",
+                         "progress":  58,
+                         "manager":  "Team Member 21",
+                         "due":  "2026-12-01",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  8,
+                         "code":  "PRJ-08",
+                         "name":  "Sample Project 08",
+                         "status":  "Blocked",
+                         "progress":  26,
+                         "manager":  "Team Member 12",
+                         "due":  "2026-10-25",
+                         "type":  "type-c"
+                     },
+                     {
+                         "id":  9,
+                         "code":  "PRJ-09",
+                         "name":  "Sample Project 09",
+                         "status":  "Not started",
+                         "progress":  8,
+                         "manager":  "Team Member 13",
+                         "due":  "2027-05-12",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  10,
+                         "code":  "PRJ-10",
+                         "name":  "Sample Project 10",
+                         "status":  "Completed",
+                         "progress":  100,
+                         "manager":  "Team Member 16",
+                         "due":  "2026-07-15",
+                         "type":  "type-b"
+                     },
+                     {
+                         "id":  11,
+                         "code":  "PRJ-11",
+                         "name":  "Sample Project 11",
+                         "status":  "Ongoing",
+                         "progress":  52,
+                         "manager":  "Team Member 22",
+                         "due":  "2027-01-30",
+                         "type":  "type-a"
+                     },
+                     {
+                         "id":  12,
+                         "code":  "PRJ-12",
+                         "name":  "Sample Project 12",
+                         "status":  "Blocked",
+                         "progress":  33,
+                         "manager":  "Team Member 14",
+                         "due":  "2026-11-20",
+                         "type":  "type-c"
+                     },
+                     {
+                         "id":  13,
+                         "code":  "PRJ-13",
+                         "name":  "Sample Project 13",
+                         "status":  "Ongoing",
+                         "progress":  67,
+                         "manager":  "Team Member 15",
+                         "due":  "2026-12-22",
+                         "type":  "type-d"
+                     },
+                     {
+                         "id":  14,
+                         "code":  "PRJ-14",
+                         "name":  "Sample Project 14",
+                         "status":  "Not started",
+                         "progress":  15,
+                         "manager":  "Team Member 18",
+                         "due":  "2027-04-08",
+                         "type":  "type-c"
+                     },
+                     {
+                         "id":  15,
+                         "code":  "PRJ-15",
+                         "name":  "Sample Project 15",
+                         "status":  "On hold",
+                         "progress":  49,
+                         "manager":  "Team Member 06",
+                         "due":  "2027-02-14",
+                         "type":  "type-d"
+                     },
+                     {
+                         "id":  16,
+                         "code":  "PRJ-16",
+                         "name":  "Sample Project 16",
+                         "status":  "Completed",
+                         "progress":  100,
+                         "manager":  "Team Member 23",
+                         "due":  "2026-09-01",
+                         "type":  "type-a"
+                     }
+                 ],
+    "assignedTasks":  [
+                          {
+                              "title":  "Sample task title 32",
+                              "project":  "Sample Project 01",
+                              "due":  "2026-10-03",
+                              "priority":  "High",
+                              "assignee":  "EMP0002",
+                              "status":  "Blocked",
+                              "id":  1,
+                              "bucket":  "Bucket 01"
+                          },
+                          {
+                              "title":  "Sample task title 33",
+                              "project":  "Sample Project 08",
+                              "due":  "2026-10-06",
+                              "priority":  "High",
+                              "assignee":  "EMP0011",
+                              "status":  "Not started",
+                              "id":  2,
+                              "bucket":  "Bucket 01"
+                          },
+                          {
+                              "title":  "Sample task title 34",
+                              "project":  "Sample Project 02",
+                              "due":  "2026-10-10",
+                              "priority":  "Medium",
+                              "assignee":  "EMP0003",
+                              "status":  "In progress",
+                              "id":  3,
+                              "bucket":  "Bucket 01"
+                          }
+                      ],
+    "team":  [
+                 {
+                     "employeeNumber":  "EMP0000",
+                     "name":  "Team Member 01",
+                     "department":  "Department 01",
+                     "position":  "Role 01"
+                 },
+                 {
+                     "employeeNumber":  "EMP0001",
+                     "name":  "Team Member 02",
+                     "department":  "Department 02",
+                     "position":  "Role 02"
+                 },
+                 {
+                     "employeeNumber":  "EMP0002",
+                     "name":  "Team Member 03",
+                     "department":  "Department 03",
+                     "position":  "Role 03"
+                 },
+                 {
+                     "employeeNumber":  "EMP0003",
+                     "name":  "Team Member 04",
+                     "department":  "Department 04",
+                     "position":  "Role 04"
+                 },
+                 {
+                     "employeeNumber":  "EMP0004",
+                     "name":  "Team Member 05",
+                     "department":  "Department 05",
+                     "position":  "Role 05"
+                 },
+                 {
+                     "employeeNumber":  "EMP0005",
+                     "name":  "Team Member 06",
+                     "department":  "Department 06",
+                     "position":  "Role 08"
+                 },
+                 {
+                     "employeeNumber":  "EMP0006",
+                     "name":  "Team Member 07",
+                     "department":  "Department 06",
+                     "position":  "Role 23"
+                 },
+                 {
+                     "employeeNumber":  "EMP0007",
+                     "name":  "Team Member 08",
+                     "department":  "Department 07",
+                     "position":  "Role 09"
+                 },
+                 {
+                     "employeeNumber":  "EMP0008",
+                     "name":  "Team Member 09",
+                     "department":  "Department 08",
+                     "position":  "Role 10"
+                 },
+                 {
+                     "employeeNumber":  "EMP0009",
+                     "name":  "Team Member 10",
+                     "department":  "Department 07",
+                     "position":  "Role 11"
+                 },
+                 {
+                     "employeeNumber":  "EMP0010",
+                     "name":  "Team Member 11",
+                     "department":  "Department 09",
+                     "position":  "Role 12"
+                 },
+                 {
+                     "employeeNumber":  "EMP0011",
+                     "name":  "Team Member 12",
+                     "department":  "Department 07",
+                     "position":  "Role 13"
+                 },
+                 {
+                     "employeeNumber":  "EMP0012",
+                     "name":  "Team Member 13",
+                     "department":  "Department 07",
+                     "position":  "Role 14"
+                 },
+                 {
+                     "employeeNumber":  "EMP0013",
+                     "name":  "Team Member 14",
+                     "department":  "Department 10",
+                     "position":  "Role 15"
+                 },
+                 {
+                     "employeeNumber":  "EMP0014",
+                     "name":  "Team Member 15",
+                     "department":  "Department 11",
+                     "position":  "Role 16"
+                 },
+                 {
+                     "employeeNumber":  "EMP0015",
+                     "name":  "Team Member 16",
+                     "department":  "Department 12",
+                     "position":  "Role 17"
+                 },
+                 {
+                     "employeeNumber":  "EMP0016",
+                     "name":  "Team Member 17",
+                     "department":  "Department 13",
+                     "position":  "Role 06"
+                 },
+                 {
+                     "employeeNumber":  "EMP0017",
+                     "name":  "Team Member 18",
+                     "department":  "Department 06",
+                     "position":  "Role 18"
+                 },
+                 {
+                     "employeeNumber":  "EMP0018",
+                     "name":  "Team Member 19",
+                     "department":  "Department 14",
+                     "position":  "Role 19"
+                 },
+                 {
+                     "employeeNumber":  "EMP0019",
+                     "name":  "Team Member 20",
+                     "department":  "Department 04",
+                     "position":  "Role 20"
+                 },
+                 {
+                     "employeeNumber":  "EMP0020",
+                     "name":  "Team Member 21",
+                     "department":  "Department 15",
+                     "position":  "Role 07"
+                 },
+                 {
+                     "employeeNumber":  "EMP0021",
+                     "name":  "Team Member 22",
+                     "department":  "Department 12",
+                     "position":  "Role 21"
+                 },
+                 {
+                     "employeeNumber":  "EMP0022",
+                     "name":  "Team Member 23",
+                     "department":  "Department 05",
+                     "position":  "Role 22"
+                 }
+             ],
+    "forecasts":  [
+                      {
+                          "project":  "Sample Project 01",
+                          "period":  "Q4 2026",
+                          "hours":  "12,400 hrs",
+                          "note":  "Sample forecast note 23"
+                      },
+                      {
+                          "project":  "Sample Project 02",
+                          "period":  "Q4 2026",
+                          "hours":  "8,900 hrs",
+                          "note":  "Sample forecast note 24"
+                      },
+                      {
+                          "project":  "Sample Project 03",
+                          "period":  "Q1 2027",
+                          "hours":  "6,200 hrs",
+                          "note":  "Sample forecast note 25"
+                      }
+                  ],
+    "lessons":  [
+                    {
+                        "title":  "Sample lesson title 26",
+                        "project":  "Sample Project 06",
+                        "summary":  "Sample lesson summary 27"
+                    },
+                    {
+                        "title":  "Sample lesson title 28",
+                        "project":  "Sample Project 12",
+                        "summary":  "Sample lesson summary 29"
+                    },
+                    {
+                        "title":  "Sample lesson title 30",
+                        "project":  "Sample Project 07",
+                        "summary":  "Sample lesson summary 31"
+                    }
+                ],
+    "otherTasks":  [
+                       {
+                           "title":  "Sample task title 35",
+                           "project":  "",
+                           "due":  "2026-10-15",
+                           "priority":  "Low",
+                           "assignee":  "",
+                           "status":  "Not started",
+                           "id":  0,
+                           "bucket":  "Bucket 01"
+                       },
+                       {
+                           "title":  "Sample task title 36",
+                           "project":  "",
+                           "due":  "2026-10-30",
+                           "priority":  "Medium",
+                           "assignee":  "",
+                           "status":  "Not started",
+                           "id":  0,
+                           "bucket":  "Bucket 01"
+                       }
+                   ],
+    "buckets":  [
+                    "Bucket 01",
+                    "Bucket 02"
+                ],
+    "todos":  [
+                  {
+                      "id":  1,
+                      "title":  "Sample to-do title 37",
+                      "done":  false,
+                      "list":  1
+                  },
+                  {
+                      "id":  2,
+                      "title":  "Sample to-do title 38",
+                      "done":  false,
+                      "list":  1
+                  }
+              ],
+    "todoLists":  [
+                      {
+                          "id":  1,
+                          "name":  "Sample list 01"
+                      },
+                      {
+                          "id":  2,
+                          "name":  "Sample list 02"
+                      },
+                      {
+                          "id":  3,
+                          "name":  "Sample list 03"
+                      }
+                  ],
+    "access":  [
+                   {
+                       "employeeNumber":  "EMP0000",
+                       "name":  "Team Member 01",
+                       "position":  "Role 01",
+                       "access":  "Admin",
+                       "password":  ""
+                   },
+                   {
+                       "employeeNumber":  "EMP0001",
+                       "name":  "Team Member 02",
+                       "position":  "Role 02",
+                       "access":  "Admin",
+                       "password":  ""
+                   },
+                   {
+                       "employeeNumber":  "EMP0002",
+                       "name":  "Team Member 03",
+                       "position":  "Role 03",
+                       "access":  "Manager",
+                       "password":  ""
+                   },
+                   {
+                       "employeeNumber":  "EMP0003",
+                       "name":  "Team Member 04",
+                       "position":  "Role 04",
+                       "access":  "Manager",
+                       "password":  ""
+                   },
+                   {
+                       "employeeNumber":  "EMP0016",
+                       "name":  "Team Member 17",
+                       "position":  "Role 06",
+                       "access":  "Viewer",
+                       "password":  ""
+                   },
+                   {
+                       "employeeNumber":  "EMP0020",
+                       "name":  "Team Member 21",
+                       "position":  "Role 20",
+                       "access":  "Viewer",
+                       "password":  ""
+                   }
+               ],
+    "positions":  [
+                      {
+                          "id":  1,
+                          "name":  "Role 01",
+                          "permissionLevel":  "Admin",
+                          "description":  "Sample role description 01"
+                      },
+                      {
+                          "id":  2,
+                          "name":  "Role 02",
+                          "permissionLevel":  "Admin",
+                          "description":  "Sample role description 02"
+                      },
+                      {
+                          "id":  3,
+                          "name":  "Role 03",
+                          "permissionLevel":  "Manager",
+                          "description":  "Sample role description 03"
+                      },
+                      {
+                          "id":  4,
+                          "name":  "Role 04",
+                          "permissionLevel":  "Manager",
+                          "description":  "Sample role description 04"
+                      },
+                      {
+                          "id":  5,
+                          "name":  "Role 05",
+                          "permissionLevel":  "Manager",
+                          "description":  "Sample role description 05"
+                      },
+                      {
+                          "id":  6,
+                          "name":  "Role 06",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 06"
+                      },
+                      {
+                          "id":  7,
+                          "name":  "Role 07",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 07"
+                      },
+                      {
+                          "id":  8,
+                          "name":  "Role 08",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 08"
+                      },
+                      {
+                          "id":  9,
+                          "name":  "Role 09",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 09"
+                      },
+                      {
+                          "id":  10,
+                          "name":  "Role 10",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 10"
+                      },
+                      {
+                          "id":  11,
+                          "name":  "Role 11",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 11"
+                      },
+                      {
+                          "id":  12,
+                          "name":  "Role 12",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 12"
+                      },
+                      {
+                          "id":  13,
+                          "name":  "Role 13",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 13"
+                      },
+                      {
+                          "id":  14,
+                          "name":  "Role 14",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 14"
+                      },
+                      {
+                          "id":  15,
+                          "name":  "Role 15",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 15"
+                      },
+                      {
+                          "id":  16,
+                          "name":  "Role 16",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 16"
+                      },
+                      {
+                          "id":  17,
+                          "name":  "Role 17",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 17"
+                      },
+                      {
+                          "id":  18,
+                          "name":  "Role 18",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 18"
+                      },
+                      {
+                          "id":  19,
+                          "name":  "Role 19",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 19"
+                      },
+                      {
+                          "id":  20,
+                          "name":  "Role 20",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 20"
+                      },
+                      {
+                          "id":  21,
+                          "name":  "Role 21",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 21"
+                      },
+                      {
+                          "id":  22,
+                          "name":  "Role 22",
+                          "permissionLevel":  "Viewer",
+                          "description":  "Sample role description 22"
+                      }
+                  ]
 }

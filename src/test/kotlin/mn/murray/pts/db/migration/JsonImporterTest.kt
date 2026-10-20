@@ -3,10 +3,12 @@ package mn.murray.pts.db.migration
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import mn.murray.pts.db.Migrations
+import mn.murray.pts.db.ProjectBuckets
 import mn.murray.pts.db.Users
 import mn.murray.pts.db.Projects
 import mn.murray.pts.db.Tasks
 import mn.murray.pts.db.TeamMembers
+import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.security.PasswordHasher
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.selectAll
@@ -90,6 +92,36 @@ class JsonImporterTest {
             // Re-running must be a no-op (guard: users table no longer empty / file gone).
             val again = JsonImporter.importFromFile(legacy)
             assertTrue(again.skipped, "second import should be skipped")
+        }
+    }
+
+    /**
+     * V7 gave a project created through the app three starting lanes. The importer writes rows directly rather
+     * than calling `ProjectService.create`, so it has to reach the same shape by itself: without it a legacy or
+     * demo project opens on the five status columns while a project made yesterday opens on its own board,
+     * which is two kinds of project page from one app.
+     */
+    @Test
+    fun `every imported project is given the lanes a new one starts with`(@TempDir dir: File) {
+        val legacy = File(dir, "pts-data.json")
+        exampleJson.copyTo(legacy, overwrite = true)
+        freshDb(dir).use {
+            assertTrue(JsonImporter.importFromFile(legacy).imported)
+            // Name by position, because the position is the order the columns print in.
+            val lanesByProject = transaction {
+                ProjectBuckets.selectAll()
+                    .groupBy({ it[ProjectBuckets.projectId] }, { it[ProjectBuckets.position] to it[ProjectBuckets.name] })
+                    .mapValues { (_, pairs) -> pairs.sortedBy { it.first }.map { it.second } }
+            }
+            val projectIds = transaction { Projects.selectAll().map { it[Projects.id] } }
+            assertTrue(projectIds.isNotEmpty(), "no projects were imported to give a board")
+            projectIds.forEach { id ->
+                assertEquals(
+                    DEFAULT_PROJECT_BUCKETS,
+                    lanesByProject[id],
+                    "project $id was imported without the lanes a new project starts with",
+                )
+            }
         }
     }
 

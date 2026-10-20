@@ -7,6 +7,7 @@ import kotlinx.html.div
 import kotlinx.html.h3
 import kotlinx.html.id
 import kotlinx.html.p
+import kotlinx.html.script
 import kotlinx.html.span
 import kotlinx.html.table
 import kotlinx.html.tbody
@@ -14,23 +15,30 @@ import kotlinx.html.td
 import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.tr
-import kotlinx.html.unsafe
+import mn.murray.pts.security.Authorization
+import mn.murray.pts.service.TaskService
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 
 fun DIV.calendarContent(session: UserSession) {
-    val canManage = DemoData.userFor(session.employeeNumber).access in MANAGE_ROLES
     val today = LocalDate.now()
     val yearMonth = YearMonth.from(today)
     val daysInMonth = yearMonth.lengthOfMonth()
     val firstDayOfMonth = yearMonth.atDay(1)
     val firstDayOfWeek = firstDayOfMonth.dayOfWeek.value % 7 // 0 = Sunday, 1 = Monday, etc.
+    val canManage = Authorization.canManage(session.employeeNumber)
+    // The month plan draws one bar per card, so it follows the same rule as every other task view:
+    // management sees the month the team is working, anybody else sees the month they are working.
+    val scheduledTasks = TaskService.assignedFor(session.employeeNumber, canManage)
 
     div("card-panel") {
         h3 { +"Calendar - ${yearMonth.month.getDisplayName(TextStyle.FULL, java.util.Locale.ENGLISH)} ${yearMonth.year}" }
-        p("task-meta") { +"View all assigned tasks with start dates and deadlines" }
+        p("task-meta") {
+            +if (canManage) "View all assigned tasks with start dates and deadlines"
+            else "Your assigned tasks, with start dates and deadlines"
+        }
     }
 
     div("card-panel") {
@@ -51,7 +59,7 @@ fun DIV.calendarContent(session: UserSession) {
                 val taskRowMap = mutableMapOf<Int, Int>()
                 var maxRow = 0
 
-                DemoData.assignedTasks.forEach { task ->
+                scheduledTasks.forEach { task ->
                     val startDate = if (task.started.isNotEmpty()) {
                         try { LocalDate.parse(task.started) } catch (e: Exception) { null }
                     } else null
@@ -115,7 +123,7 @@ fun DIV.calendarContent(session: UserSession) {
                                     for (row in 0..maxRow) {
                                         val taskId = taskPositions[Pair(row, date)]
                                         if (taskId != null) {
-                                            val task = DemoData.assignedTasks.firstOrNull { it.id == taskId }
+                                            val task = scheduledTasks.firstOrNull { it.id == taskId }
                                             if (task != null) {
                                                 val startDate = if (task.started.isNotEmpty()) {
                                                     try { LocalDate.parse(task.started) } catch (e: Exception) { null }
@@ -150,7 +158,7 @@ fun DIV.calendarContent(session: UserSession) {
                                                     attributes["data-task-due"] = task.due
                                                     attributes["data-task-priority"] = task.priority
                                                     attributes["data-task-status"] = task.status
-                                                    attributes["onclick"] = "openTaskModal(this)"
+                                                    attributes["data-modal-open"] = "true"
                                                     
                                                     if (isFirstDay) {
                                                         span("calendar-task-link") {
@@ -183,7 +191,7 @@ fun DIV.calendarContent(session: UserSession) {
         id = "taskModal"
         div("modal-content") {
             span("close") {
-                attributes["onclick"] = "closeTaskModal()"
+                attributes["data-modal-close"] = "true"
                 +"×"
             }
             h3 { id = "modalTaskTitle"; +"Task Details" }
@@ -219,38 +227,14 @@ fun DIV.calendarContent(session: UserSession) {
         }
     }
 
-    // Modal script
-    unsafe {
-        +("""
-        <script>
-        function openTaskModal(element) {
-            document.getElementById('modalTaskTitle').textContent = element.getAttribute('data-task-title');
-            document.getElementById('modalProject').textContent = element.getAttribute('data-task-project') || '—';
-            document.getElementById('modalAssignee').textContent = element.getAttribute('data-task-assignee');
-            document.getElementById('modalStarted').textContent = element.getAttribute('data-task-started') || '—';
-            document.getElementById('modalDue').textContent = element.getAttribute('data-task-due') || '—';
-            document.getElementById('modalPriority').textContent = element.getAttribute('data-task-priority');
-            document.getElementById('modalStatus').textContent = element.getAttribute('data-task-status');
-            document.getElementById('taskModal').style.display = 'block';
-        }
-
-        function closeTaskModal() {
-            document.getElementById('taskModal').style.display = 'none';
-        }
-
-        window.onclick = function(event) {
-            var modal = document.getElementById('taskModal');
-            if (event.target == modal) {
-                modal.style.display = 'none';
-            }
-        }
-        </script>
-        """)
-    }
+    // Task-detail modal behaviour is an external script (Stage 7). It uses delegated
+    // click listeners over [data-modal-open] / [data-modal-close] markers plus the
+    // data-task-* attributes on each bar, so no global function or inline handler is needed.
+    script(src = "/static/js/calendar-modal.js") {}
 
     div("card-panel") {
-        h3 { +"All Assigned Tasks Summary" }
-        val allTasks = DemoData.assignedTasks
+        h3 { if (canManage) +"All Assigned Tasks Summary" else +"Your assigned tasks" }
+        val allTasks = scheduledTasks
         if (allTasks.isEmpty()) {
             p("task-meta") { +"No assigned tasks yet." }
         } else {
@@ -302,6 +286,3 @@ private fun chipClass(status: String): String = when (status) {
     "On hold" -> "onhold"
     else -> "planning"
 }
-
-private fun initials(name: String): String =
-    name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")

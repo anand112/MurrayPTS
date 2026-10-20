@@ -1,12 +1,10 @@
 package mn.murray.pts.repository
 
 import mn.murray.pts.db.Forecasts
-import mn.murray.pts.db.Lessons
 import mn.murray.pts.db.Projects
 import mn.murray.pts.db.TodoItems
 import mn.murray.pts.db.TodoLists
 import mn.murray.pts.domain.Forecast
-import mn.murray.pts.domain.Lesson
 import mn.murray.pts.domain.TodoItem
 import mn.murray.pts.domain.TodoList
 import org.jetbrains.exposed.sql.ResultRow
@@ -20,10 +18,11 @@ import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 
 /**
- * Data-access layer for read-only planning content (forecasts, lessons) and the
- * personal to-do boards. Forecasts/lessons resolve their project FK back to a NAME so the
- * legacy view shape is preserved. To-do lists/items keep owner scoping and explicit
- * `position` ordering (the legacy store relied on array order).
+ * Data-access layer for the read-only forecast notes and the personal to-do boards.
+ * Forecasts resolve their project FK back to a NAME so the legacy view shape is preserved.
+ * To-do lists/items keep owner scoping and explicit `position` ordering (the legacy store
+ * relied on array order). The Lesson learnt sheet has its own file since V9 —
+ * [LessonRepository] — because it writes as well as reads.
  */
 
 object ForecastRepository {
@@ -35,19 +34,6 @@ object ForecastRepository {
                 period = it[Forecasts.period],
                 hours = it[Forecasts.hours],
                 note = it[Forecasts.note],
-            )
-        }
-    }
-}
-
-object LessonRepository {
-    fun findAll(): List<Lesson> = transaction {
-        val pn = Projects.selectAll().associate { it[Projects.id] to it[Projects.name] }
-        Lessons.selectAll().orderBy(Lessons.id to SortOrder.ASC).map {
-            Lesson(
-                title = it[Lessons.title],
-                project = it[Lessons.projectId]?.let { id -> pn[id] } ?: "",
-                summary = it[Lessons.summary],
             )
         }
     }
@@ -77,6 +63,17 @@ object TodoRepository {
             .orderBy(TodoLists.position to SortOrder.ASC).map(::mapList)
     }
 
+    /**
+     * Every list across all owners, grouped by owner then ordered by position. Used by the
+     * transitional [mn.murray.pts.DemoData] facade, which returns all rows and lets the view
+     * filter by the current session's owner (legacy behaviour).
+     */
+    fun allLists(): List<TodoList> = transaction {
+        TodoLists.selectAll()
+            .orderBy(TodoLists.ownerEmpNo to SortOrder.ASC, TodoLists.position to SortOrder.ASC)
+            .map(::mapList)
+    }
+
     fun ListsByOder(empNo: String): List<TodoList> = transaction {
         TodoLists.selectAll().where { TodoLists.ownerEmpNo eq empNo }
             .orderBy(TodoLists.position to SortOrder.ASC).map(::mapList)
@@ -85,6 +82,13 @@ object TodoRepository {
     fun itemsByOwner(empNo: String): List<TodoItem> = transaction {
         TodoItems.selectAll().where { TodoItems.ownerEmpNo eq empNo }
             .orderBy(TodoItems.position to SortOrder.ASC).map(::mapItem)
+    }
+
+    /** Every to-do item across all owners, grouped by owner then ordered by position (facade use). */
+    fun allItems(): List<TodoItem> = transaction {
+        TodoItems.selectAll()
+            .orderBy(TodoItems.ownerEmpNo to SortOrder.ASC, TodoItems.position to SortOrder.ASC)
+            .map(::mapItem)
     }
 
     fun itemsByList(listId: Int): List<TodoItem> = transaction {

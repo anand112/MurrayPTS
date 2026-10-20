@@ -1,5 +1,8 @@
 package mn.murray.pts
 import mn.murray.pts.domain.*
+import mn.murray.pts.service.TaskDraft
+import mn.murray.pts.service.TaskField
+import mn.murray.pts.service.TaskService
 
 import kotlinx.html.ButtonType
 import kotlinx.html.DIV
@@ -17,6 +20,7 @@ import kotlinx.html.label
 import kotlinx.html.option
 import kotlinx.html.p
 import kotlinx.html.select
+import kotlinx.html.script
 import kotlinx.html.span
 import kotlinx.html.table
 import kotlinx.html.tbody
@@ -29,12 +33,61 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-fun DIV.teamContent(canManage: Boolean) {
+/**
+ * The assign panel's answer, kept so a refused one can be printed back.
+ *
+ * The card popup has the same shape for the same reason ([TaskForm]): a redirect after a refusal would come
+ * back to a blank panel, which tells the reader nothing about the words they just typed and leaves the reason
+ * nowhere to print. So `/app/team/assign` hands back this page with [values] as they were posted and [errors]
+ * keyed by field, and each field prints its own reason under itself.
+ *
+ * [values] is the plain, freshly-typed half of that: every field of a panel nobody has submitted yet answers
+ * with its own default, and the picker below the *Where it lives* half is the one thing a default cannot
+ * answer for — a card with no column named is a card management has not filed yet.
+ */
+data class AssignForm(
+    val values: TaskDraft = TaskDraft(),
+    val errors: Map<TaskField, String> = emptyMap(),
+) {
+    /**
+     * Whether this panel is being filled as an **Other task**, which decides which of its two halves is up.
+     *
+     * It reads the answer the form itself carries, not a board the reader is standing on: there is no board
+     * behind this panel, and the picker's default is the project half, so a form that posted nothing at the
+     * field — an old bookmark, a hand-built POST — is the panel as it has always been rather than a third kind
+     * of card. `null` and `"project"` are the same answer here, and neither is `BOARD_OTHER`.
+     */
+    val onBacklog: Boolean get() = values.board == BOARD_OTHER
+
+    fun error(field: TaskField): String? = errors[field]
+}
+
+/** The Column picker's placeholder (Stage 50): the one answer this panel may print and must refuse. */
+private const val CHOOSE_COLUMN = "— Choose a column —"
+
+/**
+ * The Team page.
+ *
+ * The roster — name, department, position, email — belongs to everybody: it is how a new site
+ * engineer finds the person to call. *Who is doing what* is management's view, so a reader without
+ * that access gets the task count and the drill-down only on their own row, and the member popup
+ * carries nobody's task list but theirs. The same [mn.murray.pts.service.TaskService.assignedFor]
+ * rule as the board, applied per row.
+ *
+ * [assign] is the panel below the sheet in the state this answer needs: blank for an ordinary read, and
+ * the typed words with the field-keyed reasons when a save was refused — the same contract the card popup
+ * keeps, and the reason `/app/team/assign` answers a refusal with this page rather than with a redirect.
+ */
+fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm = AssignForm()) {
     val projects = DemoData.projects
     div("card-panel") {
         p("panel-caption") {
-            +"Tip: click a member for details, or open the Tasks count to see who is doing what."
-            if (canManage) +" Use + next to it to assign them a task."
+            if (canManage) {
+                +"Tip: click a member for details, or open the Tasks count to see who is doing what."
+                +" Use + next to it to assign them a task."
+            } else {
+                +"Open your own Tasks count to see what is assigned to you."
+            }
         }
         table("grid team-table") {
             thead {
@@ -54,54 +107,68 @@ fun DIV.teamContent(canManage: Boolean) {
                 }
             }
             tbody {
-                DemoData.team.forEach { member ->
-                    val mine = projects.filter { it.manager == member.name }
-                    fun count(status: String) = mine.count { it.status == status }
-                    val tasks = memberTaskRows(member.employeeNumber)
-                    val open = tasks.count { it.first.status != "Completed" }
-                    tr {
-                        attributes["data-emp"] = member.employeeNumber
-                        td { span("code") { +member.employeeNumber } }
-                        td {
-                            div("team-name") {
-                                span("avatar sm") { +initials(member.name) }
-                                div("assignee-meta") {
-                                    span("pname") { +member.name }
-                                    div("assignee-id") { +memberEmail(member) }
+                teamGroupedByDepartment().forEach { (department, members) ->
+                    departmentRow(department, members.size)
+                    members.forEach { member ->
+                        val mine = projects.filter { it.manager == member.name }
+                        fun count(status: String) = mine.count { it.status == status }
+                        // Whose work this row is allowed to show: management sees everybody's, and a
+                        // normal account sees its own — the only row with a number to open.
+                        val seesTasks = canManage || member.employeeNumber == viewerEmpNo
+                        val tasks = if (seesTasks) memberTaskRows(member.employeeNumber) else emptyList()
+                        val open = tasks.count { it.first.isOpen }
+                        tr {
+                            attributes["data-emp"] = member.employeeNumber
+                            td { span("code") { +member.employeeNumber } }
+                            td {
+                                div("team-name") {
+                                    span("avatar sm") { +initials(member.name) }
+                                    div("assignee-meta") {
+                                        span("pname") { +member.name }
+                                        div("assignee-id") { +memberEmail(member) }
+                                    }
                                 }
                             }
-                        }
-                        td { +member.department }
-                        td { +member.position }
-                        td("num") {
-                            button(type = ButtonType.button, classes = if (open == 0) "tasks-toggle zero" else "tasks-toggle") {
-                                attributes["data-emp"] = member.employeeNumber
-                                attributes["title"] = "Show ${member.name}'s tasks"
-                                +"$open"
-                            }
-                            if (canManage) {
-                                button(type = ButtonType.button, classes = "quick-add") {
-                                    attributes["data-emp"] = member.employeeNumber
-                                    attributes["title"] = "Assign a task to ${member.name}"
-                                    +"+"
+                            td { +member.department }
+                            td { +member.position }
+                            td("num") {
+                                if (seesTasks) {
+                                    button(type = ButtonType.button, classes = if (open == 0) "tasks-toggle zero" else "tasks-toggle") {
+                                        attributes["data-emp"] = member.employeeNumber
+                                        attributes["title"] = "Show ${member.name}'s tasks"
+                                        +"$open"
+                                    }
+                                } else {
+                                    // The column stays so the table lines up; only what is inside it
+                                    // is withheld, and a dash says "not yours to open", not "no work".
+                                    span("mtd-empty") { +"—" }
+                                }
+                                if (canManage) {
+                                    button(type = ButtonType.button, classes = "quick-add") {
+                                        attributes["data-emp"] = member.employeeNumber
+                                        attributes["title"] = "Assign a task to ${member.name}"
+                                        +"+"
+                                    }
                                 }
                             }
+                            td("num") { statusCount("ontrack", count("Ongoing")) }
+                            td("num") { statusCount("onhold", count("On hold")) }
+                            td("num") { statusCount("planning", count("Not started")) }
+                            td("num") { statusCount("atrisk", count("Blocked")) }
+                            td("num") { statusCount("done", count("Completed")) }
+                            td("num") { span("count-total") { +"${mine.size}" } }
+                            td("num") { span("mhint") { +"›" } }
                         }
-                        td("num") { statusCount("ontrack", count("Ongoing")) }
-                        td("num") { statusCount("onhold", count("On hold")) }
-                        td("num") { statusCount("planning", count("Not started")) }
-                        td("num") { statusCount("atrisk", count("Blocked")) }
-                        td("num") { statusCount("done", count("Completed")) }
-                        td("num") { span("count-total") { +"${mine.size}" } }
-                        td("num") { span("mhint") { +"›" } }
+                        if (seesTasks) memberTasksRow(member, tasks)
                     }
-                    memberTasksRow(member, tasks)
                 }
             }
         }
     }
 
     if (canManage) {
+        val columns = TaskService.bucketRows()
+        val v = assign.values
         div("card-panel") {
             id = "assignPanel"
             h3 { +"Assign a task to a team member" }
@@ -113,10 +180,9 @@ fun DIV.teamContent(canManage: Boolean) {
                             id = "assignMember"
                             name = "assignee"
                             required = true
-                            DemoData.team.forEach { member ->
-                                option { value = member.employeeNumber; +"${member.employeeNumber} · ${member.name} (${member.position})" }
-                            }
+                            optGroupPerMember(selectedValue = v.assigneeEmpNo)
                         }
+                        assign.error(TaskField.ASSIGNEE)?.let { p("field-err") { +it } }
                     }
                     div("field") {
                         label { +"Task" }
@@ -124,47 +190,173 @@ fun DIV.teamContent(canManage: Boolean) {
                             id = "assignTitle"
                             placeholder = "e.g. Prepare weekly progress report"
                             required = true
+                            value = v.title
+                        }
+                        assign.error(TaskField.TITLE)?.let { p("field-err") { +it } }
+                    }
+                    div("field full") {
+                        // Which of the two boards the card this panel writes belongs to (Stage 50). The same
+                        // field, the same two answers and the same markers as the card popup's *where it lives*
+                        // picker, so the one script that swaps the halves of a popup answers this panel too —
+                        // and a task with no project is an Other task because the reader said so, not because
+                        // they found a Project box to leave blank.
+                        label { +"Where it lives" }
+                        select {
+                            name = "board"
+                            id = "assignBoard"
+                            attributes["data-board-toggle"] = "true"
+                            option {
+                                value = BOARD_PROJECT
+                                selected = !assign.onBacklog
+                                +"On a project"
+                            }
+                            option {
+                                value = BOARD_OTHER
+                                selected = assign.onBacklog
+                                +"Other tasks"
+                            }
+                        }
+                        span("field-hint") {
+                            +(
+                                "A task on no project is an Other task: it prints on the Other tasks board, " +
+                                    "under the column chosen below."
+                                )
                         }
                     }
                     div("field") {
-                        label { +"Project (optional)" }
+                        attributes["data-board-half"] = "project"
+                        if (assign.onBacklog) attributes["hidden"] = "hidden"
+                        // Still no blank answer since Stage 48 — a card that names a project has to name one that
+                        // exists — but the `required` the picker carried went with the half it belongs to (Stage
+                        // 50): a *hidden* box is still validated by the browser, and this one is hidden whenever
+                        // the reader is filling the Other tasks half. The rule is not the attribute's to keep
+                        // anyway; [mn.murray.pts.service.TaskService.create] refuses a card that names no
+                        // project, which is what answers a hand-built POST and a form with scripts off alike.
+                        label { +"Project" }
                         select {
                             name = "project"
-                            option { value = ""; +"— No project —" }
                             DemoData.projects.forEach { project ->
-                                option { value = project.name; +"${project.code} · ${project.name}" }
+                                option {
+                                    value = project.name
+                                    selected = project.name == v.projectName
+                                    +"${project.code} · ${project.name}"
+                                }
                             }
                         }
+                        assign.error(TaskField.PROJECT)?.let { p("field-err") { +it } }
+                    }
+                    div("field") {
+                        attributes["data-board-half"] = "project"
+                        if (assign.onBacklog) attributes["hidden"] = "hidden"
+                        // The six sub-categories beside it are the same six on every project's board, which is
+                        // what lets this page ask without knowing any project's lane ids.
+                        label { +"Sub-category" }
+                        select {
+                            name = "lane"
+                            DEFAULT_PROJECT_BUCKETS.forEach { lane ->
+                                option {
+                                    value = lane
+                                    selected = lane == v.projectLane
+                                    +lane
+                                }
+                            }
+                        }
+                        assign.error(TaskField.LANE)?.let { p("field-err") { +it } }
+                    }
+                    div("field") {
+                        attributes["data-board-half"] = "other"
+                        if (!assign.onBacklog) attributes["hidden"] = "hidden"
+                        label { +"Column" }
+                        select {
+                            name = "column"
+                            id = "assignColumn"
+                            // The one field of this half that cannot be left answered. A column is where the
+                            // Other tasks board keeps a card, and a row with no `bucket_id` is on no column of
+                            // it at all — work that has gone missing rather than work that has been filed — so
+                            // management is asked to pick one and
+                            // [mn.murray.pts.service.TaskService.createBacklog] refuses the card that does not.
+                            // The blank below is there to be refused, not to be kept.
+                            option {
+                                value = ""
+                                selected = v.columnId == null
+                                +CHOOSE_COLUMN
+                            }
+                            columns.forEach { column ->
+                                option {
+                                    value = "${column.id}"
+                                    selected = column.id == v.columnId
+                                    +column.name
+                                }
+                            }
+                        }
+                        if (columns.isEmpty()) {
+                            // Nothing to choose, and a line saying so, so an empty picker reads as a board that
+                            // has no columns rather than as a box that lost its options.
+                            span("field-hint") {
+                                +"The Other tasks board has no columns yet, so there is nowhere to file it."
+                            }
+                        }
+                        assign.error(TaskField.COLUMN)?.let { p("field-err") { +it } }
                     }
                     div("field") {
                         label { +"Start date" }
-                        input(type = InputType.date, name = "started")
+                        input(type = InputType.date, name = "started") { value = v.started }
+                        assign.error(TaskField.START)?.let { p("field-err") { +it } }
                     }
                     div("field") {
                         label { +"Due date" }
-                        input(type = InputType.date, name = "due")
+                        input(type = InputType.date, name = "due") { value = v.due }
+                        assign.error(TaskField.DUE)?.let { p("field-err") { +it } }
                     }
                     div("field") {
                         label { +"Priority" }
                         select {
                             name = "priority"
-                            listOf("High", "Medium", "Low").forEach { option { +it } }
+                            TASK_PRIORITIES.forEach { priority ->
+                                option {
+                                    value = priority
+                                    selected = priority == v.priority
+                                    +priority
+                                }
+                            }
                         }
+                        assign.error(TaskField.PRIORITY)?.let { p("field-err") { +it } }
                     }
                 }
                 button(type = ButtonType.submit, classes = "submit") { +"Assign task" }
             }
         }
+        // The popup's own script, for one field of this panel: the *Where it lives* picker above swaps the two
+        // halves of the form in place, exactly as it does inside a card's editor. It is the same contract —
+        // `select[data-board-toggle]` over `div[data-board-half]`, hidden rather than styled, and the marker
+        // attributes are what the server already set for the half this answer is on — so the panel gets the
+        // behaviour without a second copy of it to keep in step. Everything else the script does is inert here:
+        // this page prints no card to click and no `#taskModal` to close.
+        script(src = "/static/js/task-modal.js") {}
     }
-    memberDetailScript()
+    memberDetailScript(canManage, viewerEmpNo)
 }
 
 private fun TD.statusCount(kind: String, n: Int) {
     span(if (n == 0) "count zero" else "count $kind") { +"$n" }
 }
 
-private fun initials(name: String): String =
-    name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")
+/**
+ * The label row above each department's people. It spans all twelve columns so the numeric columns
+ * stay in line beneath it, and it states the headcount rather than leaving anyone to count rows —
+ * the roster runs to fourteen departments, and a plain sort would make each group's size invisible.
+ */
+private fun TBODY.departmentRow(department: String, people: Int) {
+    tr("dept-row") {
+        td {
+            colSpan = "12"
+            div("dept-cell") {
+                span("dept-name") { +department }
+                span("dept-count") { +"$people ${if (people == 1) "person" else "people"}" }
+            }
+        }
+    }
+}
 
 private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -204,7 +396,7 @@ private fun memberTaskRows(emp: String): List<Pair<TaskItem, Boolean>> =
         DemoData.otherTasks.filter { it.assignee == emp }.map { it to true })
         .sortedWith(
             compareBy(
-                { (t, _) -> t.status == "Completed" },
+                { (t, _) -> !t.isOpen },
                 { (t, _) -> t.due.isEmpty() },
                 { (t, _) -> t.due },
             )
@@ -282,23 +474,35 @@ private data class MemberDetail(
 
 private val detailJson = Json { encodeDefaults = true }
 
-/** One entry per team member: projects they manage or contribute tasks to, plus their tasks. */
-private fun buildMemberDetails(): Map<String, MemberDetail> {
+/**
+ * One entry per team member: projects they manage or contribute tasks to, plus their tasks.
+ *
+ * The payload is the page's one copy of "what is this person doing", and it is a normal account's
+ * own entry that may carry it: for anybody else, [canManage] false and not the reader's own number
+ * means the task lists come back empty and only the projects they *manage* are named. A colleague
+ * is still findable by name, department, position and email — which is what the page is for.
+ */
+private fun buildMemberDetails(canManage: Boolean, viewerEmpNo: String): Map<String, MemberDetail> {
     val allProjects = DemoData.projects
     val projectByName = allProjects.associateBy { it.name }
+    // The percentage a popup prints for a project is the Projects board's figure for the same project —
+    // one measurement, from the checklists on its cards, with the row's own number only where no card
+    // carries a plan. Three pages naming one project three different numbers would be read as three bugs.
+    val measured = TaskService.progressByProject()
     return DemoData.team.associate { member ->
+        val seesTasks = canManage || member.employeeNumber == viewerEmpNo
         val managed = allProjects.filter { it.manager == member.name }
         val managedIds = managed.map { it.id }.toSet()
-        val assigned = DemoData.assignedTasks.filter { it.assignee == member.employeeNumber }
-        val other = DemoData.otherTasks.filter { it.assignee == member.employeeNumber }
+        val assigned = if (seesTasks) DemoData.assignedTasks.filter { it.assignee == member.employeeNumber } else emptyList()
+        val other = if (seesTasks) DemoData.otherTasks.filter { it.assignee == member.employeeNumber } else emptyList()
         val contributedNames = assigned.map { it.project }.toSet()
         val contributed = allProjects.filter { it.name in contributedNames && it.id !in managedIds }
 
         val projectInfos = (
             managed.map {
-                MemberProjectInfo(it.code, it.name, it.status, it.progress, it.due, "Manager")
+                MemberProjectInfo(it.code, it.name, it.status, TaskService.displayedProgress(it, measured), it.due, "Manager")
             } + contributed.map {
-                MemberProjectInfo(it.code, it.name, it.status, it.progress, it.due, "Tasks")
+                MemberProjectInfo(it.code, it.name, it.status, TaskService.displayedProgress(it, measured), it.due, "Tasks")
             }
             ).sortedWith(compareBy({ it.role != "Manager" }, { it.name }))
 
@@ -315,142 +519,19 @@ private fun buildMemberDetails(): Map<String, MemberDetail> {
 }
 
 /** JSON for the popup, with "<" escaped so it is safe inside a script tag. */
-private fun memberDetailJson(): String =
-    detailJson.encodeToString(buildMemberDetails()).replace("<", "\\u003c")
+private fun memberDetailJson(canManage: Boolean, viewerEmpNo: String): String =
+    detailJson.encodeToString(buildMemberDetails(canManage, viewerEmpNo)).replace("<", "\\u003c")
 
-private fun DIV.memberDetailScript() {
+/**
+ * Team page member popup. The per-member payload stays a server-rendered JSON island —
+ * a <script type="application/json"> tag is data, not executable, so a strict CSP allows
+ * it inline — while the behaviour moved to /static/js/team.js (Stage 7), which reads the
+ * island by id and wires the popup, per-row task toggles and quick-add shortcuts.
+ */
+private fun DIV.memberDetailScript(canManage: Boolean, viewerEmpNo: String) {
     unsafe {
-        +("""<script type="application/json" id="memberDetailData">""" + memberDetailJson() + "</script>")
-        +(
-            """<script>
-(function () {
-  var data = {};
-  var tag = document.getElementById('memberDetailData');
-  try { data = JSON.parse(tag.textContent || '{}'); } catch (e) { data = {}; }
-  var pop = document.createElement('div');
-  pop.className = 'mpop';
-  pop.id = 'memberPop';
-  pop.hidden = true;
-  document.body.appendChild(pop);
-  var COLORS = { 'Ongoing': '#1e8e3e', 'In progress': '#e0a800', 'On hold': '#e07000',
-                 'Not started': '#8a9199', 'Blocked': '#d93025', 'Completed': '#1e8e3e' };
-  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  function fmtDate(iso) {
-    var p = (iso || '').split('-');
-    if (p.length !== 3) return iso || '';
-    var m = parseInt(p[1], 10);
-    return p[2] + ' ' + (MONTHS[m - 1] || p[1]) + ' ' + p[0];
-  }
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
-  function initials(name) {
-    return (name || '').split(' ').map(function (w) { return w.charAt(0); }).slice(0, 2).join('');
-  }
-  function render(emp) {
-    var d = data[emp];
-    if (!d) return null;
-    var h = '';
-    h += '<div class="mpop-head"><div class="avatar sm">' + esc(initials(d.name)) + '</div>' +
-         '<div class="mpop-id"><div class="mpop-name">' + esc(d.name) + '</div>' +
-         '<div class="mpop-sub">' + esc(d.position) + (d.department ? ' · ' + esc(d.department) : '') +
-         ' · ' + esc(emp) + (d.email ? ' · ' + esc(d.email) : '') + '</div></div>' +
-         '<button type="button" class="mpop-x" aria-label="Close">×</button></div>';
-    h += '<div class="mpop-body">';
-    h += '<div class="mpop-sechead">Projects (' + d.projects.length + ')</div>';
-    if (!d.projects.length) h += '<div class="mpop-empty">No projects yet.</div>';
-    d.projects.forEach(function (p) {
-      var c = COLORS[p.status] || '#8a9199';
-      h += '<div class="mpop-row"><div class="mpop-main">' +
-           '<div class="mpop-title"><span class="code">' + esc(p.code) + '</span> ' + esc(p.name) + '</div>' +
-           '<div class="mpop-meta"><span class="mdot" style="background:' + c + '"></span>' + esc(p.status) +
-           ' · due ' + esc(fmtDate(p.due)) +
-           '<span class="mprog"><span class="mprog-bar" style="width:' + (p.progress || 0) + '%"></span></span>' +
-           (p.progress || 0) + '%</div></div>' +
-           '<span class="mrole' + (p.role === 'Manager' ? ' mgr' : '') + '">' + esc(p.role) + '</span></div>';
-    });
-    h += '<div class="mpop-sechead">Tasks (' + d.tasks.length + ')</div>';
-    if (!d.tasks.length) h += '<div class="mpop-empty">No tasks assigned.</div>';
-    d.tasks.forEach(function (t) {
-      var c = COLORS[t.status] || '#8a9199';
-      var code = t.id > 0 ? '<span class="tcode m">T-' + ('00000' + t.id).slice(-5) + '</span> ' : '';
-      h += '<div class="mpop-row"><div class="mpop-main">' +
-           '<div class="mpop-title">' + code + esc(t.title) + '</div>' +
-           '<div class="mpop-meta"><span class="mdot" style="background:' + c + '"></span>' + esc(t.status) +
-           (t.context ? ' · ' + esc(t.context) : '') +
-           (t.other ? ' · other' : '') +
-           (t.due ? ' · due ' + esc(fmtDate(t.due)) : '') +
-           ' · ' + esc(t.priority) + '</div></div></div>';
-    });
-    h += '</div>';
-    return h;
-  }
-  var current = null;
-  function close() { pop.hidden = true; current = null; }
-  function place(row) {
-    var r = row.getBoundingClientRect();
-    var sx = window.pageXOffset, sy = window.pageYOffset;
-    var pw = pop.offsetWidth, ph = pop.offsetHeight;
-    var left = r.right + sx + 10;
-    if (left + pw > sx + window.innerWidth - 12) left = r.left + sx - pw - 10;
-    if (left < sx + 12) left = sx + 12;
-    var top = r.top + sy + 6;
-    if (top + ph > sy + window.innerHeight - 12) top = sy + window.innerHeight - ph - 12;
-    if (top < sy + 12) top = sy + 12;
-    pop.style.left = left + 'px';
-    pop.style.top = top + 'px';
-  }
-  document.querySelectorAll('.team-table tbody tr[data-emp]').forEach(function (row) {
-    row.addEventListener('click', function () {
-      var emp = row.getAttribute('data-emp');
-      if (current === emp && !pop.hidden) { close(); return; }
-      var html = render(emp);
-      if (!html) return;
-      pop.innerHTML = html;
-      pop.hidden = false;
-      current = emp;
-      place(row);
-    });
-  });
-  document.querySelectorAll('.tasks-toggle').forEach(function (btn) {
-    btn.addEventListener('click', function (e) {
-      e.preventDefault(); e.stopPropagation();
-      var emp = btn.getAttribute('data-emp');
-      var sub = document.querySelector('tr.member-tasks[data-emp="' + emp + '"]');
-      if (!sub) return;
-      sub.hidden = !sub.hidden;
-      btn.classList.toggle('open', !sub.hidden);
-    });
-  });
-  document.querySelectorAll('.quick-add').forEach(function (btn) {
-    btn.addEventListener('click', function (e) {
-      e.preventDefault(); e.stopPropagation();
-      var emp = btn.getAttribute('data-emp');
-      var sel = document.getElementById('assignMember');
-      var title = document.getElementById('assignTitle');
-      if (!sel) return;
-      sel.value = emp;
-      var panel = document.getElementById('assignPanel');
-      if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(function () { if (title) title.focus(); }, 300);
-    });
-  });
-  pop.addEventListener('click', function (e) {
-    if (e.target.closest('.mpop-x')) close();
-  });
-  document.addEventListener('click', function (e) {
-    if (pop.hidden) return;
-    if (pop.contains(e.target)) return;
-    if (e.target.closest && e.target.closest('.team-table tbody tr[data-emp]')) return;
-    close();
-  });
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') close();
-  });
-})();
-</script>"""
-        )
+        +("""<script type="application/json" id="memberDetailData">""" +
+            memberDetailJson(canManage, viewerEmpNo) + "</script>")
     }
+    script(src = "/static/js/team.js") {}
 }

@@ -2,18 +2,25 @@ package mn.murray.pts
 
 import kotlinx.serialization.Serializable
 import mn.murray.pts.domain.*
+import mn.murray.pts.repository.ForecastRepository
+import mn.murray.pts.service.ProjectService
+import mn.murray.pts.service.TaskService
+import mn.murray.pts.service.TodoService
+import mn.murray.pts.service.UserService
 
 /**
- * Transitional bridge file (v2 restructure, Stage 3).
+ * Transitional bridge file (v2 restructure).
  *
- * The canonical domain models now live in `mn.murray.pts.domain`. This file keeps
- * only the pieces that are still root-package concerns during the migration:
+ * The canonical domain models live in `mn.murray.pts.domain`. This file keeps only the
+ * pieces that are still root-package concerns:
  *
- *  - [PtsData]   – the legacy JSON aggregate (used by JsonStore + the SQLite importer).
- *  - [DemoData]  – the live-store facade and first-run seed. Stage 6 replaces its
- *                  getters with repository calls; Stage 4 moves `seed()` behind the
- *                  `PTS_SEED_DEMO` flag.
- *  - [memberEmail] / [pinnedIds] – helpers that read through [DemoData].
+ *  - [PtsData]   – the legacy JSON aggregate, now used *only* by the one-shot SQLite
+ *                  importer (`db/migration`) to decode an archived `pts-data.json`.
+ *  - [DemoData]  – a thin read facade over the DB-backed services/repositories. As of
+ *                  Stage 6 every getter delegates to SQLite; nothing reads the legacy
+ *                  JSON store any more. `seed()` survives purely as the demo dataset the
+ *                  importer's normalizer borrows its default position catalog from.
+ *  - [memberEmail] / [pinnedIds] – helpers that read through the services.
  *
  * Everything else (entities, constants, code/status helpers) moved to `domain/`.
  */
@@ -24,7 +31,7 @@ fun memberEmail(member: Member): String =
         ?: autoEmail(member.name)
 
 /** Pinned project ids for an account, persisted per employee number. */
-fun pinnedIds(employeeNumber: String): List<Int> = DemoData.pins[employeeNumber].orEmpty()
+fun pinnedIds(employeeNumber: String): List<Int> = ProjectService.pinnedIds(employeeNumber)
 
 @Serializable
 data class PtsData(
@@ -43,51 +50,75 @@ data class PtsData(
 )
 
 object DemoData {
-    val projects: List<Project> get() = JsonStore.data().projects
-    val assignedTasks: List<TaskItem> get() = JsonStore.data().assignedTasks
-    val team: List<Member> get() = JsonStore.data().team
-    val forecasts: List<Forecast> get() = JsonStore.data().forecasts
-    val lessons: List<Lesson> get() = JsonStore.data().lessons
-    val otherTasks: List<TaskItem> get() = JsonStore.data().otherTasks
-    val buckets: List<String> get() = JsonStore.data().buckets
-    val todos: List<TodoItem> get() = JsonStore.data().todos
-    val todoLists: List<TodoList> get() = JsonStore.data().todoLists
-    val access: List<AccessRow> get() = JsonStore.data().access
-    val positions: List<Position> get() = JsonStore.data().positions
-    val pins: Map<String, List<Int>> get() = JsonStore.data().pins
+    // Projects + pins aggregate is DB-backed as of Stage 6a.
+    val projects: List<Project> get() = ProjectService.all()
+    // Tasks + buckets aggregate is DB-backed as of Stage 6b.
+    val assignedTasks: List<TaskItem> get() = TaskService.assigned()
+    // People aggregate (team / access / positions) is DB-backed as of Stage 6.
+    val team: List<Member> get() = UserService.team()
+    // Read-only planning content is DB-backed as of Stage 6d. The lessons that used to sit here
+    // became a sheet of their own in V9: see LessonService, which is the only reader now.
+    val forecasts: List<Forecast> get() = ForecastRepository.findAll()
+    val otherTasks: List<TaskItem> get() = TaskService.other()
+    val buckets: List<String> get() = TaskService.buckets()
+    // To-do aggregate is DB-backed as of Stage 6c.
+    val todos: List<TodoItem> get() = TodoService.allItems()
+    val todoLists: List<TodoList> get() = TodoService.allLists()
+    val access: List<AccessRow> get() = UserService.accessRows()
+    val positions: List<Position> get() = UserService.positions()
 
-    fun userFor(employeeNumber: String): AccessRow =
-        access.firstOrNull { it.employeeNumber == employeeNumber }
-            ?: AccessRow(employeeNumber, "Employee $employeeNumber", "Team Member", "Viewer")
+    fun userFor(employeeNumber: String): AccessRow = UserService.userFor(employeeNumber)
 
     fun seed(): PtsData = PtsData(
         projects = listOf(
-            Project(1, "SIT-01", "Tavan Tolgoi East Expansion", "Ongoing", 64, "Sarangerel Bold", "2026-12-15", "Site projects"),
-            Project(2, "SIT-02", "Oyu Tolgoi Haul Road Upgrade", "Blocked", 38, "Ganbold Erdene", "2026-11-02", "Site projects"),
-            Project(3, "MFG-01", "Erdenet Crusher Modernisation", "Ongoing", 71, "Erdenechuluun Bat", "2027-03-20", "Manufacturing"),
-            Project(4, "SIT-03", "Nalaikh Tailings Remediation", "Not started", 12, "Altantsetseg Khan", "2027-06-30", "Site projects"),
-            Project(5, "SIT-04", "Tsaidam Lithium Exploration", "Ongoing", 45, "Solongo Ganbaatar", "2026-10-18", "Site projects"),
-            Project(6, "SIT-05", "Boroo Gold Pit Stage 3", "Completed", 100, "Temuulen Amgalan", "2026-08-01", "Site projects"),
-            Project(7, "SIT-06", "Zuunmod Camp Construction", "Ongoing", 58, "Khulan Serjee", "2026-12-01", "Site projects"),
-            Project(8, "RMS-01", "Darkhan Conveyor Replacement", "Blocked", 26, "Batbayar Nyam", "2026-10-25", "Repair/ Maintenance/ Other Services"),
-            Project(9, "SIT-07", "Sainshand Solar Farm Integration", "Not started", 8, "Uyanga Lkham", "2027-05-12", "Site projects"),
-            Project(10, "MFG-02", "Ulaangom Gravel Production", "Completed", 100, "Ganbaatar Khos", "2026-07-15", "Manufacturing"),
-            Project(11, "SIT-08", "Murun Truck Shop Extension", "Ongoing", 52, "Jargalsaikhan Otgonbayar", "2027-01-30", "Site projects"),
-            Project(12, "RMS-02", "Choibalsan Bridge Repair", "Blocked", 33, "Chuluun Munkh", "2026-11-20", "Repair/ Maintenance/ Other Services"),
-            Project(13, "LAB-01", "Altai Operations Crew Supply", "Ongoing", 67, "Anujin Tseren", "2026-12-22", "Labour supply"),
-            Project(14, "RMS-03", "Khovsgel Slope Stabilisation", "Not started", 15, "Erdenesukh Baasandorj", "2027-04-08", "Repair/ Maintenance/ Other Services"),
-            Project(15, "LAB-02", "Oyu Tolgoi Underground Crew Supply", "On hold", 49, "Munkhbat Tsogt", "2027-02-14", "Labour supply"),
-            Project(16, "SIT-09", "Erdenet Training Centre Fit-out", "Completed", 100, "Myagmarjav Enkhjin", "2026-09-01", "Site projects"),
+            Project(1, "S-01", "Tavan Tolgoi East Expansion", "Ongoing", 64, "Sarangerel Bold", "2026-12-15", "Site projects",
+                client = "Tavan Tolgoi Coal Complex", start = "2026-02-02", revenue = 4_850_000_000.0),
+            Project(2, "S-02", "Oyu Tolgoi Haul Road Upgrade", "Blocked", 38, "Ganbold Erdene", "2026-11-02", "Site projects",
+                client = "Oyu Tolgoi LLC", start = "2026-01-19", revenue = 6_120_000_000.0),
+            Project(3, "M-01", "Erdenet Crusher Modernisation", "Ongoing", 71, "Erdenechuluun Bat", "2027-03-20", "Fabrication/Manufacturing",
+                client = "Erdenet Mining Corporation", start = "2026-04-06", revenue = 2_340_000_000.0),
+            Project(4, "S-03", "Nalaikh Tailings Remediation", "Not started", 12, "Altantsetseg Khan", "2027-06-30", "Site projects",
+                client = "Nalaikh Coal JSC", start = "2026-09-01", revenue = 1_780_000_000.0),
+            Project(5, "S-04", "Tsaidam Lithium Exploration", "Ongoing", 45, "Solongo Ganbaatar", "2026-10-18", "Site projects",
+                client = "Tsaidam Minerals LLC", start = "2026-03-02", revenue = 940_000_000.0),
+            Project(6, "S-05", "Boroo Gold Pit Stage 3", "Completed", 100, "Temuulen Amgalan", "2026-08-01", "Site projects",
+                client = "Boroo Gold LLC", start = "2025-10-13", revenue = 3_560_000_000.0),
+            Project(7, "S-06", "Zuunmod Camp Construction", "Ongoing", 58, "Khulan Serjee", "2026-12-01", "Site projects",
+                client = "South Gobi Resources", start = "2026-05-11", revenue = 1_420_000_000.0),
+            Project(8, "R-01", "Darkhan Conveyor Replacement", "Blocked", 26, "Batbayar Nyam", "2026-10-25", "Repair/Maintenance/other services",
+                client = "Darkhan Cement JSC", start = "2026-06-01", revenue = 680_000_000.0),
+            Project(9, "S-07", "Sainshand Solar Farm Integration", "Not started", 8, "Uyanga Lkham", "2027-05-12", "Site projects",
+                client = "Green Energy Mongolia", start = "2026-11-04", revenue = 2_900_000_000.0),
+            Project(10, "M-02", "Ulaangom Gravel Production", "Completed", 100, "Ganbaatar Khos", "2026-07-15", "Fabrication/Manufacturing",
+                client = "Ulaangom Road Service", start = "2025-12-01", revenue = 510_000_000.0),
+            Project(11, "S-08", "Murun Truck Shop Extension", "Ongoing", 52, "Jargalsaikhan Otgonbayar", "2027-01-30", "Site projects",
+                client = "Murun Mining LLC", start = "2026-07-20", revenue = 1_260_000_000.0),
+            Project(12, "R-02", "Choibalsan Bridge Repair", "Blocked", 33, "Chuluun Munkh", "2026-11-20", "Repair/Maintenance/other services",
+                client = "Eastern Province Roads", start = "2026-04-27", revenue = 735_000_000.0),
+            Project(13, "L-01", "Altai Operations Crew Supply", "Ongoing", 67, "Anujin Tseren", "2026-12-22", "Labor supply",
+                client = "Altai Gold JSC", start = "2026-01-05", revenue = 420_000_000.0),
+            Project(14, "R-03", "Khovsgel Slope Stabilisation", "Not started", 15, "Erdenesukh Baasandorj", "2027-04-08", "Repair/Maintenance/other services",
+                client = "Khovsgel Minerals LLC", start = "2026-10-01", revenue = 980_000_000.0),
+            Project(15, "L-02", "Oyu Tolgoi Underground Crew Supply", "On hold", 49, "Munkhbat Tsogt", "2027-02-14", "Labor supply",
+                client = "Oyu Tolgoi LLC", start = "2026-02-16", revenue = 1_150_000_000.0),
+            Project(16, "S-09", "Erdenet Training Centre Fit-out", "Completed", 100, "Myagmarjav Enkhjin", "2026-09-01", "Site projects",
+                client = "Erdenet Mining Corporation", start = "2026-03-30", revenue = 640_000_000.0),
+            Project(17, "D-01", "Spares Distributor Supply — Drills", "Ongoing", 30, "Narantsetseg Dorj", "2026-11-30", "Distributor product sales",
+                client = "Sandvik Mongolia", start = "2026-06-15", revenue = 1_540_000_000.0),
+            Project(18, "E-01", "Haul Truck Electrical Redesign", "Not started", 5, "Erdenechuluun Bat", "2027-03-01", "Engineering",
+                client = "Internal — MMS Engineering", start = "2026-09-14", revenue = 260_000_000.0),
+            Project(19, "F-01", "Ulaanbaatar Office Refit", "Ongoing", 44, "Khulan Serjee", "2026-10-31", "Internal works",
+                client = "Internal — MMS Head Office", start = "2026-08-03", revenue = 145_000_000.0),
         ),
         assignedTasks = listOf(
-            TaskItem("Review SIT-01 blast vibration report", "Tavan Tolgoi East Expansion", "2026-10-10", "High", "EMP0002", started = "2026-10-01"),
-            TaskItem("Approve RMS-01 conveyor gearbox purchase", "Darkhan Conveyor Replacement", "2026-10-15", "High", "EMP0011", started = "2026-10-03"),
-            TaskItem("Sign off SIT-02 recovery schedule", "Oyu Tolgoi Haul Road Upgrade", "2026-10-20", "Medium", "EMP0003", started = "2026-10-05"),
-            TaskItem("SIT-01 Safety inspection", "Tavan Tolgoi East Expansion", "2026-10-08", "High", "EMP0005", started = "2026-10-04"),
-            TaskItem("MFG-01 Equipment testing", "Erdenet Crusher Modernisation", "2026-10-12", "Medium", "EMP0007", started = "2026-10-06"),
+            TaskItem("Review S-01 blast vibration report", "Tavan Tolgoi East Expansion", "2026-10-10", "High", "EMP0002", started = "2026-10-01"),
+            TaskItem("Approve R-01 conveyor gearbox purchase", "Darkhan Conveyor Replacement", "2026-10-15", "High", "EMP0011", started = "2026-10-03"),
+            TaskItem("Sign off S-02 recovery schedule", "Oyu Tolgoi Haul Road Upgrade", "2026-10-20", "Medium", "EMP0003", started = "2026-10-05"),
+            TaskItem("S-01 Safety inspection", "Tavan Tolgoi East Expansion", "2026-10-08", "High", "EMP0005", started = "2026-10-04"),
+            TaskItem("M-01 Equipment testing", "Erdenet Crusher Modernisation", "2026-10-12", "Medium", "EMP0007", started = "2026-10-06"),
             TaskItem("Weekly team meeting", "", "2026-10-07", "Low", "EMP0002", started = "2026-10-07"),
-            TaskItem("SIT-04 Geological survey", "Tsaidam Lithium Exploration", "2026-10-18", "High", "EMP0008", started = "2026-10-09"),
-            TaskItem("RMS-01 Maintenance review", "Darkhan Conveyor Replacement", "2026-10-14", "Medium", "EMP0011", started = "2026-10-10"),
+            TaskItem("S-04 Geological survey", "Tsaidam Lithium Exploration", "2026-10-18", "High", "EMP0008", started = "2026-10-09"),
+            TaskItem("R-01 Maintenance review", "Darkhan Conveyor Replacement", "2026-10-14", "Medium", "EMP0011", started = "2026-10-10"),
         ),
         team = TEAM_ROSTER,
         forecasts = listOf(

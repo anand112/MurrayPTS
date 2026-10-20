@@ -19,10 +19,16 @@ import kotlinx.html.img
 import kotlinx.html.main
 import kotlinx.html.meta
 import kotlinx.html.nav
+import kotlinx.html.optGroup
+import kotlinx.html.option
+import kotlinx.html.script
 import kotlinx.html.p
 import kotlinx.html.span
 import kotlinx.html.title
 import kotlinx.html.unsafe
+import mn.murray.pts.security.Authorization
+import mn.murray.pts.service.LessonService
+import mn.murray.pts.service.TaskService
 
 private fun icon(path: String): String =
     """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">$path</svg>"""
@@ -42,31 +48,163 @@ val ICONS = mapOf(
 
 data class NavItem(val id: String, val path: String, val label: String, val icon: String, val count: Int?)
 
+/**
+ * The number beside *Assigned tasks*: **every** card that page prints, finished ones included.
+ *
+ * Since **Stage 55** the Assigned tasks page prints two boards — the reader's own project cards and their own
+ * Other-task cards — so the pill is the size of both lists together, and can never be built from cards the page
+ * would not show. Each list is scoped by the same personal rule the page reads through
+ * ([mn.murray.pts.service.TaskService.assignedFor] and
+ * [mn.murray.pts.service.TaskService.assignedOtherFor]), so the count passes `canManage = false` regardless of
+ * role: it is the reader's *own* cards, never the team's. (Management's wider read of the whole board lives on
+ * the Team sheet, the project pages and the Calendar, not beside this link.)
+ *
+ * Since **Stage 54** it counts every card those lists hold, including the ones sitting in the Completed column —
+ * so the number beside the link is exactly the count of cards the reader's boards print, with no card excluded.
+ * This retires Stage 27's exception, which left Completed out so the figure would fall as work finished; the
+ * reader asked for the opposite — the pill to answer *how many tasks are assigned to me*, finished ones being
+ * tasks all the same. (What still distinguishes an open card is the Completed column itself and the boards' own
+ * per-column counts, plus the Team sheet's OPEN TASKS figure, which is deliberately a count of *open* work only
+ * and is untouched here.)
+ */
+private fun visibleTaskCount(employeeNumber: String): Int =
+    TaskService.assignedFor(employeeNumber, canManage = false).size +
+        TaskService.assignedOtherFor(employeeNumber).size
+
 fun navItems(employeeNumber: String): List<NavItem> = listOf(
     NavItem("projects", "/app/projects", "Projects", ICONS["folder"]!!, DemoData.projects.size),
-    NavItem("assigned-tasks", "/app/assigned-tasks", "Assigned tasks", ICONS["check"]!!, DemoData.assignedTasks.size),
+    NavItem("assigned-tasks", "/app/assigned-tasks", "Assigned tasks", ICONS["check"]!!, visibleTaskCount(employeeNumber)),
     NavItem("calendar", "/app/calendar", "Calendar", ICONS["calendar"]!!, null),
     NavItem("team", "/app/team", "Team", ICONS["users"]!!, DemoData.team.size),
-    NavItem("forecasts", "/app/forecasts", "Forecasts", ICONS["message"]!!, DemoData.forecasts.size),
-    NavItem("lessons", "/app/lessons", "Lesson learnt", ICONS["star"]!!, DemoData.lessons.size),
+    // The money sheet has one line per project per month, so the number beside it is the number of
+    // projects on the sheet — the legacy hour-planning rows the pill used to count are still in the
+    // `forecasts` table for the importer's sake, but the page does not read them (V8).
+    NavItem("forecasts", "/app/forecasts", "Forecasts", ICONS["message"]!!, DemoData.projects.size),
+    // The lesson pill counts the active sheet only: a lesson somebody archived has been read and put
+    // away, so the number beside the page is the number of lessons still waiting to be talked about.
+    NavItem("lessons", "/app/lessons", "Lesson learnt", ICONS["star"]!!, LessonService.activeCount()),
     NavItem("other-tasks", "/app/other-tasks", "Other tasks", ICONS["user"]!!, DemoData.otherTasks.size),
     NavItem("todo", "/app/todo", "To-do", ICONS["list"]!!, DemoData.todos.count { it.owner == employeeNumber }),
     NavItem("access-control", "/app/access-control", "Access control", ICONS["shield"]!!, null),
     NavItem("settings", "/app/settings", "Settings", ICONS["gear"]!!, null),
 )
 
-fun HTML.appPage(session: UserSession, section: String, title: String, block: DIV.(UserSession) -> Unit) {
+/**
+ * The three sections whose whole job is a management function: the backlog board, the account/password table,
+ * and the Settings sheet that *is* the roster. A Viewer is not offered them in the sidebar (Stage 51).
+ *
+ * They are kept here rather than dropped from [navItems] because that list does double duty — the notification
+ * bell resolves a stored item's section back to a path through it (see [mn.murray.pts.notificationBell]). Take
+ * the items out of [navItems] and a Viewer's backlog-card notification silently falls through to /app/projects.
+ * The routes check the role again; a hidden link is presentation, never the right itself.
+ */
+val MANAGEMENT_ONLY_NAV = setOf("other-tasks", "access-control", "settings")
+
+/** [navItems] as one account's sidebar should actually print it: the management-only three only for management. */
+fun navItemsFor(employeeNumber: String): List<NavItem> {
+    val all = navItems(employeeNumber)
+    return if (Authorization.canManage(employeeNumber)) all
+    else all.filter { it.id !in MANAGEMENT_ONLY_NAV }
+}
+
+/**
+ * The department a member is presented under. The roster carries blanks for anyone added without
+ * one, and filing them under [UNASSIGNED_DEPARTMENT] keeps them on the page instead of at the end
+ * of the sort where nobody scrolls.
+ */
+const val UNASSIGNED_DEPARTMENT = "Unassigned"
+
+fun departmentLabel(member: Member): String = member.department.trim().ifBlank { UNASSIGNED_DEPARTMENT }
+
+/**
+ * The team in the order every page presents it: department A→Z, then name A→Z. The roster itself is
+ * stored in hire order, which reads as shuffled once twelve departments are in play, so the Team
+ * table, its assign form and every manager/assignee picker all sort through here rather than each
+ * picking their own order.
+ */
+fun teamByDepartment(): List<Member> =
+    DemoData.team.sortedWith(compareBy({ departmentLabel(it) }, { it.name.trim() }))
+
+/**
+ * [teamByDepartment] cut into one run per department, in the same order. `groupBy` preserves
+ * insertion order, so sorting first and grouping second is what makes the headings appear
+ * alphabetically without a second sort of the keys.
+ */
+fun teamGroupedByDepartment(): List<Pair<String, List<Member>>> =
+    teamByDepartment().groupBy { departmentLabel(it) }.toList()
+
+/**
+ * The member choices in a `<select>`, as one `<optgroup>` per department. Every picker on the app
+ * goes through this so the Team page and its dropdowns agree on the order.
+ *
+ * [valueOf] differs per form, not per taste: the Team assign form and the task popup post an
+ * employee number, while both project manager forms post a name, which is what their routes look
+ * up. [selectedValue] is whatever the form currently holds, so a rejected submit comes back with
+ * the same person picked.
+ */
+fun kotlinx.html.SELECT.optGroupPerMember(
+    selectedValue: String,
+    valueOf: (Member) -> String = { it.employeeNumber },
+) {
+    teamGroupedByDepartment().forEach { (department, members) ->
+        optGroup {
+            attributes["label"] = department
+            members.forEach { member ->
+                option {
+                    value = valueOf(member)
+                    selected = valueOf(member) == selectedValue
+                    +"${member.employeeNumber} · ${member.name} (${member.position})"
+                }
+            }
+        }
+    }
+}
+
+// Front-end assets for the app shell are served as external static files (Stage 7):
+//   - /static/css/base.css + /static/css/app.css  — linked in appPage's <head>
+//   - /static/js/theme.js                         — emitted by themeScript() in Views.kt
+//   - /static/js/app.js                           — delegated [data-autosubmit] / [data-confirm]
+//     behaviours, replacing the inline onchange/onclick attributes the legacy views emitted.
+// Per-page scripts are linked by the pages that need them (kanban.js, calendar-modal.js,
+// team.js, todo.js, settings-accounts.js, access-control.js). notifications.js is linked by
+// the bell itself, so it travels with the markup it drives and every page gets it for free.
+// The former inline PAGE_CSS/APP_CSS/THEME_JS/LOGO_SVG Kotlin constants were removed.
+// Nav icons remain inline SVG (data, not executable — CSP-safe) via unsafe { +item.icon }.
+
+/**
+ * The authenticated shell: sidebar, a page head, then the page body.
+ *
+ * [actions] is an optional slot rendered in the page head to the right of the title —
+ * used by the Projects page for its `+ New project` opener. Pages that leave it out
+ * render the heading alone, exactly as before.
+ *
+ * [subtitle] is the short grey line beside the title, for the pages whose name needs one: *Other tasks*
+ * carries "tasks outside of projects", which is the sentence its own board used to repeat under a second
+ * heading. One head per page is the reason it is here rather than in the page body — a control that changes
+ * the whole page belongs opposite the page's name, not beneath it.
+ */
+fun HTML.appPage(
+    session: UserSession,
+    section: String,
+    title: String,
+    subtitle: String? = null,
+    actions: (DIV.() -> Unit)? = null,
+    block: DIV.(UserSession) -> Unit,
+) {
     head {
         meta { charset = "utf-8" }
         meta { name = "viewport"; content = "width=device-width, initial-scale=1" }
         title("MURRAY PTS — $title")
-        unsafe { +("<style>$PAGE_CSS$APP_CSS</style>") }
+        unsafe {
+            +("""<link rel="stylesheet" href="/static/css/base.css">""")
+            +("""<link rel="stylesheet" href="/static/css/app.css">""")
+        }
     }
     body("app-body") {
         div("app") {
             aside("sidebar") {
                 a(href = "/app") {
-                    img(src = "/static/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
+                    img(src = "/static/assets/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
                         attributes["class"] = "logo-img side-logo"
                     }
                 }
@@ -75,7 +213,7 @@ fun HTML.appPage(session: UserSession, section: String, title: String, block: DI
                     span("accent") { +"(PTS)" }
                 }
                 nav {
-                    navItems(session.employeeNumber).forEach { item ->
+                    navItemsFor(session.employeeNumber).forEach { item ->
                         a(classes = if (item.id == section) "nav-item active" else "nav-item") {
                             href = item.path
                             unsafe { +item.icon }
@@ -127,412 +265,44 @@ fun HTML.appPage(session: UserSession, section: String, title: String, block: DI
                 }
             }
             main("main") {
-                div("page-head") { h1 { +title } }
+                div("page-head") {
+                    h1 {
+                        +title
+                        subtitle?.let { span("page-sub") { +it } }
+                    }
+                    div("page-right") {
+                        actions?.let { render -> div("page-actions") { render() } }
+                        // The bell sits at the far right of every authenticated page, after the page's
+                        // own action buttons, so it never competes with them for position.
+                        notificationBell(session, section)
+                    }
+                }
                 div("content") { block(session) }
             }
         }
         themeScript()
+        // Delegated handlers for [data-autosubmit] / [data-confirm]; must load on every
+        // authenticated page because the sidebar pin forms and nav use them too.
+        script(src = "/static/js/app.js") {}
     }
 }
 
-private fun initials(name: String): String =
+/**
+ * The two letters an avatar prints for a name: the first letter of the first two words, which is what
+ * the roster's own names reduce to ("Anar Purev-Osor" → `AP`).
+ */
+fun initials(name: String): String =
     name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")
 
-// App CSS is kept inline for the current Ktor HTML serving approach
-// External version is available in src/main/resources/styles.css for future static file serving
+/**
+ * The avatar's colour, from the account rather than from the row: the same person is the same colour on
+ * every sheet, which is what makes a column of names readable at a glance.
+ *
+ * The six tints are the ones [mn.murray.pts.appPage] ships in `app.css` as `.ll-a1`…`.ll-a6` — named
+ * where they first appeared, and a palette every sheet now draws from rather than a second set of
+ * colour rules per page.
+ */
+fun avatarTint(employeeNumber: String): String =
+    AVATAR_TINTS[employeeNumber.sumOf { it.code } % AVATAR_TINTS.size]
 
-const val APP_CSS = """
-:root { --main-bg: #f4f6f8; --accent: #5a8a12; --accent-strong: #33500b; --accent-soft: #e9f4d8; }
-html[data-theme="dark"] { --main-bg: #0e141c; --accent-soft: #24341a; }
-html[data-accent="blue"] { --accent: #2f6fb2; --accent-strong: #1a4f8a; --accent-soft: #e3eefb; }
-html[data-accent="blue"][data-theme="dark"] { --accent-soft: #16283c; }
-html[data-accent="amber"] { --accent: #c07c10; --accent-strong: #8a5a06; --accent-soft: #fbeed3; }
-html[data-accent="amber"][data-theme="dark"] { --accent-soft: #33260f; }
-body.app-body { display: block; padding: 0; background: var(--main-bg); }
-.app { display: flex; min-height: 100vh; }
-.sidebar {
-    width: 264px; flex: 0 0 264px;
-    background: var(--card-bg); border-right: 1px solid var(--input-border);
-    display: flex; flex-direction: column;
-    padding: 20px 14px 16px;
-    position: sticky; top: 0; height: 100vh; overflow-y: auto;
-}
-.sidebar .logo { width: 170px; margin: 0 auto 4px; }
-.sidebar .logo-img.side-logo { width: 168px; max-width: 100%; height: auto; display: block; margin: 0 0 6px; }
-.side-caption { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; color: var(--muted); margin: 4px 0 18px; }
-.side-caption .accent { color: var(--accent); font-weight: 800; }
-.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--title); text-decoration: none; font-size: 14px; font-weight: 500; }
-.nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--muted); }
-.nav-item:hover { background: var(--input-bg); }
-.nav-item.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
-.nav-item.active svg { color: var(--accent-strong); }
-.nav-item .label { flex: 1; }
-.pill { background: var(--input-bg); border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--muted); }
-.nav-item.active .pill { background: var(--card-bg); color: var(--accent-strong); }
-.pinned { margin: 18px 4px 0; }
-.pinned h2 { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
-.pinned .empty { font-size: 12px; line-height: 1.6; color: var(--note); }
-.pinned-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.pinned-row a { flex: 1; font-size: 13px; color: var(--title); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pinned-row a:hover { color: var(--accent-strong); text-decoration: underline; }
-.side-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--input-border); }
-.user-row { display: flex; align-items: center; gap: 10px; }
-.avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: var(--accent-strong); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
-.avatar.lg { width: 44px; height: 44px; flex-basis: 44px; font-size: 14px; margin: 0 auto 8px; }
-.user-meta { flex: 1; min-width: 0; }
-.user-name { font-size: 13px; font-weight: 600; color: var(--title); }
-.user-role { font-size: 11px; color: var(--muted); }
-.icon-btns { display: flex; gap: 6px; }
-.icon-btn { width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--input-bg); cursor: pointer; font-size: 14px; line-height: 1; }
-a.logout { display: block; margin-top: 12px; padding: 9px; border-radius: 8px; background: var(--input-bg); color: var(--title); font-size: 13.5px; font-weight: 600; text-align: center; text-decoration: none; }
-a.logout:hover { background: var(--input-border); }
-.main { flex: 1; min-width: 0; padding: 28px 32px; }
-.page-head { margin-bottom: 18px; }
-.page-head h1 { font-size: 22px; font-weight: 800; color: var(--title); }
-.card-panel { background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
-.panel-caption { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
-table.grid { width: 100%; border-collapse: collapse; font-size: 13.5px; }
-table.grid th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 10px; border-bottom: 1px solid var(--input-border); }
-table.grid td { padding: 10px; border-bottom: 1px solid var(--input-border); color: var(--title); vertical-align: middle; }
-table.grid tr:last-child td { border-bottom: none; }
-.code { font-family: Consolas, monospace; font-size: 12px; color: var(--muted); font-weight: 600; }
-.pname { font-weight: 600; }
-.chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11.5px; font-weight: 600; }
-.chip.ontrack { background: #e6f4d7; color: #3f620e; }
-.chip.atrisk { background: #fdecea; color: #b3261e; }
-.chip.done { background: #e3f1fd; color: #1a5fb4; }
-.chip.planning { background: #f3e8fd; color: #6f3fa0; }
-.chip.onhold { background: #fbeed3; color: #8a5a06; }
-.progress { display: inline-block; width: 110px; height: 8px; border-radius: 4px; background: var(--input-bg); overflow: hidden; vertical-align: middle; }
-.progress .bar { height: 100%; background: var(--accent); }
-.pct { margin-left: 8px; font-size: 12px; color: var(--muted); }
-.pin-btn { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--muted); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
-.pin-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 600; }
-.task-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--input-border); }
-.task-row:last-child { border-bottom: none; }
-.task-main { flex: 1; min-width: 0; }
-.task-title { font-size: 14px; font-weight: 600; color: var(--title); }
-.task-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.team-name { display: flex; align-items: center; gap: 10px; }
-.avatar.sm { width: 28px; height: 28px; flex-basis: 28px; font-size: 11px; }
-.assignee { display: inline-flex; align-items: center; gap: 8px; margin-right: 12px; }
-.assignee-meta { display: flex; flex-direction: column; line-height: 1.2; }
-.assignee-name { font-size: 12.5px; font-weight: 600; color: var(--title); }
-.assignee-id { font-size: 11px; color: var(--muted); }
-.assignee.none { font-size: 12px; color: var(--muted); font-style: italic; margin-right: 12px; }
-.status-form { display: inline-flex; margin-right: 10px; }
-.status-select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-form.cell-edit { margin: 0; }
-form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; }
-form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
-.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: #c92a3d; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
-.delete-btn:hover { background: rgba(220, 53, 69, .16); }
-.field-err { color: #c92a3d; font-size: 12.5px; font-weight: 600; margin: 4px 0 0; }
-.kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: start; }
-.kanban-other { grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
-.kcol { background: rgba(0, 0, 0, .035); border-radius: 12px; padding: 12px; min-height: 190px; }
-html[data-theme="dark"] .kcol { background: rgba(255, 255, 255, .05); }
-.kcol.drag-over { outline: 2px dashed var(--accent); }
-.kcol-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.kcol-title { font-size: 13px; font-weight: 700; color: var(--title); }
-.kcol-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 600; }
-.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 9px; }
-.dot.d-gray { background: #8a9199; }
-.dot.d-amber { background: #e0a800; }
-.dot.d-orange { background: #e07000; }
-.dot.d-red { background: #d93025; }
-.dot.d-green { background: #1e8e3e; }
-.kcard { background: var(--card-bg); border-radius: 8px; border-left: 3px solid #8a9199; padding: 10px 12px; margin-top: 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
-.kcard[draggable="true"] { cursor: grab; }
-.kcard.s-notstarted { border-left-color: #8a9199; }
-.kcard.s-inprogress { border-left-color: #e0a800; background: #fdf6dd; }
-.kcard.s-onhold { border-left-color: #e07000; background: #fdeede; }
-.kcard.s-blocked { border-left-color: #d93025; background: #fdecea; }
-.kcard.s-completed { border-left-color: #1e8e3e; background: #e6f4ea; }
-html[data-theme="dark"] .kcard.s-inprogress { background: #332b12; }
-html[data-theme="dark"] .kcard.s-onhold { background: #33220f; }
-html[data-theme="dark"] .kcard.s-blocked { background: #331512; }
-html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
-.kcard.s-other { border-left-color: #5f6a76; }
-.kmove { display: flex; gap: 6px; margin-top: 9px; }
-.kmove-btn { flex: 1; cursor: pointer; font-size: 10.5px; font-weight: 600; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, color .12s, border-color .12s; }
-.kmove-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(0, 0, 0, .04); }
-html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
-.kmove-btn.next { color: var(--accent); border-color: var(--accent); }
-.kmove-btn:disabled { opacity: .5; cursor: default; }
-.tcode { display: inline-block; background: #e6f4d7; color: #3f620e; border-radius: 6px; font-size: 10.5px; font-weight: 700; padding: 2px 7px; margin-bottom: 6px; }
-html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
-.ktitle { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
-.kmeta { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-size: 11.5px; color: var(--muted); }
-.kmeta.kfoot { justify-content: space-between; }
-.prio { font-weight: 600; }
-.prio::before { content: "● "; font-size: 9px; }
-.prio.p-high { color: #d93025; }
-.prio.p-med { color: #e07000; }
-.prio.p-low { color: #8a9199; }
-.ostatus { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-weight: 600; }
-.avatar.xs { width: 22px; height: 22px; flex-basis: 22px; font-size: 9px; margin-left: auto; }
-.addtask input[type="text"], .addbucket input[type="text"] { width: 100%; border: none; background: transparent; color: var(--muted); font-size: 12.5px; padding: 8px 4px; }
-.addtask input[type="text"]:focus, .addbucket input[type="text"]:focus { outline: none; color: var(--title); }
-.addbucket { border: 1.5px dashed var(--input-border); background: transparent; }
-.other-head { display: flex; align-items: baseline; gap: 8px; margin: 18px 0 10px; }
-.other-title { font-size: 14px; font-weight: 700; color: var(--title); }
-.other-sub { font-size: 12px; color: var(--muted); }
-.team-table th.num, .team-table td.num { text-align: center; width: 1%; white-space: nowrap; }
-.count { display: inline-block; min-width: 24px; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
-.count.zero { background: var(--input-bg); color: var(--muted); opacity: .55; font-weight: 600; }
-.count.ontrack { background: #e6f4d7; color: #3f620e; }
-.count.atrisk { background: #fdecea; color: #b3261e; }
-.count.done { background: #e3f1fd; color: #1a5fb4; }
-.count.planning { background: #f3e8fd; color: #6f3fa0; }
-.count.onhold { background: #fbeed3; color: #8a5a06; }
-.count-total { font-size: 13px; font-weight: 800; color: var(--title); }
-.fc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.fc-card { margin-bottom: 0; }
-.fc-period { font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--accent-strong); text-transform: uppercase; }
-.fc-card h3, .card-panel h3 { font-size: 15px; font-weight: 700; color: var(--title); margin: 4px 0 6px; }
-.fc-hours { font-size: 22px; font-weight: 800; color: var(--title); margin-bottom: 6px; }
-.lesson-text { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin-top: 6px; }
-.todo-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 14px; color: var(--title); border-bottom: 1px solid var(--input-border); }
-.todo-row:last-child { border-bottom: none; }
-.todo-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; cursor: grab; }
-.todo-head h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.todo-count { font-size: 12px; color: var(--muted); font-weight: 600; }
-.todo-due { margin: 0 0 8px; }
-.todo-due-form { margin: 0; display: flex; align-items: center; gap: 6px; }
-.todo-due-label { font-size: 12px; font-weight: 600; color: var(--muted); }
-.todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: 5px 8px; font-size: 12px; }
-.todo-del-form { margin: 0 0 0 auto; }
-.calendar-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
-.calendar-grid th { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 4px; border-bottom: 1px solid var(--input-border); }
-.calendar-grid td { padding: 0; border: 1px solid var(--input-border); vertical-align: top; min-height: 100px; }
-.calendar-cell { width: 14.28%; min-height: 100px; position: relative; }
-.calendar-day { padding: 6px 8px; font-weight: 600; font-size: 12px; color: var(--title); }
-.calendar-day.today { background: var(--accent-soft); color: var(--accent-strong); }
-.calendar-task-bar { color: #fff; padding: 4px 6px; margin-top: 4px; font-size: 11px; font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-.calendar-task-bar:hover { opacity: 0.9; }
-.calendar-task-link { color: #fff; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.calendar-task-link:hover { text-decoration: underline; }
-.calendar-bar-assignee { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
-.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.5); }
-.modal-content { background-color: var(--card-bg); margin: 10% auto; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; position: relative; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); }
-.close { color: var(--muted); float: right; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
-.close:hover { color: var(--title); }
-.modal-body { margin-top: 16px; }
-.modal-row { display: flex; margin-bottom: 12px; align-items: center; }
-.modal-label { font-weight: 600; color: var(--muted); width: 100px; flex-shrink: 0; }
-.modal-value { color: var(--title); }
-.modal-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--input-border); }
-.modal-btn { display: inline-block; padding: 8px 16px; background: var(--accent); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; }
-.modal-btn:hover { background: var(--accent-strong); }
-.todo-del { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; }
-.todo-del:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
-.todo-title { flex: 1; }
-.todo-title.done { text-decoration: line-through; color: var(--muted); }
-.todo-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
-.todo-add input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 11px 14px; font-size: 14px; }
-.todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: 10px 10px; font-size: 13px; }
-.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: 8px 6px; font-size: 11.5px; }
-.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: 4px 6px; font-size: 11.5px; }
-.todo-due-form input[type="date"]::-webkit-calendar-picker-indicator,
-.todo-add input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
-.todo-due-form input[type="date"],
-.todo-add input[type="date"] { background: transparent; border-color: transparent; }
-.todo-due-form input[type="date"]:focus,
-.todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--input-border); }
-.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5; }
-.todo-board { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
-.todo-board .todo-list { flex: 0 0 330px; max-width: 330px; }
-.todo-check { margin: 0; display: flex; align-items: center; }
-.todo-check input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.todo-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
-.todo-head-actions .todo-del-form { margin: 0; }
-.todo-move-form { margin: 0; display: flex; gap: 2px; }
-.todo-move { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; padding: 4px 7px; border-radius: 6px; }
-.todo-move:hover:not([disabled]) { color: var(--accent-strong); background: var(--accent-soft); }
-.todo-move[disabled] { opacity: .3; cursor: default; }
-.todo-list.done { opacity: .72; }
-.todo-list.done .todo-head h3 { text-decoration: line-through; color: var(--muted); }
-.todo-list.dragging { opacity: .55; outline: 2px dashed var(--accent); outline-offset: -2px; }
-.set-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--input-border); font-size: 13.5px; color: var(--title); }
-.set-row:last-of-type { border-bottom: none; }
-.set-key { color: var(--muted); }
-.flash { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
-.flash.ok { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
-.flash.err { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0; }
-select {
-    width: 100%;
-    padding: 11px 12px;
-    font-size: 14px;
-    font-family: inherit;
-    color: var(--input-text);
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
-    border-radius: 8px;
-    outline: none;
-}
-.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
-.form-grid .field { margin-bottom: 0; }
-.filter-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.ftab {
-    display: inline-flex; align-items: center; gap: 6px;
-    padding: 6px 12px; border-radius: 16px;
-    background: var(--input-bg); color: var(--muted);
-    font-size: 12.5px; font-weight: 600; text-decoration: none;
-}
-.ftab:hover { color: var(--title); }
-.ftab.active { background: var(--accent-soft); color: var(--accent-strong); }
-.ftab .pill { background: rgba(0, 0, 0, .06); }
-html[data-theme="dark"] .ftab .pill { background: rgba(255, 255, 255, .08); }
-.group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.group-head .chip { font-size: 13px; font-weight: 700; padding: 4px 12px; }
-.group-head .pill { background: rgba(0, 0, 0, .06); }
-html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08); }
-.chip.t-mfg { background: #e3f1fd; color: #1a5fb4; }
-.chip.t-rms { background: #fbeed3; color: #8a5a06; }
-.chip.t-sit { background: #e6f4d7; color: #3f620e; }
-.chip.t-lab { background: #f3e8fd; color: #6f3fa0; }
-.row-link { color: var(--title); text-decoration: none; }
-.row-link:hover { color: var(--accent-strong); text-decoration: underline; }
-.detail-head { margin-bottom: 12px; }
-.back-link { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; }
-.back-link:hover { color: var(--accent-strong); }
-.detail-title { margin: 6px 0 14px; font-size: 22px; color: var(--title); }
-.detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
-.detail-item { display: flex; flex-direction: column; gap: 5px; }
-.detail-key { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; }
-.detail-val { font-size: 14px; color: var(--title); font-weight: 600; }
-.assignee.none { color: var(--muted); font-style: italic; }
-.pw-edit { display: flex; gap: 6px; align-items: center; }
-.pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
-.team-table tbody tr[data-emp] { cursor: pointer; }
-.team-table tbody tr[data-emp]:hover td { background: var(--input-bg); }
-.mhint { color: var(--muted); font-size: 15px; font-weight: 700; }
-.team-table tbody tr[data-emp]:hover .mhint { color: var(--accent-strong); }
-.mpop { position: absolute; z-index: 900; width: 400px; max-width: calc(100vw - 24px); background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 12px; box-shadow: 0 18px 44px rgba(0, 0, 0, .22); overflow: hidden; }
-.mpop[hidden] { display: none; }
-.mpop-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--accent-soft); }
-.mpop-head .avatar.sm { background: var(--accent-strong); }
-.mpop-id { flex: 1; min-width: 0; }
-.mpop-name { font-size: 14px; font-weight: 700; color: var(--title); }
-.mpop-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
-.mpop-x { border: none; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; }
-.mpop-x:hover { color: var(--title); background: rgba(0, 0, 0, .07); }
-.mpop-body { padding: 4px 14px 12px; max-height: min(60vh, 480px); overflow-y: auto; }
-.mpop-sechead { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
-.mpop-empty { font-size: 12.5px; color: var(--note); font-style: italic; padding: 4px 0 2px; }
-.mpop-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--input-border); }
-.mpop-row:last-child { border-bottom: none; }
-.mpop-main { flex: 1; min-width: 0; }
-.mpop-title { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
-.mpop-title .code { margin-right: 4px; }
-.mpop-title .tcode { margin-right: 6px; }
-.tcode.m { font-size: 9.5px; padding: 1px 5px; }
-.mpop-meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 3px; flex-wrap: wrap; }
-.mdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 8px; }
-.mprog { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--input-bg); overflow: hidden; margin-left: 4px; }
-.mprog-bar { display: block; height: 100%; background: var(--accent); }
-.mrole { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--input-bg); color: var(--muted); margin-top: 2px; }
-.mrole.mgr { background: var(--accent-soft); color: var(--accent-strong); }
-.tasks-toggle { min-width: 32px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: 12.5px; font-weight: 700; cursor: pointer; }
-.tasks-toggle:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
-.tasks-toggle.open { background: var(--accent-soft); border-color: var(--accent-strong); color: var(--accent-strong); }
-.tasks-toggle.zero { color: var(--muted); font-weight: 600; }
-.quick-add { margin-left: 6px; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.4; cursor: pointer; }
-.quick-add:hover { color: var(--accent-strong); border-color: var(--accent-strong); background: var(--accent-soft); }
-tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
-tr.member-tasks[hidden] { display: none; }
-tr.member-tasks .mpop-row { padding: 7px 0; }
-.mtd-empty { font-size: 12.5px; color: var(--note); font-style: italic; }
-.other-tag { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--input-bg); color: var(--muted); margin-right: 4px; }
-.manager-set { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.manager-set select { flex: 0 1 380px; width: auto; min-width: 260px; padding: 7px 10px; font-size: 13px; }
-.manager-set .submit { margin-top: 0; }
-.acct-email { font-size: 13px; color: var(--muted); }
-table.grid td.num { text-align: center; width: 1%; white-space: nowrap; }
-.count-btn { min-width: 34px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--accent-strong); font-size: 12.5px; font-weight: 800; font-family: inherit; cursor: pointer; }
-.count-btn:hover { border-color: var(--accent-strong); background: var(--accent-soft); }
-.count-btn.open { background: var(--accent-soft); border-color: var(--accent-strong); }
-.count-zero { font-size: 13px; color: var(--muted); opacity: 0.55; }
-tr.acct-detail > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
-tr.acct-detail[hidden] { display: none; }
-tr.acct-detail .mpop-row { padding: 7px 0; }
-.acct-pane[hidden] { display: none; }
-.acct-pane + .acct-pane { border-top: 1px dashed var(--input-border); margin-top: 6px; padding-top: 6px; }
-.acct-pane-head { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 4px 0 2px; }
-"""
-
-// Theme JavaScript is kept inline for the current Ktor HTML serving approach
-// External version is available in src/main/resources/theme.js for future static file serving
-
-const val THEME_JS = """
-(function () {
-    var root = document.documentElement;
-    var theme = localStorage.getItem('pts-theme');
-    if (theme) root.setAttribute('data-theme', theme);
-    var accent = localStorage.getItem('pts-accent');
-    if (accent) root.setAttribute('data-accent', accent);
-    var themeBtn = document.getElementById('themeToggle');
-    function paintTheme() {
-        if (themeBtn) themeBtn.textContent = root.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙';
-    }
-    if (themeBtn) themeBtn.addEventListener('click', function () {
-        var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-        root.setAttribute('data-theme', next);
-        localStorage.setItem('pts-theme', next);
-        paintTheme();
-    });
-    paintTheme();
-    var accentBtn = document.getElementById('accentToggle');
-    var order = ['green', 'blue', 'amber'];
-    if (accentBtn) accentBtn.addEventListener('click', function () {
-        var current = root.getAttribute('data-accent') || 'green';
-        var next = order[(order.indexOf(current) + 1) % order.length];
-        root.setAttribute('data-accent', next);
-        localStorage.setItem('pts-accent', next);
-    });
-});
-"""
-
-// Logo SVG is kept inline for the current Ktor HTML serving approach
-// External version is available in src/main/resources/logo.json for future static file serving
-
-const val LOGO_SVG = """
-<svg class="logo" viewBox="0 0 260 130" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Murray Mining Services Mongolia">
-  <defs>
-    <linearGradient id="murrayBanner" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#8dc63f"/>
-      <stop offset="1" stop-color="#3e7c17"/>
-    </linearGradient>
-  </defs>
-  <g stroke="#7ab648" stroke-width="1.4">
-    <line x1="62" y1="65" x2="62" y2="8"/>
-    <line x1="62" y1="65" x2="62" y2="122"/>
-    <line x1="62" y1="65" x2="10" y2="65"/>
-    <line x1="62" y1="65" x2="112" y2="65"/>
-    <line x1="62" y1="65" x2="26" y2="29"/>
-    <line x1="62" y1="65" x2="98" y2="101"/>
-    <line x1="62" y1="65" x2="98" y2="29"/>
-    <line x1="62" y1="65" x2="26" y2="101"/>
-  </g>
-  <path d="M84 10 A 62 62 0 0 0 84 120" fill="none" stroke="#2f6b12" stroke-width="3.5"/>
-  <path d="M100 22 A 46 46 0 0 0 100 108" fill="none" stroke="#8dc63f" stroke-width="2"/>
-  <g stroke="#1d4d0b" stroke-width="1.6" fill="none">
-    <circle cx="62" cy="14" r="8"/>
-    <line x1="52" y1="14" x2="72" y2="14"/>
-    <line x1="62" y1="4" x2="62" y2="24"/>
-    <circle cx="62" cy="116" r="8"/>
-    <line x1="52" y1="116" x2="72" y2="116"/>
-    <line x1="62" y1="106" x2="62" y2="126"/>
-    <circle cx="100" cy="40" r="5"/>
-    <circle cx="100" cy="90" r="5"/>
-  </g>
-  <circle cx="86" cy="26" r="6" fill="#1d4d0b"/>
-  <circle cx="86" cy="104" r="6" fill="#1d4d0b"/>
-  <rect x="88" y="50" width="150" height="28" fill="url(#murrayBanner)"/>
-  <text x="163" y="70" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="bold" letter-spacing="7" fill="#ffffff">MURRAY</text>
-  <text x="176" y="94" text-anchor="middle" font-family="Arial, sans-serif" font-size="12" font-weight="bold" letter-spacing="1" fill="#111111">MINING SERVICES</text>
-  <text x="176" y="108" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" letter-spacing="2" fill="#333333">MONGOLIA</text>
-</svg>
-"""
+private val AVATAR_TINTS = listOf("ll-a1", "ll-a2", "ll-a3", "ll-a4", "ll-a5", "ll-a6")

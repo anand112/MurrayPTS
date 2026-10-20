@@ -25,6 +25,8 @@ val sqliteVersion = "3.46.1.3"
 val flywayVersion = "10.20.1"
 val jbcryptVersion = "0.4"
 val dotenvVersion = "6.4.1"
+val mailApiVersion = "2.1.3"
+val angusMailVersion = "2.0.3"
 val junitVersion = "5.10.2"
 
 dependencies {
@@ -35,6 +37,7 @@ dependencies {
     implementation("io.ktor:ktor-server-sessions-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-auth-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-call-logging-jvm:$ktorVersion")
+    implementation("io.ktor:ktor-server-forwarded-header-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-status-pages-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-cors-jvm:$ktorVersion")
     implementation("io.ktor:ktor-server-compression-jvm:$ktorVersion")
@@ -59,6 +62,14 @@ dependencies {
 
     // --- Config ------------------------------------------------------------
     implementation("io.github.cdimascio:dotenv-kotlin:$dotenvVersion")
+
+    // --- Scheduling + outbound email (due-date alerts) ----------------------
+    // The scheduler coroutine needs coroutines explicitly (it was only transitively present
+    // through Ktor before). Jakarta Mail is the API; Eclipse Angus is the SMTP transport that
+    // actually implements it — declaring just the API leaves MailSession without a provider.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
+    implementation("jakarta.mail:jakarta.mail-api:$mailApiVersion")
+    implementation("org.eclipse.angus:angus-mail:$angusMailVersion")
 
     // --- Logging -----------------------------------------------------------
     implementation("ch.qos.logback:logback-classic:$logbackVersion")
@@ -97,7 +108,23 @@ tasks.test {
     }
 }
 
-// Produce a fat-ish distribution via `./gradlew installDist` for Docker/run scripts.
+// ---------------------------------------------------------------------------
+// Packaging
+//
+// The deployable artifact is `./gradlew installDist`, which produces
+//   build/install/murray-pts/bin/murray-pts       (POSIX launcher)
+//   build/install/murray-pts/bin/murray-pts.bat   (Windows launcher — see below)
+//   build/install/murray-pts/lib/*.jar            (app jar + every runtime dependency)
+// The launchers already carry `applicationDefaultJvmArgs` above. deploy/run.sh and the
+// Dockerfile use the POSIX launcher; deploy/run.bat does NOT use the .bat one, because
+// Gradle expands ~70 jars into a single `set CLASSPATH=` line and cmd's 8191-character
+// limit rejects it ("The input line is too long"). run.bat starts the same JVM with a
+// wildcard classpath (`-cp "<lib>\*"`) instead.
+//
+// The bare jar below only sets Main-Class so `java -cp <deps> mn.murray.pts.ApplicationKt`
+// and IDE run configs work. There is no shadow/fat jar: merging 60 dependency jars would buy
+// nothing over installDist and would break the SQLite native driver packaging.
+// ---------------------------------------------------------------------------
 tasks.named<Jar>("jar") {
     manifest {
         attributes["Main-Class"] = "mn.murray.pts.ApplicationKt"

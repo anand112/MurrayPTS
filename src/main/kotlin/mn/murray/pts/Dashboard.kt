@@ -7,7 +7,7 @@ import mn.murray.pts.domain.*
 // - Team.kt: teamContent()
 // - Forecasts.kt: forecastsContent()
 // - Lessons.kt: lessonsContent()
-// - OtherTasks.kt: taskRow(), tasksContent()
+// - OtherTasks.kt: otherTasksContent(), the backlog board's own columns, popup and toggle
 // - Todo.kt: todoContent()
 // - AccessControl.kt: accessContent()
 // - Settings.kt: settingsContent()

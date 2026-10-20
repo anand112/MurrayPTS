@@ -49,7 +49,7 @@ internal fun TR.positionRow(pos: Position, canAdmin: Boolean) {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 input(type = InputType.text, name = "name") {
                     value = pos.name
-                    attributes["onchange"] = "this.form.requestSubmit()"
+                    attributes["data-autosubmit"] = ""
                     attributes["title"] = "Edit position name and press Enter or click away to save"
                 }
             }
@@ -63,7 +63,7 @@ internal fun TR.positionRow(pos: Position, canAdmin: Boolean) {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 select {
                     name = "permissionLevel"
-                    attributes["onchange"] = "this.form.requestSubmit()"
+                    attributes["data-autosubmit"] = ""
                     PERMISSION_LEVELS.forEach { level ->
                         option {
                             selected = level == pos.permissionLevel
@@ -86,7 +86,7 @@ internal fun TR.positionRow(pos: Position, canAdmin: Boolean) {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 input(type = InputType.text, name = "description") {
                     value = pos.description
-                    attributes["onchange"] = "this.form.requestSubmit()"
+                    attributes["data-autosubmit"] = ""
                     attributes["title"] = "Edit description and press Enter or click away to save"
                 }
             }
@@ -99,7 +99,7 @@ internal fun TR.positionRow(pos: Position, canAdmin: Boolean) {
             form(action = "/app/positions/delete", method = FormMethod.post, classes = "cell-edit") {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 button(type = ButtonType.submit, classes = "delete-btn") {
-                    attributes["onclick"] = "return confirm('Are you sure you want to delete this position?')"
+                    attributes["data-confirm"] = "Are you sure you want to delete this position?"
                     +"Delete"
                 }
             }
@@ -133,7 +133,7 @@ fun DIV.accessContent(canAdmin: Boolean, canManage: Boolean, currentEmployeeNumb
                                     input(type = InputType.hidden, name = "employeeNumber") { value = row.employeeNumber }
                                     select {
                                         name = "position"
-                                        attributes["onchange"] = "this.form.requestSubmit()"
+                                        attributes["data-autosubmit"] = ""
                                         DemoData.positions.forEach { pos ->
                                             option {
                                                 selected = pos.name == account.position
@@ -152,7 +152,7 @@ fun DIV.accessContent(canAdmin: Boolean, canManage: Boolean, currentEmployeeNumb
                                     input(type = InputType.hidden, name = "employeeNumber") { value = row.employeeNumber }
                                     select {
                                         name = "access"
-                                        attributes["onchange"] = "this.form.requestSubmit()"
+                                        attributes["data-autosubmit"] = ""
                                         ACCESS_LEVELS.forEach { level ->
                                             option {
                                                 selected = level == account.access
@@ -196,8 +196,7 @@ fun DIV.accessContent(canAdmin: Boolean, canManage: Boolean, currentEmployeeNumb
                                     form(action = "/app/access-control/delete", method = FormMethod.post, classes = "cell-edit") {
                                         input(type = InputType.hidden, name = "employeeNumber") { value = row.employeeNumber }
                                         button(type = ButtonType.submit, classes = "delete-btn") {
-                                            val safeName = row.name.replace("'", "\\'")
-                                            attributes["onclick"] = "return confirm('Delete $safeName (${row.employeeNumber})? They will also be removed from the team. This cannot be undone.')"
+                                            attributes["data-confirm"] = "Delete ${row.name} (${row.employeeNumber})? They will also be removed from the team. This cannot be undone."
                                             +"Delete"
                                         }
                                     }
@@ -336,45 +335,8 @@ fun DIV.accessContent(canAdmin: Boolean, canManage: Boolean, currentEmployeeNumb
                 button(type = ButtonType.submit, classes = "submit") { +"Add position" }
             }
         }
-        // Positions are managed in place: the script below intercepts add/update/delete
+        // Positions are managed in place: the external script intercepts add/update/delete
         // submits and swaps the table row via fetch, avoiding a full page reload.
-        script {
-            unsafe {
-                +"""
-                (function () {
-                  document.addEventListener('submit', function (e) {
-                    var f = e.target;
-                    if (!f || !f.getAttribute) return;
-                    var a = f.getAttribute('action') || '';
-                    if (a !== '/app/positions' && a !== '/app/positions/update' && a !== '/app/positions/delete') return;
-                    e.preventDefault();
-                    fetch(a, { method: 'POST', body: new FormData(f), headers: { 'X-Requested-With': 'fetch' } })
-                      .then(function (r) { return r.status === 204 ? null : r.text(); })
-                      .then(function (html) {
-                        var tr = f.closest('tr');
-                        if (a === '/app/positions/delete') {
-                          if (tr) tr.remove();
-                        } else if (a === '/app/positions') {
-                          var tb = document.getElementById('positions-tbody');
-                          if (tb && html) {
-                            var tmp = document.createElement('tbody');
-                            tmp.innerHTML = html;
-                            if (tmp.firstElementChild) tb.appendChild(tmp.firstElementChild);
-                          }
-                          f.reset();
-                        } else {
-                          if (tr && html) {
-                            var tmp2 = document.createElement('tbody');
-                            tmp2.innerHTML = html;
-                            if (tmp2.firstElementChild) tr.replaceWith(tmp2.firstElementChild);
-                          }
-                        }
-                      })
-                      .catch(function () { f.submit(); });
-                  });
-                })();
-                """.trimIndent()
-            }
-        }
+        script(src = "/static/js/access-control.js") {}
     }
 }

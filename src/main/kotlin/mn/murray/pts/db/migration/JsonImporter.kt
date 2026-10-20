@@ -49,12 +49,11 @@ object JsonImporter {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
     private const val SUPER_ADMIN = "EMP0000"
 
+    /** True when the `users` table has no rows — the emptiness guard both bootstrappers use. */
+    fun databaseIsEmpty(): Boolean = transaction { Users.selectAll().empty() }
+
     /** Import only into a fresh database when a legacy file is present. */
-    fun shouldImport(legacyFile: File): Boolean {
-        if (!legacyFile.exists()) return false
-        val empty = transaction { Users.selectAll().empty() }
-        return empty
-    }
+    fun shouldImport(legacyFile: File): Boolean = legacyFile.exists() && databaseIsEmpty()
 
     fun importFromFile(legacyFile: File): ImportSummary {
         if (!shouldImport(legacyFile)) {
@@ -163,12 +162,26 @@ object JsonImporter {
                 it[progress] = p.progress
                 it[managerEmpNo] = managerEmp
                 it[due] = p.due
-                it[type] = p.type
+                it[type] = p.type   // labels/codes already normalized by LegacyNormalizer step 1b
+                it[client] = p.client
+                it[startDate] = p.start
+                it[revenue] = p.revenue
                 it[createdAt] = now
                 it[updatedAt] = now
             } get Projects.id
             projectIdByName[p.name] = newId
             newIdByLegacyId[p.id] = newId
+            // Every imported project gets the board a project created through the service gets (V7). The
+            // importer writes rows directly rather than calling ProjectService.create, so without these three
+            // lanes a legacy or demo project would open on the status columns while a new one opened on its
+            // own lanes — the same difference the V7 backfill removes for projects already in the database.
+            DEFAULT_PROJECT_BUCKETS.forEachIndexed { laneIdx, laneName ->
+                ProjectBuckets.insert {
+                    it[projectId] = newId
+                    it[name] = laneName
+                    it[position] = laneIdx
+                }
+            }
             for (emp in p.assignees) {
                 if (emp.isNotBlank() && emp in insertedEmp) {
                     ProjectAssignees.insert {
@@ -224,6 +237,9 @@ object JsonImporter {
                 it[title] = l.title
                 it[projectId] = if (l.project.isNotBlank()) projectIdByName[l.project] else null
                 it[summary] = l.summary
+                // V9's sheet reads one column, so the imported pair is joined into it here exactly
+                // as the migration's backfill joined it for the rows already in the table.
+                it[lesson] = lessonTextOf(l.title, l.summary)
             }
         }
 

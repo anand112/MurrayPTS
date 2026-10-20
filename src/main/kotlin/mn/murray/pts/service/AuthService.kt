@@ -1,6 +1,8 @@
 package mn.murray.pts.service
 
 import mn.murray.pts.config.AppConfig
+import mn.murray.pts.domain.Member
+import mn.murray.pts.domain.TEAM_ROSTER
 import mn.murray.pts.domain.User
 import mn.murray.pts.domain.autoEmail
 import mn.murray.pts.repository.SessionRecord
@@ -62,9 +64,26 @@ object AuthService {
     /** Resolve a session cookie token to a live session, or null when absent/expired. */
     fun resolve(token: String?): SessionRecord? = SessionRepository.findValid(token)
 
+    /**
+     * True while the account still carries a password it never chose (a legacy import that
+     * defaulted to the employee number, or a bootstrapped super admin with no bootstrap
+     * password). The route gate reads this through [mn.murray.pts.currentSession] so no
+     * handler has to remember to check it.
+     */
+    fun mustChangePassword(employeeNumber: String): Boolean =
+        UserRepository.mustChangePassword(employeeNumber)
+
     fun logout(token: String?) {
         if (!token.isNullOrBlank()) SessionRepository.revoke(token)
     }
+
+    /**
+     * Issue a fresh session token for an already-authenticated user. Used after a
+     * self-service password change, which revokes all sessions (including the current
+     * one) — re-issuing keeps the user logged in so the success banner is shown.
+     */
+    fun reissue(employeeNumber: String, ip: String = "", userAgent: String = ""): String =
+        SessionRepository.create(employeeNumber, AppConfig.sessionTtlHours, userAgent, ip)
 
     /**
      * Set a new password, then revoke every existing session for the user so a stolen
@@ -87,6 +106,15 @@ object AuthService {
         val name = TeamRepository.empNoByName().entries.firstOrNull { it.value == empNo }?.key ?: "Super Admin"
         val bootstrap = AppConfig.superAdminBootstrapPassword
         val initial = bootstrap ?: empNo
+        // users.employee_number has a FK into team_members, so an account cannot exist without a
+        // roster row. A migrated database gets placeholders from the importer; a brand-new one
+        // reaches here with nothing, and inserting straight away fails SQLITE_CONSTRAINT_FOREIGNKEY.
+        if (TeamRepository.findByEmpNo(empNo) == null) {
+            TeamRepository.upsert(
+                TEAM_ROSTER.firstOrNull { it.employeeNumber == empNo }
+                    ?: Member(employeeNumber = empNo, name = name, department = "IT / Systems", position = "Super Admin")
+            )
+        }
         UserRepository.insert(
             employeeNumber = empNo,
             name = name,

@@ -33,6 +33,14 @@ object LegacyNormalizer {
             )
         }
 
+        // 1b. Four categories -> the nine letter-coded ones (V3). Anything already using a
+        // current label or a one-letter code is untouched; unknown labels survive as written
+        // so a hand-edited type shows up on the board instead of being silently rewritten.
+        val recategorised = out.projects.map { p ->
+            p.copy(type = migrateType(p.type), code = migrateCode(p.code))
+        }
+        if (recategorised != out.projects) out = out.copy(projects = recategorised)
+
         // 2. Project statuses -> Ongoing / On hold / Not started / Blocked / Completed.
         val restatus = out.projects.map { it.copy(status = migrateStatus(it.status)) }
         if (restatus != out.projects) out = out.copy(projects = restatus)

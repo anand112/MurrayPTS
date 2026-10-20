@@ -135,6 +135,17 @@ object UserRepository {
 
     fun count(): Long = transaction { Users.selectAll().count() }
 
+    /**
+     * True while an account still carries a password it never chose — an imported legacy row
+     * whose password defaulted to its employee number, or a bootstrapped super admin with no
+     * `PTS_ADMIN_PASSWORD`. Read once per request by the route guard; keyed lookup on the
+     * primary key, so it costs nothing measurable next to the session lookup.
+     */
+    fun mustChangePassword(empNo: String): Boolean = transaction {
+        Users.selectAll().where { Users.employeeNumber eq empNo }.firstOrNull()
+            ?.get(Users.mustChangePassword) ?: false
+    }
+
     fun insert(
         employeeNumber: String,
         name: String,

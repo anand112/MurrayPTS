@@ -1,251 +1,85 @@
 package mn.murray.pts
 import mn.murray.pts.domain.*
 
-import kotlinx.html.ButtonType
 import kotlinx.html.DIV
-import kotlinx.html.FormMethod
-import kotlinx.html.InputType
-import kotlinx.html.button
-import kotlinx.html.div
-import kotlinx.html.form
-import kotlinx.html.h3
-import kotlinx.html.input
-import kotlinx.html.label
-import kotlinx.html.option
+import kotlinx.html.h2
 import kotlinx.html.p
-import kotlinx.html.select
-import kotlinx.html.span
-import kotlinx.html.unsafe
+import kotlinx.html.script
+import mn.murray.pts.service.TaskService
 
-fun DIV.assignedTasksContent(session: UserSession, canManage: Boolean) {
-    val tasks = DemoData.assignedTasks
-    div("kanban") {
-        TASK_STATUSES.forEach { status ->
-            val inCol = tasks.filter { it.status == status }
-            div("kcol") {
-                attributes["data-status"] = status
-                div("kcol-head") {
-                    span("dot ${statusDot(status)}") { }
-                    span("kcol-title") { +status }
-                    span("kcol-count") { +"${inCol.size}" }
-                }
-                inCol.forEach { assignedCard(it, session, canManage) }
-            }
-        }
+/**
+ * The Assigned tasks page: what is on *me* now — the projects board, and the Other tasks assigned to me.
+ *
+ * This page is **personal for every reader, management included** (Stage 53): whatever somebody's role, both
+ * boards show only the cards with their own employee number on them — it is "what is on *me* now", never a
+ * team-wide list. The same rule the sidebar count reads through, so the number beside *Assigned tasks* is
+ * exactly the cards this page then prints — which since Stage 55 means *both* the project cards below and the
+ * reader's own Other-task cards. What a manager still sees the *whole* of, from elsewhere, is the team: the
+ * Team sheet's OPEN TASKS drill-down, a project's board and the Calendar all read
+ * [mn.murray.pts.service.TaskService.assignedFor] with management's wider view, so nothing about running the
+ * team was lost here — only this one board stopped trying to be two things (a person's own list *and* the
+ * manager's overview) at once.
+ *
+ * The reader's own **Other tasks** — work that belongs to no project — ride along here since **Stage 55**, as a
+ * second status board under the projects one, with a heading and its own empty line. That is the half of the
+ * screen Stage 47's split left hanging: it took the shared backlog *board* onto its own page, but a person's own
+ * backlog card had nowhere personal to surface, and since Stage 51 a Viewer is not even offered the *Other tasks*
+ * link. So "what is on me" was quietly two-of-nine for somebody whose work is not on a project. This page now
+ * answers it whole: the cards filed under a project, then the cards that are theirs but on no project, or the
+ * plain statement that they have none. It is **not** the shared backlog board returning here — no columns, no
+ * `⋮`, no *Add bucket*, no view toggle: only the reader's own cards, cut by status like the projects board above,
+ * opened and saved through the very same popup. The shared board and its management controls stay on
+ * [mn.murray.pts.otherTasksContent], which is where the backlog *as a board* lives.
+ *
+ * The two boards share the page's **one** card popup and **one** editor opener: the project board draws the
+ * opener only when the Other-task board has nothing to draw it with (see the `drawOpener` argument), because
+ * [task-modal.js] finds that opener by id and a second one would be a dead form. So the same click opens either
+ * kind of card, and either card's save comes back to this page.
+ *
+ * Creating and editing an assigned task happen in the popup from [taskFormModal], whose opener management
+ * gets in the page head and whose editor anybody reaches from their own card's menu. [state] is non-null
+ * when the page was asked to arrive with the popup up — `?new=1`, `?edit=<card>`, or the page a rejected
+ * submit came back as — and that page prints the same markup already open.
+ */
+fun DIV.assignedTasksContent(
+    session: UserSession,
+    canManage: Boolean,
+    state: TaskForm? = null,
+) {
+    // Stated on the page for the same reason the sidebar count is scoped: two cards out of nine,
+    // with nothing saying why, reads as work that went missing. Since Stage 53 it is true of every reader, so
+    // the sentence is printed to management too rather than only to a Viewer.
+    p("board-scope") { +"Only the cards assigned to you are on this board." }
+    // Both lists are the reader's own cards whichever role they hold ([canManage] governs the rights beneath —
+    // create, the full editor, the drag — not who appears). This is the one place the personal-scoping is applied;
+    // `assignedFor` and `assignedOtherFor` still answer management's wider read for the Calendar, the project
+    // boards and the Team drill-down that need it.
+    val cards = TaskService.assignedFor(session.employeeNumber, canManage = false)
+    val ownOther = TaskService.assignedOtherFor(session.employeeNumber)
+    // The general board has no one project to grant on, so writing the first card here stays
+    // management's — [mn.murray.pts.service.TaskService.mayAddTasks] takes a project for a reason.
+    // The opener travels with this board only while the Other-task board below has no card of its own to carry it.
+    taskKanban(cards, session, canManage, BACK_ASSIGNED, canAdd = canManage, drawOpener = ownOther.isEmpty())
+
+    h2("assigned-other-head") { +"Other tasks" }
+    p("assigned-other-sub") { +"Work assigned to you that is not on a project." }
+    if (ownOther.isEmpty()) {
+        p("assigned-other-empty") { +"You don't have any other tasks assigned." }
+    } else {
+        // The reader's own backlog cards, cut by status exactly like the projects board above. `canAdd = false`:
+        // this is a personal read of cards that already exist, not the shared board's create line — a new Other
+        // card is written from the Other tasks page (management) or the Team sheet's assign panel, never from
+        // here. The board carries the page's one opener, since the project board handed it over above.
+        taskKanban(ownOther, session, canManage, BACK_ASSIGNED, canAdd = false)
     }
 
-    div("other-head") {
-        span("other-title") { +"Other tasks" }
-        span("other-sub") { +"— outside of projects" }
-    }
-    div("kanban kanban-other") {
-        DemoData.buckets.forEach { bucket ->
-            val inBucket = DemoData.otherTasks.filter { it.bucket == bucket }
-            div("kcol") {
-                div("kcol-head") {
-                    span("dot d-gray") { }
-                    span("kcol-title") { +bucket }
-                    span("kcol-count") { +"${inBucket.size}" }
-                }
-                inBucket.forEach { otherCard(it) }
-                form(action = "/app/other-tasks", method = FormMethod.post, classes = "addtask") {
-                    input(type = InputType.hidden, name = "bucket") { value = bucket }
-                    input(type = InputType.text, name = "title") {
-                        placeholder = "+ Add task"
-                        required = true
-                    }
-                }
-            }
-        }
-        div("kcol addbucket") {
-            form(action = "/app/other-buckets", method = FormMethod.post) {
-                input(type = InputType.text, name = "name") {
-                    placeholder = "+ Add bucket"
-                    required = true
-                }
-            }
-        }
-    }
-
-    if (canManage) {
-        div("card-panel") {
-            h3 { +"Assign a task" }
-            form(action = "/app/assigned-tasks", method = FormMethod.post) {
-                div("form-grid") {
-                    div("field") {
-                        label { +"Project" }
-                        select {
-                            name = "project"
-                            required = true
-                            DemoData.projects.forEach { project ->
-                                option { value = project.name; +"${project.code} · ${project.name}" }
-                            }
-                        }
-                    }
-                    div("field") {
-                        label { +"Task" }
-                        input(type = InputType.text, name = "title") {
-                            placeholder = "e.g. Review blast vibration report"
-                            required = true
-                        }
-                    }
-                    div("field") {
-                        label { +"Assign to" }
-                        select {
-                            name = "assignee"
-                            required = true
-                            DemoData.team.forEach { member ->
-                                option { value = member.employeeNumber; +"${member.employeeNumber} · ${member.name} (${member.position})" }
-                            }
-                        }
-                    }
-                    div("field") {
-                        label { +"Start date" }
-                        input(type = InputType.date, name = "started")
-                    }
-                    div("field") {
-                        label { +"Due date" }
-                        input(type = InputType.date, name = "due")
-                    }
-                    div("field") {
-                        label { +"Priority" }
-                        select {
-                            name = "priority"
-                            listOf("High", "Medium", "Low").forEach { option { +it } }
-                        }
-                    }
-                }
-                p("task-meta") { +"Pick a project, break it into a task, then drag the card between columns to change its status." }
-                button(type = ButtonType.submit, classes = "submit") { +"Assign task" }
-            }
-        }
-    }
-    kanbanScript()
+    // The popup travels with the page, for every reader: management's `+ New task` in the head swaps into it,
+    // and a reader's own card — from either board — swaps into it from the card itself. `state ?: TaskForm(...)`
+    // is the placeholder a plain page ships — drawn for the reader standing here, so a normal account's copy holds
+    // only their own name and status rather than the whole roster. The save route re-checks the role; markup is
+    // not a permission.
+    taskFormModal(state ?: TaskForm(canEditAll = canManage), BACK_ASSIGNED)
+    // Board drag-and-drop + move buttons live in an external script (Stage 7): the markup
+    // contract is .kcol[data-status], .kcard[draggable][data-id] and .kmove-btn[data-*].
+    script(src = "/static/js/kanban.js") {}
 }
-
-private fun DIV.assignedCard(task: TaskItem, session: UserSession, canManage: Boolean) {
-    val editable = canManage || task.assignee == session.employeeNumber
-    div("kcard ${statusSlug(task.status)}") {
-        attributes["data-id"] = "${task.id}"
-        if (editable) attributes["draggable"] = "true"
-        span("tcode") { +taskCode(task.id) }
-        div("ktitle") { +task.title }
-        div("kmeta") {
-            span("prio ${prioClass(task.priority)}") { +task.priority }
-            span("due") { +"📅 ${formatDue(task.due)}" }
-            val a = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
-            if (a != null) span("avatar xs") { attributes["title"] = a.name; +initials(a.name) }
-        }
-        if (editable) {
-            val idx = TASK_STATUSES.indexOf(task.status).coerceAtLeast(0)
-            val prev = TASK_STATUSES.getOrNull(idx - 1)
-            val next = TASK_STATUSES.getOrNull(idx + 1)
-            div("kmove") {
-                if (prev != null) {
-                    button(type = ButtonType.button, classes = "kmove-btn") {
-                        attributes["data-id"] = "${task.id}"
-                        attributes["data-status"] = prev
-                        attributes["title"] = "Move to $prev"
-                        +"← $prev"
-                    }
-                }
-                if (next != null) {
-                    button(type = ButtonType.button, classes = "kmove-btn next") {
-                        attributes["data-id"] = "${task.id}"
-                        attributes["data-status"] = next
-                        attributes["title"] = "Move to $next"
-                        +"$next →"
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun DIV.otherCard(task: TaskItem) {
-    div("kcard s-other") {
-        div("ktitle") { +task.title }
-        div("kmeta") {
-            span("prio ${prioClass(task.priority)}") { +task.priority }
-            span("due") { +"📅 ${formatDue(task.due)}" }
-        }
-        div("kmeta kfoot") {
-            span("ostatus") {
-                span("dot ${statusDot(task.status)}") { }
-                +" ${task.status}"
-            }
-            val a = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
-            if (a != null) span("avatar xs") { attributes["title"] = a.name; +initials(a.name) }
-        }
-    }
-}
-
-private fun DIV.kanbanScript() {
-    unsafe {
-        +("""<script>
-document.querySelectorAll('.kcol[data-status]').forEach(function(col){
-  col.addEventListener('dragover', function(e){ e.preventDefault(); col.classList.add('drag-over'); });
-  col.addEventListener('dragleave', function(){ col.classList.remove('drag-over'); });
-  col.addEventListener('drop', function(e){
-    e.preventDefault(); col.classList.remove('drag-over');
-    var id = e.dataTransfer.getData('text/plain');
-    var status = col.getAttribute('data-status');
-    if(!id || !status) return;
-    var fd = new FormData(); fd.append('id', id); fd.append('status', status);
-    fetch('/app/tasks/status', { method:'POST', body: fd, redirect:'manual' }).then(function(){ location.reload(); });
-  });
-});
-document.querySelectorAll('.kcard[draggable="true"]').forEach(function(card){
-  card.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', card.getAttribute('data-id')); });
-});
-document.querySelectorAll('.kmove-btn').forEach(function(btn){
-  btn.addEventListener('click', function(e){
-    e.preventDefault(); e.stopPropagation();
-    var id = btn.getAttribute('data-id');
-    var status = btn.getAttribute('data-status');
-    if(!id || !status) return;
-    btn.disabled = true;
-    var fd = new FormData(); fd.append('id', id); fd.append('status', status);
-    fetch('/app/tasks/status', { method:'POST', body: fd, redirect:'manual' }).then(function(){ location.reload(); });
-  });
-});
-</script>""")
-    }
-}
-
-private fun taskCode(id: Int): String = "T-${id.toString().padStart(5, '0')}"
-
-private val MONTHS = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-
-private fun formatDue(iso: String): String {
-    val p = iso.split("-")
-    if (p.size != 3) return iso
-    val m = p[1].toIntOrNull() ?: return iso
-    val d = p[2].toIntOrNull() ?: return iso
-    return "%02d %s %s".format(d, MONTHS[m - 1], p[0])
-}
-
-private fun statusDot(status: String): String = when (status) {
-    "In progress" -> "d-amber"
-    "On hold" -> "d-orange"
-    "Blocked" -> "d-red"
-    "Completed" -> "d-green"
-    else -> "d-gray"
-}
-
-private fun statusSlug(status: String): String = when (status) {
-    "In progress" -> "s-inprogress"
-    "On hold" -> "s-onhold"
-    "Blocked" -> "s-blocked"
-    "Completed" -> "s-completed"
-    else -> "s-notstarted"
-}
-
-private fun prioClass(priority: String): String = when (priority) {
-    "High" -> "p-high"
-    "Medium" -> "p-med"
-    else -> "p-low"
-}
-
-private fun initials(name: String): String =
-    name.split(" ").mapNotNull { it.firstOrNull()?.toString() }.take(2).joinToString("")

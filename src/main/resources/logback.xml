@@ -1,10 +1,50 @@
+<!--
+  PTS logging (v2, Stage 8).
+
+  Two knobs, read straight from the environment by Logback's variable substitution
+  (system property first, then OS env var, then the default after ":-"). The names match
+  AppConfig's keys so `.env` / the scripts / Docker all drive them the same way:
+
+    PTS_LOG_DIR    directory for the rolling file appender   (default: logs)
+    PTS_LOG_LEVEL  root level: TRACE DEBUG INFO WARN ERROR   (default: INFO)
+
+  Console output is unchanged for local development; the file appender is what a systemd /
+  Docker-less VPS run needs when nobody is attached to stdout. `logs/` is gitignored.
+-->
 <configuration>
+    <property name="LOG_DIR" value="${PTS_LOG_DIR:-logs}"/>
+    <property name="LOG_LEVEL" value="${PTS_LOG_LEVEL:-INFO}"/>
+
     <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
         </encoder>
     </appender>
-    <root level="INFO">
+
+    <!--
+      Size-AND-time based rotation: one file per day, split again at 10 MB, gzipped after
+      the current day, 14 days / 200 MB total cap. The active file is always logs/pts.log,
+      so `tail -F logs/pts.log` needs no date math.
+    -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/pts.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/pts-%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>200MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="${LOG_LEVEL}">
         <appender-ref ref="STDOUT"/>
+        <appender-ref ref="FILE"/>
     </root>
+
+    <!-- SQL/Exposed chatter stays quiet unless PTS_LOG_LEVEL is lowered. -->
+    <logger name="org.jetbrains.exposed" level="WARN"/>
+    <logger name="com.zaxxer.hikari" level="WARN"/>
 </configuration>

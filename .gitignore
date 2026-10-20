@@ -1,7 +1,6 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -50,6 +49,12 @@ build/
 *.tar.gz
 *.rar
 
+# The Gradle wrapper jar has to be tracked or `./gradlew` on a fresh clone cannot bootstrap, and it
+# also makes the repo buildable without a locally installed Gradle. The negation must come AFTER the
+# `*.jar` rule above: in .gitignore the last matching pattern wins, so a `!` line placed before it
+# (where it sat until now) silently did nothing and the wrapper jar was never committed.
+!gradle/wrapper/gradle-wrapper.jar
+
 # JVM
 *.class
 *.hprof
@@ -59,3 +64,34 @@ replay_pid*
 # Application specific
 data/pts-data.json
 data/pts-data.json.bak
+
+# --- Launch hygiene (Stage 8) -------------------------------------------------
+# Local config holds PTS_SESSION_SECRET / PTS_ADMIN_PASSWORD. .env.example is the template
+# that IS tracked.
+.env
+.env.*
+!.env.example
+
+# --- data/ : the live state and every copy of it must NEVER be committed. --------------------
+# The SQLite file (+ WAL sidecars), the legacy JSON, the one-shot importer's archived copies and
+# every manual backup/snapshot all hold real accounts and bcrypt hashes. Rather than chase each
+# filename, `data/` is deny-all-by-default with an allowlist: the only things that ship are the
+# directory placeholder and the documented example store. A new backup (pts.db.pre-v10-backup-*,
+# pts-data.json.migrated-*, …) is ignored the moment it appears.
+data/*
+!data/.gitkeep
+!data/pts-data.json.example
+
+# TLS material for the compose proxy.
+deploy/certs/
+
+# Artefacts of deploy/use-local-name.ps1: its run log and the timestamped hosts snapshots it takes
+# before editing. A hosts snapshot is another machine's private name table — no reason to ship it.
+deploy/local-name.log
+deploy/hosts.before-*.bak
+
+# v1 leftovers that are not part of this project. MMS/ is a nested clone of the old repo (it has its
+# own .git, so git only ever recorded a dangling gitlink for it), and build_old/ holds six stale v1
+# resources Stage 7 deleted from src/. Both stay on disk; neither belongs in the v2 tree.
+MMS/
+build_old/

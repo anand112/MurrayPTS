@@ -1,0 +1,1057 @@
+/* app.css — authenticated app shell + all page components (extracted from DashboardCommon.kt APP_CSS).
+   Loaded after base.css so the accent tokens below layer on top of the shared design tokens. */
+:root { --main-bg: #f4f6f8; --accent: #5a8a12; --accent-strong: #33500b; --accent-soft: #e9f4d8; }
+html[data-theme="dark"] { --main-bg: #0e141c; --accent-soft: #24341a; }
+html[data-accent="blue"] { --accent: #2f6fb2; --accent-strong: #1a4f8a; --accent-soft: #e3eefb; }
+html[data-accent="blue"][data-theme="dark"] { --accent-soft: #16283c; }
+html[data-accent="amber"] { --accent: #c07c10; --accent-strong: #8a5a06; --accent-soft: #fbeed3; }
+html[data-accent="amber"][data-theme="dark"] { --accent-soft: #33260f; }
+body.app-body { display: block; padding: 0; background: var(--main-bg); }
+.app { display: flex; min-height: 100vh; }
+.sidebar {
+    width: 264px; flex: 0 0 264px;
+    background: var(--card-bg); border-right: 1px solid var(--input-border);
+    display: flex; flex-direction: column;
+    padding: 20px 14px 16px;
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.sidebar .logo { width: 170px; margin: 0 auto 4px; }
+.sidebar .logo-img.side-logo { width: 168px; max-width: 100%; height: auto; display: block; margin: 0 0 6px; }
+.side-caption { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; color: var(--muted); margin: 4px 0 18px; }
+.side-caption .accent { color: var(--accent); font-weight: 800; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--title); text-decoration: none; font-size: 14px; font-weight: 500; }
+.nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--muted); }
+.nav-item:hover { background: var(--input-bg); }
+.nav-item.active { background: var(--accent-soft); color: var(--accent-strong); font-weight: 700; }
+.nav-item.active svg { color: var(--accent-strong); }
+.nav-item .label { flex: 1; }
+.pill { background: var(--input-bg); border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.nav-item.active .pill { background: var(--card-bg); color: var(--accent-strong); }
+.pinned { margin: 18px 4px 0; }
+.pinned h2 { font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.pinned .empty { font-size: 12px; line-height: 1.6; color: var(--note); }
+.pinned-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.pinned-row a { flex: 1; font-size: 13px; color: var(--title); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinned-row a:hover { color: var(--accent-strong); text-decoration: underline; }
+.side-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--input-border); }
+.user-row { display: flex; align-items: center; gap: 10px; }
+.avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%; background: var(--accent-strong); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+.avatar.lg { width: 44px; height: 44px; flex-basis: 44px; font-size: 14px; margin: 0 auto 8px; }
+.user-meta { flex: 1; min-width: 0; }
+.user-name { font-size: 13px; font-weight: 600; color: var(--title); }
+.user-role { font-size: 11px; color: var(--muted); }
+.icon-btns { display: flex; gap: 6px; }
+.icon-btn { width: 30px; height: 30px; border: none; border-radius: 8px; background: var(--input-bg); cursor: pointer; font-size: 14px; line-height: 1; }
+a.logout { display: block; margin-top: 12px; padding: 9px; border-radius: 8px; background: var(--input-bg); color: var(--title); font-size: 13.5px; font-weight: 600; text-align: center; text-decoration: none; }
+a.logout:hover { background: var(--input-border); }
+.main { flex: 1; min-width: 0; padding: 28px 32px; }
+/* The page head is a row: the title on the left, that page's actions and the notification bell on
+   the right. appPage() only renders .page-actions when a route passes an `actions` slot, so pages
+   without one keep the plain left-aligned heading — but .page-right always holds the bell. */
+.page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.page-head h1 { font-size: 22px; font-weight: 800; color: var(--title); margin: 0; }
+/* The one page whose name needs a second half (Stage 47, Other tasks). It sits on the title's baseline at a
+   size that reads as a description rather than a competing heading — the sentence used to be a section head of
+   its own, under the board it described, and the page now has one head instead of two. */
+.page-head h1 .page-sub { font-size: 12px; font-weight: 600; color: var(--muted); margin-left: 8px; }
+.page-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
+.page-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.card-panel { background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+.panel-caption { font-size: 12.5px; color: var(--muted); margin-bottom: 12px; }
+table.grid { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+table.grid th { text-align: left; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 10px; border-bottom: 1px solid var(--input-border); }
+table.grid td { padding: 10px; border-bottom: 1px solid var(--input-border); color: var(--title); vertical-align: middle; }
+table.grid tr:last-child td { border-bottom: none; }
+/* The projects board renders one table per category panel, and the browser sizes each table from its
+   own contents — so "Project" sat at one x in the Maintenance group and another x in the Site group,
+   and nothing lined up from one panel to the next. Fixed layout plus these <col> widths is what makes
+   every one of those tables agree. They are percentages summing to exactly 100, never pixels: this
+   stylesheet has no @media rules, so a percentage column that gets too narrow wraps its cell (see
+   overflow-wrap below) instead of pushing the table out of the card. Project gets the widest share
+   because the description is the one free-text column; Progress needs 14% because the bar is a fixed
+   110px inline-block with the percentage label beside it; and the two date columns each get 9% because
+   a yyyy-MM-dd string is a fixed width that must not break in half, which is what leaves the free-text
+   columns (Project, Client, Manager) to absorb the tenth column. (Projects.projectTable carries the
+   matching c-* classes.) */
+table.projects-table { table-layout: fixed; }
+table.projects-table col.c-code { width: 5%; }
+table.projects-table col.c-name { width: 18%; }
+table.projects-table col.c-client { width: 10%; }
+table.projects-table col.c-status { width: 10%; }
+table.projects-table col.c-progress { width: 14%; }
+table.projects-table col.c-manager { width: 9%; }
+table.projects-table col.c-start { width: 9%; }
+table.projects-table col.c-due { width: 9%; }
+table.projects-table col.c-rev { width: 8%; }
+table.projects-table col.c-pin { width: 8%; }
+table.projects-table th, table.projects-table td { overflow-wrap: anywhere; }
+/* Money is read by comparing amounts, so the figures right-align and the tabular digits in .money
+   stack; a date is fixed-width text, so centring it keeps the column quiet under the labels. The
+   nowrap goes on the cells, not the headers: "2027-03-30" must stay one piece, whereas "Start date"
+   and "End date" are two words and should wrap onto a second line on a narrow window rather than run
+   over the column next to them. */
+table.projects-table th.c-rev, table.projects-table td.c-rev { text-align: right; }
+table.projects-table td.c-start, table.projects-table td.c-due { text-align: center; white-space: nowrap; }
+table.projects-table th.c-start, table.projects-table th.c-due { text-align: center; }
+table.projects-table th.c-pin, table.projects-table td.c-pin { text-align: right; }
+.code { font-family: Consolas, monospace; font-size: 12px; color: var(--muted); font-weight: 600; }
+/* A project's number is how people name it out loud — "S-01 is blocked" — so it is the one thing on the
+   board that should not have to be squinted at. Sized up and pushed to full bold everywhere a project code
+   prints: the board's ID column, the project page's head, and an account's project line on Settings and
+   Team. Scoped to those three on purpose, because `.code` is also the employee-number chip on the Team and
+   Access control tables, and those are not what the size was asked for — widening the base rule above would
+   have grown them too. No `nowrap` here either: `c-code` is a fixed 5% of a `table-layout: fixed` grid, so a
+   long code must be allowed to wrap rather than run over the name column the way the date headers would
+   (see the note above). */
+table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { font-size: 14px; font-weight: 700; }
+.pname { font-weight: 600; }
+.chip { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 11.5px; font-weight: 600; }
+.chip.ontrack { background: #e6f4d7; color: #3f620e; }
+.chip.atrisk { background: #fdecea; color: #b3261e; }
+.chip.done { background: #e3f1fd; color: #1a5fb4; }
+.chip.planning { background: #f3e8fd; color: #6f3fa0; }
+.chip.onhold { background: #fbeed3; color: #8a5a06; }
+.progress { display: inline-block; width: 110px; height: 8px; border-radius: 4px; background: var(--input-bg); overflow: hidden; vertical-align: middle; }
+.progress .bar { height: 100%; background: var(--accent); }
+.pct { margin-left: 8px; font-size: 12px; color: var(--muted); }
+.pin-btn { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--muted); border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.pin-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); font-weight: 600; }
+.task-row { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--input-border); }
+.task-row:last-child { border-bottom: none; }
+.task-main { flex: 1; min-width: 0; }
+.task-title { font-size: 14px; font-weight: 600; color: var(--title); }
+.task-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.team-name { display: flex; align-items: center; gap: 10px; }
+.avatar.sm { width: 28px; height: 28px; flex-basis: 28px; font-size: 11px; }
+.assignee { display: inline-flex; align-items: center; gap: 8px; margin-right: 12px; }
+.assignee-meta { display: flex; flex-direction: column; line-height: 1.2; }
+.assignee-name { font-size: 12.5px; font-weight: 600; color: var(--title); }
+.assignee-id { font-size: 11px; color: var(--muted); }
+.assignee.none { font-size: 12px; color: var(--muted); font-style: italic; margin-right: 12px; }
+.status-form { display: inline-flex; margin-right: 10px; }
+.status-select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+form.cell-edit { margin: 0; }
+form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12.5px; }
+form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 4px 8px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: #c92a3d; border-radius: 6px; padding: 4px 10px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.delete-btn:hover { background: rgba(220, 53, 69, .16); }
+.field-err { color: #c92a3d; font-size: 12.5px; font-weight: 600; margin: 4px 0 0; }
+.kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; align-items: start; }
+/* The Other tasks board (Stage 57) is a vertical run of bucket **groups**, not a row of columns: one group per
+   bucket, each with the bucket's name as a heading on top and its own five-status `.kanban` underneath. So
+   `#otherBoard`'s container stacks the groups with room between them, and a `.bucket-group-head` reads as the
+   bucket's name — the backlog's answer to the line a project page prints over its board. */
+.other-groups { display: flex; flex-direction: column; gap: 24px; }
+.bucket-group-head { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--input-border); }
+.bucket-group-title { font-size: 15px; font-weight: 700; color: var(--title); }
+.bucket-group-count { font-size: 12px; font-weight: 600; color: var(--muted); }
+/* A project's board is cut by its lanes, and a lane column is 288px wide because that is what the board was
+   drawn to (Stage 37) — measured off the picture the page is built against, where three columns sit at 288px
+   with 16px between them and stop, leaving the rest of the row empty. `auto-fill` packs them from the left at
+   that size and makes as many tracks as the room holds, so the width of a column, and of every card inside it,
+   does not depend on how many columns the board happens to print. That is the second half of the fix behind
+   Stage 36's first: the columns used to be `auto-fit` `1fr` tracks, which meant a fourth column — an Unsorted
+   bucket appearing because a card had no lane — took 134px off each of the other three and every card in them.
+   With the tracks fixed, a column can arrive and go without anything else on the board moving, so the lane board
+   is free to print Unsorted only while it holds a card. `min(288px, 100%)` is the floor, not a second width: it
+   keeps one column on a window too narrow for it from spilling out of the page. */
+.kanban-lanes { grid-template-columns: repeat(auto-fill, minmax(min(288px, 100%), 288px)); gap: 16px; }
+/* A column is as tall as the cards it holds, and that is deliberate (Stage 38): the width of a lane is written
+   in the rule above, so nothing about a card's size is left to follow a count, while its length is allowed to
+   grow with the work. `align-items: start` on `.kanban` keeps the short columns short instead of stretching
+   every one of them to the busiest. The 190px floor is what an empty column still reads as: a lane, not a
+   strip. (A fixed-height column with its own scrollbar was built and asked off the same day; if this is
+   restated again, that is the shape to reach for rather than a per-card height.) */
+.kcol { background: rgba(0, 0, 0, .035); border-radius: 12px; padding: 12px; min-height: 190px; }
+html[data-theme="dark"] .kcol { background: rgba(255, 255, 255, .05); }
+/* An empty board that a reader may fill says so, and carries the opener itself: five columns of
+   "Nothing here." do not read as somewhere to start. Printed only for somebody who can write the first
+   card, so the block never promises a button this account would be refused. */
+.board-empty {
+    margin-top: 12px; padding: 18px 16px; text-align: center;
+    border: 1px dashed var(--input-border); border-radius: 12px; background: var(--input-bg);
+}
+html[data-theme="dark"] .board-empty { background: rgba(255, 255, 255, .04); }
+.board-empty-line { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--title); }
+.board-empty-sub { margin: 5px 0 12px; font-size: 12px; color: var(--muted); }
+/* The Assigned tasks page's second board (Stage 55): the reader's own Other tasks, below the projects board.
+   The heading separates the two status boards that share one page and one popup, and the empty line is the honest
+   answer when nothing is on them — not a board of "Nothing here." columns for a person who has no such work. */
+.assigned-other-head { margin: 26px 0 2px; font-size: 15px; font-weight: 700; color: var(--title); }
+.assigned-other-sub { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+.assigned-other-empty { margin: 10px 0 2px; font-size: 13px; color: var(--muted); }
+.kcol.drag-over { outline: 2px dashed var(--accent); }
+.kcol-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.kcol-title { font-size: 13px; font-weight: 700; color: var(--title); }
+.kcol-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 600; }
+/* The lane head has no control on it (Stage 35): the name and the count are its whole content, for every
+   reader including management, because nothing on a project page adds a lane or takes one off any more. */
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: 0 0 9px; }
+.dot.d-gray { background: #8a9199; }
+.dot.d-amber { background: #e0a800; }
+.dot.d-orange { background: #e07000; }
+.dot.d-red { background: #d93025; }
+.dot.d-green { background: #1e8e3e; }
+.kcard { background: var(--card-bg); border-radius: 8px; border-left: 3px solid #8a9199; padding: 10px 12px; margin-top: 10px; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.kcard[draggable="true"] { cursor: grab; }
+.kcard.s-notstarted { border-left-color: #8a9199; }
+.kcard.s-inprogress { border-left-color: #e0a800; background: #fdf6dd; }
+.kcard.s-onhold { border-left-color: #e07000; background: #fdeede; }
+.kcard.s-blocked { border-left-color: #d93025; background: #fdecea; }
+.kcard.s-completed { border-left-color: #1e8e3e; background: #e6f4ea; }
+html[data-theme="dark"] .kcard.s-inprogress { background: #332b12; }
+html[data-theme="dark"] .kcard.s-onhold { background: #33220f; }
+html[data-theme="dark"] .kcard.s-blocked { background: #331512; }
+html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
+.kcard.s-other { border-left-color: #5f6a76; }
+/* A kanban card is a fixed width and a content height (Stage 38, and it is worth saying which of the two is
+   which). Stage 37 pinned the height at 168px on the way to matching the picture's columns; the board was
+   asked back the other way the next day, so the tile is gone and a card with no plan is short while a card
+   with a long one is tall. What stays pinned is the *width*, which is where the complaint actually came
+   from: `.kanban-lanes` is fixed 288px tracks, so a card's width never depends on how many columns or cards
+   the board happens to hold. A card no longer carries its plan (Stage 41 took the steps into the popup), so
+   its height belongs to the card itself; there is nothing inside it that grows with the number of steps. */
+.kmove { display: flex; gap: 6px; margin-top: 9px; }
+.kmove-btn { flex: 1; cursor: pointer; font-size: 10.5px; font-weight: 600; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: background .12s, color .12s, border-color .12s; }
+.kmove-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: rgba(0, 0, 0, .04); }
+html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
+.kmove-btn.next { color: var(--accent); border-color: var(--accent); }
+.kmove-btn:disabled { opacity: .5; cursor: default; }
+/* The card's own live region: its meta line and nothing else (Stage 41 took its plan into the popup). It
+   is still a swap companion, because the percentage printed here is counted from the steps ticked there,
+   so a box and the number it moves land in the same response. It is a plain block — the card around it
+   keeps its padding, its left status bar and the drag handle kanban.js binds to the `.kcard` node. */
+.kbody { transition: opacity 120ms ease; }
+.kbody.pts-busy { opacity: .55; }
+/* What this card has reached, counted from its own checklists. Themed through the same input variables the
+   pin button uses, so a dark board needs no rule of its own. */
+.kpct { font-size: 11px; font-weight: 700; color: var(--muted); background: var(--input-bg); border: 1px solid var(--input-border); border-radius: 6px; padding: 1px 6px; white-space: nowrap; }
+/* --- the checklist, in the popup ---------------------------------------------------------
+   The card prints only its percentage; these are the rows its editor opens on. Management writes the
+   steps, the assignee ticks them, and both readings share this one set of classes. The box and its label
+   are one `<label>` so the text is clickable, and the row is a form because ticking is a write that
+   answers by swapping this section in place. */
+.chk-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px; }
+.chk-key { font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.chk-count { margin-left: auto; font-size: 10.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.chk-row { display: flex; align-items: flex-start; gap: 4px; padding: 3px 0; }
+.chk-toggle { flex: 1 1 auto; min-width: 0; margin: 0; }
+.chk-box { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--title); line-height: 1.4; cursor: pointer; }
+.chk-box input[type="checkbox"] { flex: 0 0 auto; margin: 2px 0 0; cursor: pointer; width: auto; }
+.chk-label { word-break: break-word; }
+.chk-label.done { color: var(--muted); text-decoration: line-through; }
+/* The card's own plan bar, on the line between the section head and the rows it measures. `.progress` and
+   `.bar` are used exactly as the Projects board and a project page use them — one control, one size, no
+   second style of bar in the app — so all that is added here is the block it sits on. */
+.kprog { margin: 5px 0 8px; }
+.tcode { display: inline-block; background: #e6f4d7; color: #3f620e; border-radius: 6px; font-size: 10.5px; font-weight: 700; padding: 2px 7px; margin-bottom: 6px; }
+html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
+.ktitle { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
+.kmeta { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-size: 11.5px; color: var(--muted); }
+.kmeta.kfoot { justify-content: space-between; }
+.prio { font-weight: 600; }
+.prio::before { content: "● "; font-size: 9px; }
+.prio.p-high { color: #d93025; }
+.prio.p-med { color: #e07000; }
+.prio.p-low { color: #8a9199; }
+.avatar.xs { width: 22px; height: 22px; flex-basis: 22px; font-size: 9px; margin-left: auto; }
+/* The backlog's own controls (Stage 40, on their own page since Stage 47).
+   Both page-head controls — `Show all buckets` and `+ Add bucket` — are rendered into `.page-actions`, which
+   already sets them at the head's right end opposite the title, so they need no margin rule of their own. Each is
+   a `.ghost-btn.btn-sm` inside a `.opener-form`, exactly like the head's `+ New project`, so the whole app's
+   "add / change this page" buttons read alike. The dashed full-height `+ Add bucket` box that used to trail the
+   board as a fake column (Stage 57 made the board a vertical run of groups, so a lone column box read as
+   stranded) is gone; the name it asked for is still written in `#bucketModal`, not in a field on the board. */
+.dot.d-bucket { background: var(--accent); }
+/* The `⋮` that opens a column's popup: a control on the head, sized to it, and quiet until it is reached. */
+.kcol-menu { margin: 0 0 0 2px; }
+.kcol-menu-btn {
+  border: none; background: none; padding: 0 4px; font: inherit; font-size: 15px; line-height: 1;
+  font-weight: 700; color: var(--muted); cursor: pointer; border-radius: 6px;
+}
+.kcol-menu-btn:hover, .kcol-menu-btn:focus-visible { color: var(--title); background: rgba(0, 0, 0, .06); }
+.kcol-menu-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+/* A backlog card is one click: the whole body opens its editor. The form is the card's own and wears it, which
+   is why it is placed over the content rather than beside it — and why `.kmove` on the same card is lifted
+   above it, so the arrows an owner has are pressed for what they do and not for the popup underneath.
+   The assigned boards give the same affordance to a click on `data-task-card`; here it is a form per card
+   because this page already spends that one opener id on the board above. */
+.kcard.s-other { position: relative; }
+.kcard-open { position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0; }
+.kcard-open-btn {
+  width: 100%; height: 100%; padding: 0; border: none; background: transparent; cursor: pointer;
+  border-radius: 8px;
+}
+.kcard-open-btn:hover { background: rgba(0, 0, 0, .03); }
+.kcard-open-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
+.kcard.s-other .kmove { position: relative; z-index: 1; }
+.kcard.s-other .kfoot { position: relative; z-index: 1; }
+/* The one button on a popup that removes something rather than adding it. Same shape as `.submit`, so the two
+   read as the same kind of control, with the colour carrying only "this one takes work off the board". */
+.danger-btn { border-color: #d93025; color: #fff; background: #d93025; }
+.danger-btn:hover { background: #b3261e; border-color: #b3261e; color: #fff; }
+.team-table th.num, .team-table td.num { text-align: center; width: 1%; white-space: nowrap; }
+.count { display: inline-block; min-width: 24px; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
+.count.zero { background: var(--input-bg); color: var(--muted); opacity: .55; font-weight: 600; }
+.count.ontrack { background: #e6f4d7; color: #3f620e; }
+.count.atrisk { background: #fdecea; color: #b3261e; }
+.count.done { background: #e3f1fd; color: #1a5fb4; }
+.count.planning { background: #f3e8fd; color: #6f3fa0; }
+.count.onhold { background: #fbeed3; color: #8a5a06; }
+.count-total { font-size: 13px; font-weight: 800; color: var(--title); }
+.card-panel h3, .fc-completed-head h3 { font-size: 15px; font-weight: 700; color: var(--title); margin: 4px 0 6px; }
+/* ---- The forecast sheet (V8) -------------------------------------------------------------
+   One line per project per month, read as a spreadsheet: eleven columns on the running half,
+   eight on the completed one, and three states printed as a row colour rather than as a word,
+   because the state is what the eye is sweeping the sheet for.
+
+   Column widths are percentages summing to exactly 100 on a `table-layout: fixed` grid, the same
+   contract the projects board keeps (see the note above it): this stylesheet has no @media rules,
+   so a column that is too narrow has to wrap its cell rather than push the sheet sideways.
+   Description gets the biggest share because it is the widest free text; the four figures get
+   equal shares because they are the four columns a reader compares; the two typed columns are
+   wider than a bare number because a box needs the padding a span does not. */
+table.fc-table, table.fc-done-table { table-layout: fixed; }
+table.fc-table col.f-type { width: 3%; }
+table.fc-table col.f-code { width: 5%; }
+table.fc-table col.f-desc { width: 16%; }
+table.fc-table col.f-client { width: 10%; }
+table.fc-table col.f-rev { width: 9%; }
+table.fc-table col.f-prev { width: 9%; }
+table.fc-table col.f-forecast { width: 10%; }
+table.fc-table col.f-remain { width: 9%; }
+table.fc-table col.f-imonth { width: 8%; }
+table.fc-table col.f-invoiced { width: 10%; }
+table.fc-table col.f-status { width: 12%; }
+table.fc-done-table col.d-type { width: 4%; }
+table.fc-done-table col.d-code { width: 7%; }
+table.fc-done-table col.d-desc { width: 24%; }
+table.fc-done-table col.d-client { width: 14%; }
+table.fc-done-table col.d-rev { width: 12%; }
+table.fc-done-table col.d-total { width: 13%; }
+table.fc-done-table col.d-imonth { width: 10%; }
+table.fc-done-table col.d-invoiced { width: 16%; }
+table.fc-table th, table.fc-table td, table.fc-done-table th, table.fc-done-table td { overflow-wrap: anywhere; }
+/* Money columns right-align so the figures stack by digit, as they do on the projects board; the
+   month and status columns centre, because they are labels rather than amounts. */
+table.fc-table th.f-rev, table.fc-table td.f-rev,
+table.fc-table th.f-prev, table.fc-table td.f-prev,
+table.fc-table th.f-forecast, table.fc-table td.f-forecast,
+table.fc-table th.f-remain, table.fc-table td.f-remain,
+table.fc-table th.f-invoiced, table.fc-table td.f-invoiced,
+table.fc-done-table th.d-rev, table.fc-done-table td.d-rev,
+table.fc-done-table th.d-total, table.fc-done-table td.d-total,
+table.fc-done-table th.d-invoiced, table.fc-done-table td.d-invoiced { text-align: right; }
+table.fc-table th.f-imonth, table.fc-table td.f-imonth,
+table.fc-table th.f-status, table.fc-table td.f-status,
+table.fc-done-table th.d-imonth, table.fc-done-table td.d-imonth { text-align: center; }
+/* The three states. A row is tinted by the state management *stated*, never by a figure derived
+   from the amounts beside it — a partially invoiced project whose invoice is late is a real state
+   the money alone cannot express (see V8__forecast_ledger.sql). Pale in the light theme, and a
+   translucent wash in the dark one, so the tint survives the theme without hiding the text. */
+tr.fc-entered > td { background: #fff8e1; }
+tr.fc-partial > td { background: #ffe8d1; }
+tr.fc-full > td { background: #e6f4d7; }
+html[data-theme="dark"] tr.fc-entered > td { background: rgba(255, 213, 79, .10); }
+html[data-theme="dark"] tr.fc-partial > td { background: rgba(255, 152, 89, .12); }
+html[data-theme="dark"] tr.fc-full > td { background: rgba(139, 195, 74, .12); }
+/* The legend in the toolbar is the key to those three colours, and it is built from the same
+   class names as the rows so the two cannot drift apart. */
+.fc-legend { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.fc-key { display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 11.5px; font-weight: 600; color: var(--title); border: 1px solid var(--input-border); }
+.fc-key.fc-entered { background: #fff8e1; }
+.fc-key.fc-partial { background: #ffe8d1; }
+.fc-key.fc-full { background: #e6f4d7; }
+html[data-theme="dark"] .fc-key.fc-entered { background: rgba(255, 213, 79, .18); }
+html[data-theme="dark"] .fc-key.fc-partial { background: rgba(255, 152, 89, .20); }
+html[data-theme="dark"] .fc-key.fc-full { background: rgba(139, 195, 74, .20); }
+/* The month the sheet is reading, between the two controls that change it. */
+.fc-strip { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
+.fc-month { font-size: 15px; font-weight: 800; color: var(--title); }
+.fc-step { min-width: 34px; font-weight: 700; line-height: 1; }
+/* The type letter, the category's initial in a square — the projects board spells the category out
+   in its panel head, a sheet this wide cannot. */
+.fc-letter { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11.5px; font-weight: 800; }
+/* The three writers. Each is the width of its column, so the sheet reads as cells and not as a
+   form: no visible box until the cell is entered. */
+.fc-num { width: 100%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 13px;
+    padding: 6px 8px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--title); }
+.fc-num:hover, .fc-num:focus { border-color: var(--input-border); background: var(--input-bg); }
+.fc-month-field, .fc-status-field { width: 100%; min-width: 0; font-size: 12.5px; padding: 5px 6px;
+    border: 1px solid var(--input-border); border-radius: 7px; background: var(--input-bg); color: var(--title); }
+.fc-status-field { font-weight: 600; }
+/* The row's own form: it exists to be named by `form=` from the cells around it and to carry the
+   keys those cells cannot state, so it has nothing of its own to draw. */
+.fc-line-form { display: none; }
+/* Figures the sheet works out rather than stores: revenue is typed once on the project, and the
+   previous-months and remaining columns are sums of the ledger, printed quieter than what is typed. */
+.money.dim { font-weight: 600; color: var(--muted); }
+.fc-state { font-size: 12.5px; font-weight: 600; color: var(--title); }
+/* A finished project whose whole revenue has been invoiced: the one number that says the job is
+   paid for, so it is the one figure on the sheet allowed to be green. */
+.fc-covered { color: #3f620e; font-weight: 800; }
+html[data-theme="dark"] .fc-covered { color: #a5d6a7; }
+/* The two totals lines: bold, ruled off the rows above, and labelled in the cell that spans the
+   columns its figure belongs to. */
+tr.fc-totals > td { border-top: 2px solid var(--input-border); border-bottom: none; background: var(--input-bg); font-weight: 800; padding: 10px 8px; }
+.fc-total-label { font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.fc-total-num { text-align: right; }
+.fc-completed-head { display: flex; align-items: center; gap: 10px; margin: 22px 0 8px; }
+.fc-completed-head h3 { margin: 0; }
+/* ---- The Lesson learnt sheet (V9) ---------------------------------------------------------
+   One row per lesson, read down the sheet: when, who, on which project, from which card, what
+   was learned, and whether anybody has talked about it yet.
+
+   Column widths are percentages summing to exactly 100 on a `table-layout: fixed` grid, the same
+   contract the forecast sheet and the projects board keep. The lesson text and the card title take
+   the two biggest shares because they are the sheet's free text; the date, the project code, the
+   status pill and the three action squares are fixed shapes, and their shares are what they spell
+   plus the cell's own 20px of padding — measured with `white-space: nowrap` on the rendered sheet:
+   a date 84, a code 81, the dot-and-words pill 124, three 30px buttons with 6px between them 122 —
+   all of them at the 1030px sheet a 1360px window gives, which is where the shares were set.
+   The first cut gave them 7/9/11/11. Each came out a few pixels short on a normal desktop, and the
+   sheet paid for it visibly: the date split over two lines, the pill split over two, every row stood
+   57px tall instead of one line, and the archive button painted past its own column's edge. */
+table.lessons-table { table-layout: fixed; }
+table.lessons-table col.l-date { width: 9%; }
+table.lessons-table col.l-employee { width: 14%; }
+table.lessons-table col.l-project { width: 8%; }
+table.lessons-table col.l-task { width: 20%; }
+table.lessons-table col.l-text { width: 24%; }
+table.lessons-table col.l-status { width: 13%; }
+table.lessons-table col.l-actions { width: 12%; }
+table.lessons-table th, table.lessons-table td { overflow-wrap: anywhere; }
+/* The project code, the way the sheet is scanned: this column is the address of the job, and on the
+   projects board and the forecast grid a code is read first. `.code` is the same monospace face, but
+   it is a quiet caption there and the primary label here. */
+table.lessons-table .code { color: var(--title); font-weight: 800; font-size: 13px; }
+/* The DATE header is the control that reverses the column, so it is drawn as the header: same size,
+   same letterspacing, same grey, and the glyph carries the direction rather than a second word.
+   `form="llFilter"` makes it a member of the pickers' GET form, which is what keeps the chosen
+   project and employee on the send — see [sortButton] in Lessons.kt. */
+.ll-sort { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: none; background: none;
+    font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); cursor: pointer; }
+.ll-sort:hover { color: var(--title); }
+.ll-sort-glyph { font-size: 9px; line-height: 1; }
+/* The employee column: the same person is the same colour on every row, which is what makes a sheet
+   of lessons readable at a glance. Six tints, chosen at mid-lightness so the white initials read on
+   both themes; the pick comes from the account, not from the row. */
+.ll-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ll-person-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.ll-a1 { background: #5b7fd4; color: #fff; }
+.ll-a2 { background: #4a9d7a; color: #fff; }
+.ll-a3 { background: #c2772b; color: #fff; }
+.ll-a4 { background: #8a5a9d; color: #fff; }
+.ll-a5 { background: #b3566b; color: #fff; }
+.ll-a6 { background: #3f8ba8; color: #fff; }
+html[data-theme="dark"] .ll-a1 { background: #4a6bb5; }
+html[data-theme="dark"] .ll-a2 { background: #3d8566; }
+html[data-theme="dark"] .ll-a3 { background: #a5651f; }
+html[data-theme="dark"] .ll-a4 { background: #74488a; }
+html[data-theme="dark"] .ll-a5 { background: #94445a; }
+html[data-theme="dark"] .ll-a6 { background: #33718a; }
+/* What a legacy carry-over row prints where a date, an author or a card would otherwise stand: an
+   em-dash in the column's own colour, so the row reads as a row with a gap and not as a failure. */
+.ll-none { color: var(--muted); font-weight: 600; }
+.ll-task { color: var(--title); }
+/* The lesson cell is a button the width of the column that opens the popup it belongs to. It shows
+   one line and truncates, because the sheet is read down its rows; the whole text is one click away,
+   and the `title` attribute carries it meanwhile. */
+/* The cell's own form is a GET opener, so it carries `.opener-form` — and that rule is a bare class
+   further down this file, `display: inline-flex`. Equal specificity and later in the sheet wins, and
+   an inline-flex box shrink-wraps to its button's full sentence: the cell then prints over the
+   Status and Actions columns instead of cutting one line. The element name here makes this (0,1,1)
+   against that (0,1,0), so it wins on specificity no matter where either rule sits. */
+form.ll-text-form { display: block; margin: 0; min-width: 0; }
+.ll-open { display: block; width: 100%; min-width: 0; padding: 0; border: none; background: none; text-align: left;
+    font: inherit; color: var(--title); cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ll-open:hover { color: var(--accent-strong); text-decoration: underline; }
+/* The two states, as the dot the picture prints. Green for a lesson that has been talked about,
+   grey for one that has not: the sheet's whole point is which rows still need a conversation. */
+.chip.ll-discussed, .chip.ll-undiscussed { display: inline-flex; align-items: center; gap: 6px; }
+.chip.ll-discussed::before, .chip.ll-undiscussed::before { content: ""; width: 7px; height: 7px; border-radius: 50%; }
+.chip.ll-discussed { background: #e6f4d7; color: #3f620e; }
+.chip.ll-discussed::before { background: #3f620e; }
+.chip.ll-undiscussed { background: rgba(0, 0, 0, .06); color: var(--muted); }
+.chip.ll-undiscussed::before { background: var(--muted); }
+html[data-theme="dark"] .chip.ll-discussed { background: rgba(139, 195, 74, .16); color: #a5d6a7; }
+html[data-theme="dark"] .chip.ll-discussed::before { background: #a5d6a7; }
+/* The row's three writes: forms that exist only to carry one button each, laid out as the app's
+   other icon-button groups do. */
+.ll-action { display: inline-flex; margin: 0; }
+/* The Archived heading: a control that opens the same sheet's other half, drawn as a heading because
+   that is what it is, and carrying the count in the app's own pill so the number cannot be missed. */
+.ll-archived { margin-top: 20px; }
+.ll-arch-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: none; background: none;
+    font-size: 14.5px; font-weight: 700; color: var(--title); cursor: pointer; }
+.ll-arch-toggle:hover { color: var(--accent-strong); }
+.ll-arch-caret { font-size: 11px; color: var(--muted); }
+/* The tail of the toolbar: the count line and the add button, opposite the pickers. It is pushed to
+   the right rather than sitting after them because the picture counts what the sheet holds, and a
+   total belongs where the eye finishes the line. The two pickers are one GET form of their own and the
+   add control is another — a form cannot nest in a form — so this is what keeps them on one line. */
+.ll-pickers { display: flex; align-items: flex-end; gap: 10px; margin: 0; }
+.ll-tail { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+.ll-counts { font-size: 12.5px; font-weight: 600; color: var(--muted); white-space: nowrap; }
+/* The popup's read-only half: the same five fields the writer sees, printed as values instead of as
+   boxes, so a lesson somebody else wrote is still fully readable. */
+.ll-plain { margin: 4px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--title); overflow-wrap: anywhere; }
+/* ---- The Team sheet on Settings (Stage 46) -------------------------------------------------
+   One row per person: who they are, what they are called, what they can do, and how much work is
+   sitting on them. It replaced the workload table that used to live here, whose two count columns
+   were buttons that opened a hidden sub-row — the same two facts, now printed as a role pill and a
+   number, with the drill-down moved to the card and project pages that already show it.
+
+   Column widths are percentages summing to exactly 100 on a `table-layout: fixed` grid, the same
+   contract the lesson sheet keeps: each share is what its column's longest unbreakable piece measures
+   plus the cell's own 20px of padding, at the ~1250px sheet a 1360px window gives. The email address
+   is the one column that cannot be measured that way — a name at murrays.mn length is wider than any
+   share it could be given — so it is allowed to break, and `overflow-wrap: anywhere` is what keeps it
+   inside its own column when it does. */
+table.team-sheet { table-layout: fixed; }
+table.team-sheet col.t-name { width: 19%; }
+table.team-sheet col.t-emp { width: 10%; }
+table.team-sheet col.t-position { width: 13%; }
+table.team-sheet col.t-department { width: 9%; }
+table.team-sheet col.t-role { width: 11%; }
+table.team-sheet col.t-email { width: 19%; }
+table.team-sheet col.t-tasks { width: 9%; }
+table.team-sheet col.t-actions { width: 10%; }
+table.team-sheet th, table.team-sheet td { overflow-wrap: anywhere; }
+table.team-sheet td.t-tasks { text-align: center; font-weight: 700; color: var(--title); }
+table.team-sheet td.t-actions { text-align: right; }
+/* The employee number is the row's address, the same reading the lesson sheet gives its project code:
+   `.code` is the same monospace face, but a quiet caption elsewhere and a primary label here. */
+table.team-sheet .code { color: var(--title); font-weight: 700; font-size: 13px; }
+/* The person: the same avatar as every other sheet, and the name that has to survive being long. */
+.ts-person { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ts-person-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+/* The picture's own marker for the row the reader is standing in. `.chip.ontrack` is the app's green
+   pill — the same one a project's status prints — so the badge is a chip and not a seventh widget. */
+.ts-you { flex: 0 0 auto; padding: 2px 8px; font-size: 10.5px; letter-spacing: .04em; }
+/* A column with nothing in it: the same em-dash the lesson sheet uses, so "no department", "no account"
+   and "not yours to count" all read as a gap in a row rather than as a failure of the page. */
+.ts-none { color: var(--muted); font-weight: 600; }
+/* The seven headers are the controls that order the sheet, and they are drawn as headers — same size,
+   same letterspacing, same grey — because that is what they are. `form="tsSort"` makes each one a
+   member of the carriage form above the table, which is what keeps the search and the two pickers on
+   the send; see [sortCarriage] in Settings.kt for why it is not the toolbar's own form. */
+.col-sort { display: inline-flex; align-items: center; gap: 5px; padding: 0; border: none; background: none;
+    font: inherit; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--muted); cursor: pointer; }
+.col-sort:hover { color: var(--title); }
+.col-sort-glyph { font-size: 9px; line-height: 1; }
+/* The carriage form holds three hidden fields and nothing else. It is a block the size of nothing, and
+   a table's parent must not gain a stray flex child, so it is taken out of the layout entirely rather
+   than merely emptied. */
+form.col-sort-form { display: none; }
+/* The row's two writes, each a form that exists only to carry its button — the same arrangement the
+   lesson sheet's three have, and the pencil is red because the picture's is, and because it is the one
+   control on this sheet that changes a live account. */
+form.ts-action { display: inline-flex; margin: 0; }
+table.team-sheet .icon-btn.ts-edit { background: #fdecea; color: #b3261e; }
+html[data-theme="dark"] table.team-sheet .icon-btn.ts-edit { background: rgba(179, 38, 30, .18); color: #f28b82; }
+/* A bin that cannot press, which is the sheet's answer to "may I take this row off?" for a row that is
+   somebody else's account, or your own, or the one the app will not let go. The reason is its `title`. */
+.icon-btn:disabled { opacity: .4; cursor: not-allowed; }
+/* The three headings the Settings page is divided by. The picture's "Team" is a small quiet label above
+   its card, not a page title — the page already has one, and a second big heading would compete with it. */
+h3.set-section { font-size: 12.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin: 26px 0 10px; }
+h3.set-section:first-child { margin-top: 0; }
+/* The count line at the end of the toolbar. It is a field of the filter form rather than a sibling of
+   it, because it is the one number on the page that describes exactly what the three controls leave, and
+   a live region cannot replace its own toolbar — so it rides as the form's companion (`data-live-extra`)
+   and is pushed to the right, where the picture counts. */
+.board-toolbar .board-count { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--muted);
+    white-space: nowrap; align-self: center; }
+/* A field the reader reads but cannot change: the employee number and the name of the account being
+   edited. It stays a field, printed with its value, because the popup is about that person — but it
+   costs the muted grey that says so before anybody tries to type in it. */
+.field input[readonly] { background: transparent; border-color: transparent; color: var(--muted);
+    padding-left: 0; cursor: default; }
+.todo-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; font-size: 14px; color: var(--title); border-bottom: 1px solid var(--input-border); }
+.todo-row:last-child { border-bottom: none; }
+.todo-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; cursor: grab; }
+.todo-head h3 { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.todo-count { font-size: 12px; color: var(--muted); font-weight: 600; }
+.todo-due { margin: 0 0 8px; }
+.todo-due-form { margin: 0; display: flex; align-items: center; gap: 6px; }
+.todo-due-label { font-size: 12px; font-weight: 600; color: var(--muted); }
+.todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: 5px 8px; font-size: 12px; }
+.todo-del-form { margin: 0 0 0 auto; }
+.calendar-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.calendar-grid th { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 4px; border-bottom: 1px solid var(--input-border); }
+.calendar-grid td { padding: 0; border: 1px solid var(--input-border); vertical-align: top; min-height: 100px; }
+.calendar-cell { width: 14.28%; min-height: 100px; position: relative; }
+.calendar-day { padding: 6px 8px; font-weight: 600; font-size: 12px; color: var(--title); }
+.calendar-day.today { background: var(--accent-soft); color: var(--accent-strong); }
+.calendar-task-bar { color: #fff; padding: 4px 6px; margin-top: 4px; font-size: 11px; font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.calendar-task-bar:hover { opacity: 0.9; }
+.calendar-task-link { color: #fff; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-task-link:hover { text-decoration: underline; }
+.calendar-bar-assignee { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+.modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0, 0, 0, 0.5); }
+/* Stage 23 puts the plan and the running log under the editor's fields, so a card with a few entries in
+   each is taller than a short window. The old `margin: 10% auto` measured a vertical gap against the
+   overlay's WIDTH — 144px of dead air above a popup that already overflowed below — and a popup that
+   cannot be scrolled simply loses its Save button off the bottom. So the overlay scrolls, the gap is
+   taken from the viewport height and clamped at both ends, and the bottom gap is fixed so the card
+   never sits flush with the edge when the log is scrolled to its last note. */
+.modal-content { background-color: var(--card-bg); margin: clamp(16px, 6vh, 56px) auto 48px; padding: 24px; border-radius: 12px; width: 90%; max-width: 500px; position: relative; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2); }
+.close { color: var(--muted); float: right; font-size: 28px; font-weight: bold; cursor: pointer; line-height: 1; }
+.close:hover { color: var(--title); }
+.modal-body { margin-top: 16px; }
+.modal-row { display: flex; margin-bottom: 12px; align-items: center; }
+.modal-label { font-weight: 600; color: var(--muted); width: 100px; flex-shrink: 0; }
+.modal-value { color: var(--title); }
+.modal-actions { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--input-border); }
+.modal-btn { display: inline-block; padding: 8px 16px; background: var(--accent); color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 13px; }
+.modal-btn:hover { background: var(--accent-strong); }
+.todo-del { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; }
+.todo-del:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
+.todo-title { flex: 1; }
+.todo-title.done { text-decoration: line-through; color: var(--muted); }
+.todo-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.todo-add input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 8px; padding: 11px 14px; font-size: 14px; }
+.todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: 10px 10px; font-size: 13px; }
+.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: 8px 6px; font-size: 11.5px; }
+.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: 4px 6px; font-size: 11.5px; }
+.todo-due-form input[type="date"]::-webkit-calendar-picker-indicator,
+.todo-add input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
+.todo-due-form input[type="date"],
+.todo-add input[type="date"] { background: transparent; border-color: transparent; }
+.todo-due-form input[type="date"]:focus,
+.todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--input-border); }
+.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5; }
+.todo-board { display: flex; gap: 16px; align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
+.todo-board .todo-list { flex: 0 0 330px; max-width: 330px; }
+.todo-check { margin: 0; display: flex; align-items: center; }
+.todo-check input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.todo-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.todo-head-actions .todo-del-form { margin: 0; }
+.todo-move-form { margin: 0; display: flex; gap: 2px; }
+.todo-move { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: 12px; line-height: 1; padding: 4px 7px; border-radius: 6px; }
+.todo-move:hover:not([disabled]) { color: var(--accent-strong); background: var(--accent-soft); }
+.todo-move[disabled] { opacity: .3; cursor: default; }
+.todo-list.done { opacity: .72; }
+.todo-list.done .todo-head h3 { text-decoration: line-through; color: var(--muted); }
+.todo-list.dragging { opacity: .55; outline: 2px dashed var(--accent); outline-offset: -2px; }
+.set-row { display: flex; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--input-border); font-size: 13.5px; color: var(--title); }
+.set-row:last-of-type { border-bottom: none; }
+.set-key { color: var(--muted); }
+/* Settings' three app panels (Stage 61). A category row is its letter, its chip and how many projects the
+   company actually has under it, spread across the row by the .set-row space-between the same way the
+   account card's key/value pairs are; the count is the quietest thing in it. */
+.set-row .type-letter { flex: 0 0 auto; width: 18px; }
+.set-row .type-count { color: var(--muted); font-size: 12px; }
+/* The six standard sub-categories print as one run of chips under the picker, so they read as a floor the
+   list below adds to rather than as nine more editable rows. */
+.lane-floor { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 70%; }
+.lane-floor .chip { font-size: 11px; }
+/* The six floor lanes are neutral, not the roster's role colours: they name the sub-categories every board
+   carries, so they print in the muted card tint rather than a done/planning/atrisk green-amber-red. */
+.lane-floor .chip.lane-chip { background: var(--input-bg); color: var(--muted); }
+.set-row .lane-name { font-weight: 600; }
+/* The delivery mode is the one line on the page that says whether mail can leave this machine, and it is
+   monospace because it quotes a host and a port. */
+.email-mode { font-family: Consolas, monospace; font-size: 12px; color: var(--title); text-align: right; }
+.flash { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
+.flash.ok { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
+.flash.err { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0; }
+select {
+    width: 100%;
+    padding: 11px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--input-text);
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    outline: none;
+}
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.form-grid .field { margin-bottom: 0; }
+/* The projects board's search bar and its two sort pickers, in one GET form onto /app/projects.
+   The box takes whatever width is left and the pickers keep to their own size, so a narrow window
+   wraps them onto a second line instead of squeezing the search field. base.css sets `label` to a
+   block with the form-field spacing, so the picker labels have to undo both. */
+.board-toolbar { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+/* The Search button lives in this wrapper, right beside the field it submits, so the pair is one
+   visual unit and the pickers start after it. The input's `width: 100%` from base.css has to become a
+   flex basis here or the button gets pushed to the wrapper's edge with the field stretched past it. */
+.board-toolbar .board-search {
+    flex: 1 1 240px; min-width: 200px;
+    display: flex; align-items: flex-end; gap: 8px;
+}
+.board-toolbar .board-search input[type="text"] { flex: 1 1 auto; min-width: 0; width: auto; }
+.board-toolbar .board-search .submit { white-space: nowrap; }
+.board-toolbar input[type="text"] { padding: 8px 12px; font-size: 13.5px; }
+.board-toolbar .board-key {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-bottom: 0; font-size: 11px; color: var(--muted);
+}
+.board-toolbar .board-key select {
+    width: auto; min-width: 140px; padding: 8px 10px;
+    font-size: 13px; color: var(--title);
+}
+.board-toolbar .board-reset { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.board-toolbar .board-reset:hover { color: var(--title); }
+/* The block a live search replaces in place: app.js fetches /app/projects and swaps the element carrying
+   [data-live-region], so the toolbar above it — and the word half-typed in its box — is never touched.
+   A refresh dims the board instead of blanking the page, and the class goes on <body> because the region
+   element is a brand-new node after every swap, so a class on it would be replaced along with it. */
+[data-live-region] { transition: opacity 120ms ease; }
+body.pts-refreshing [data-live-region] { opacity: .55; }
+/* The category filter bar is ONE line, always — the reader asked for it not to break onto a second row. So it
+   is a nowrap flex row whose chips never shrink (each keeps its full label + count pill), and on a window too
+   narrow to hold all ten it scrolls sideways rather than wrapping or clipping. The scrollbar is hidden so the
+   strip looks like a single row of tabs, not a scroll box; it is still keyboard/trackpad scrollable. */
+.filter-tabs { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; margin-bottom: 14px; padding-bottom: 2px; }
+.filter-tabs::-webkit-scrollbar { display: none; }
+.ftab {
+    display: inline-flex; align-items: center; gap: 5px;
+    flex: 0 0 auto; white-space: nowrap;
+    padding: 5px 10px; border-radius: 16px;
+    background: var(--input-bg); color: var(--muted);
+    font-size: 12px; font-weight: 600; text-decoration: none;
+}
+.ftab:hover { color: var(--title); }
+.ftab.active { background: var(--accent-soft); color: var(--accent-strong); }
+.ftab .pill { background: rgba(0, 0, 0, .06); }
+html[data-theme="dark"] .ftab .pill { background: rgba(255, 255, 255, .08); }
+.group-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.group-head .chip { font-size: 13px; font-weight: 700; padding: 4px 12px; }
+.group-head .pill { background: rgba(0, 0, 0, .06); }
+html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08); }
+/* Project categories — one chip colour per letter prefix (M/R/S/L/D/E/F/G/O).
+   Keyed on the letter, not the label, so renaming a category keeps its colour. */
+.chip.t-m { background: #e3f1fd; color: #1a5fb4; }
+.chip.t-r { background: #fbeed3; color: #8a5a06; }
+.chip.t-s { background: #e6f4d7; color: #3f620e; }
+.chip.t-l { background: #f3e8fd; color: #6f3fa0; }
+.chip.t-d { background: #ddeef0; color: #0f6670; }
+.chip.t-e { background: #e8eaf2; color: #3d4a72; }
+.chip.t-f { background: #f6e6df; color: #8a3c17; }
+.chip.t-g { background: #fde7ef; color: #a12a5e; }
+.chip.t-o { background: rgba(0, 0, 0, .06); color: var(--muted); }
+.row-link { color: var(--title); text-decoration: none; }
+.row-link:hover { color: var(--accent-strong); text-decoration: underline; }
+.detail-head { margin-bottom: 12px; }
+.back-link { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; }
+.back-link:hover { color: var(--accent-strong); }
+.detail-title { margin: 6px 0 14px; font-size: 22px; color: var(--title); }
+/* The nine fields of a project's detail card, packed onto as few lines as the card is wide for. This used to
+   be `repeat(auto-fill, minmax(180px, 1fr))` — equal columns — which is precisely what stranded Revenue and
+   Progress on a line of their own whenever nine fields did not divide into however many columns the window
+   made. A wrapping flex row gives the next field whatever room is left on the line, so the last two read like
+   the eight before them: one run of `caption value` pairs, each pair on a single line. */
+.detail-grid { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 24px; }
+/* One line per field: caption then value. All nine cells read this way, Revenue and the Progress bar
+   included — they used to stack their value (and the bar's percentage, a third line) under the caption, and
+   the ask was for them to look like Project number and Client, not like a row of their own. `baseline` puts
+   the small caption and the larger value on the same text line; `nowrap` on the caption stops "Start date"
+   breaking in half and forcing the field back onto two lines, and leaves the value as the thing that may
+   wrap, with `min-width: 0` so a long client name folds inside its own field instead of shoving the next one
+   off the card. The bar is a shrinkable flex item, so a narrow card shortens it rather than overflowing. */
+.detail-item { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.detail-item .progress { flex: 0 1 110px; min-width: 40px; }
+/* Revenue and Progress as one unit of the run: a flex item that happens to hold two fields, so they wrap
+   together instead of the bar being left alone on the next line. It is not a row of its own — no full-width
+   span — and it still lets them split when the card is genuinely too narrow to hold both. */
+.detail-pair { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 24px; min-width: 0; }
+.detail-key { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.detail-val { font-size: 14px; color: var(--title); font-weight: 600; }
+/* --- Stage 60: the management header of a project page -------------------------------------------
+   The breadcrumb row carries the path on the left and the whole-project actions (Pin for me, the copy-link
+   icon, Delete project) on the right, on the same line. Below it the field strip is an editable form laid out
+   as ONE full-width row of caption-over-value cells spread across the panel — the reading order of the
+   screenshot, not a boxed grid that wraps. */
+.crumb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.crumb { display: flex; align-items: baseline; gap: 8px; font-size: 14px; font-weight: 700; color: var(--title); }
+.crumb-link { color: var(--muted); text-decoration: none; font-weight: 600; }
+.crumb-link:hover { color: var(--accent-strong); text-decoration: underline; }
+.crumb-sep { color: var(--muted); font-weight: 400; }
+.crumb-code { color: var(--title); }
+.head-actions { display: flex; align-items: center; gap: 8px; }
+/* The copy-link icon sits between the pin and the delete. It reuses the app's `.icon-btn` box but with a
+   ghost border rather than the filled input background, so it reads as a header action and not a field. */
+.head-actions .opener-form { margin: 0; }
+.head-copy { background: transparent; border: 1px solid var(--input-border); }
+.head-copy:hover { background: var(--input-bg); }
+.edit-panel { padding: 16px 18px; }
+/* One row, fields spread edge to edge like the screenshot. Every cell uses a ZERO flex-basis with a content
+   weight, so the ten of them always divide the panel between themselves and never push a later cell onto a
+   second line — which is exactly what happened with the old `1 1 120px` bases (9×120 + 220 + gaps overflowed a
+   1400px panel and wrapped). The weights mirror the picture: the wide text fields (description, type, manager)
+   take the largest shares, the short money/progress cells the smallest. `min-width: 0` lets a long value clip
+   inside its own select/input instead of forcing the row to wrap; `flex-wrap` stays only as a narrow-window
+   fallback so a phone can fold them rather than get a horizontal scrollbar. */
+.edit-strip { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 18px; }
+.edit-strip .ef { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1.3 1 0; }
+/* The description carries a whole phrase, so it takes the widest share; the money and progress cells are short
+   and take the least. This is what makes the row read as the screenshot's spread rather than equal boxes. */
+.edit-strip .ef:first-child { flex: 2.2 1 0; }
+.edit-strip .ef.wide-ef { flex: 2 1 0; }
+.edit-strip .ef.money-ef { flex: 1.1 1 0; }
+.edit-strip .ef.progress-ef { flex: .8 1 0; }
+.ef-label { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; white-space: nowrap; }
+/* Flat, borderless controls: the screenshot shows a caption over a plain-looking value, not a boxed field. The
+   native select caret and the date's calendar glyph are kept (they are the only decoration the picture shows),
+   so only the box around them comes off. */
+.edit-strip input, .edit-strip select { width: 100%; }
+.edit-strip input[type="text"], .edit-strip input[type="date"], .edit-strip select {
+  border: none; background: transparent; border-radius: 0; padding: 2px 0;
+  color: var(--title); font-weight: 600; font-size: 14px;
+}
+.edit-strip input:focus, .edit-strip select:focus { outline: 1px solid var(--accent-strong); outline-offset: 2px; }
+/* The read-only progress percentage, styled as a value like the fields beside it (no bar). */
+.edit-strip .progress-ef .pct { font-size: 14px; font-weight: 600; color: var(--title); }
+.edit-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+/* base.css writes `button.submit { display:block; width:100% }`, which turned "Save changes" into a full-width
+   green bar spanning the panel — the screenshot shows no such bar. Compact it back to a right-aligned button
+   that hugs its own label. */
+.edit-actions .submit { display: inline-block; width: auto; padding: 8px 18px; font-size: 13px; }
+/* A destructive action styled as a small ghost button that reddens on hover — it sits in the header row
+   beside the pin, not as a filled danger block, so it never outweighs the page. */
+.ghost-btn.btn-sm.danger { color: #d93025; }
+.ghost-btn.btn-sm.danger:hover { background: #d93025; border-color: #d93025; color: #fff; }
+/* The project page's roll-up strip (Stage 21) is gone — Stage 28 took the tiles, the column line and the
+   people line out with it, because the board's own column heads already carry those counts. The `.sum-*`
+   rules went with the markup rather than staying as a vocabulary nothing speaks. */
+.assignee.none { color: var(--muted); font-style: italic; }
+.pw-edit { display: flex; gap: 6px; align-items: center; }
+.pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: 6px; padding: 5px 8px; font-size: 12.5px; }
+.team-table tbody tr[data-emp] { cursor: pointer; }
+.team-table tbody tr[data-emp]:hover td { background: var(--input-bg); }
+.mhint { color: var(--muted); font-size: 15px; font-weight: 700; }
+.team-table tbody tr[data-emp]:hover .mhint { color: var(--accent-strong); }
+.mpop { position: absolute; z-index: 900; width: 400px; max-width: calc(100vw - 24px); background: var(--card-bg); border: 1px solid var(--input-border); border-radius: 12px; box-shadow: 0 18px 44px rgba(0, 0, 0, .22); overflow: hidden; }
+.mpop[hidden] { display: none; }
+.mpop-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--accent-soft); }
+.mpop-head .avatar.sm { background: var(--accent-strong); }
+.mpop-id { flex: 1; min-width: 0; }
+.mpop-name { font-size: 14px; font-weight: 700; color: var(--title); }
+.mpop-sub { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.mpop-x { border: none; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: 6px; }
+.mpop-x:hover { color: var(--title); background: rgba(0, 0, 0, .07); }
+.mpop-body { padding: 4px 14px 12px; max-height: min(60vh, 480px); overflow-y: auto; }
+.mpop-sechead { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 12px 0 4px; }
+.mpop-empty { font-size: 12.5px; color: var(--note); font-style: italic; padding: 4px 0 2px; }
+.mpop-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--input-border); }
+.mpop-row:last-child { border-bottom: none; }
+.mpop-main { flex: 1; min-width: 0; }
+.mpop-title { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
+.mpop-title .code { margin-right: 4px; }
+.mpop-title .tcode { margin-right: 6px; }
+.tcode.m { font-size: 9.5px; padding: 1px 5px; }
+.mpop-meta { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 3px; flex-wrap: wrap; }
+.mdot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: 0 0 8px; }
+.mprog { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--input-bg); overflow: hidden; margin-left: 4px; }
+.mprog-bar { display: block; height: 100%; background: var(--accent); }
+.mrole { flex: 0 0 auto; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--input-bg); color: var(--muted); margin-top: 2px; }
+.mrole.mgr { background: var(--accent-soft); color: var(--accent-strong); }
+.tasks-toggle { min-width: 32px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.tasks-toggle:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
+.tasks-toggle.open { background: var(--accent-soft); border-color: var(--accent-strong); color: var(--accent-strong); }
+.tasks-toggle.zero { color: var(--muted); font-weight: 600; }
+.quick-add { margin-left: 6px; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.4; cursor: pointer; }
+.quick-add:hover { color: var(--accent-strong); border-color: var(--accent-strong); background: var(--accent-soft); }
+/* Department label rows above each group in the Team table (Team.kt departmentRow). A plain row
+   rather than a <th>: the column widths still come from the member rows underneath, and a header
+   cell would fight the .num sizing those rows rely on.
+   Highlighted as an accent band — --accent-soft under --accent-strong is the same pairing the active
+   nav item, the manager role chip and the flash banner use, so it re-colours with the accent cycle
+   and flips with the dark theme with no hardcoded value and no [data-theme] override. The count rides
+   on --card-bg, which is how .nav-item.active .pill stays legible inside the same soft fill. */
+tr.dept-row > td { padding: 7px 0 5px; background: transparent; }
+.dept-cell { display: flex; align-items: baseline; gap: 9px; padding: 7px 12px; background: var(--accent-soft); border-left: 3px solid var(--accent-strong); border-radius: 0 8px 8px 0; }
+.dept-name { font-size: 12.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-strong); }
+.dept-count { font-size: 11px; font-weight: 700; color: var(--accent-strong); background: var(--card-bg); border-radius: 10px; padding: 1px 8px; }
+tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
+tr.member-tasks[hidden] { display: none; }
+tr.member-tasks .mpop-row { padding: 7px 0; }
+.mtd-empty { font-size: 12.5px; color: var(--note); font-style: italic; }
+.other-tag { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: var(--input-bg); color: var(--muted); margin-right: 4px; }
+/* Nothing under a project's columns any more (Stage 35): the box that named one more lane is gone, so the
+   `.lane-add` rules went with it, along with the `.manager-set` rules they had already replaced. A board is the
+   three lanes its project was created with, and a card moves between them through the popup's Lane field or a
+   drag — which is what `.kcol-add`, the per-column `+ Add task` line, and the `[data-lane]` columns are for. */
+.acct-email { font-size: 13px; color: var(--muted); }
+table.grid td.num { text-align: center; width: 1%; white-space: nowrap; }
+.count-btn { min-width: 34px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--accent-strong); font-size: 12.5px; font-weight: 800; font-family: inherit; cursor: pointer; }
+.count-btn:hover { border-color: var(--accent-strong); background: var(--accent-soft); }
+.count-btn.open { background: var(--accent-soft); border-color: var(--accent-strong); }
+.count-zero { font-size: 13px; color: var(--muted); opacity: 0.55; }
+tr.acct-detail > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: 8px 14px 10px; }
+tr.acct-detail[hidden] { display: none; }
+tr.acct-detail .mpop-row { padding: 7px 0; }
+.acct-pane[hidden] { display: none; }
+.acct-pane + .acct-pane { border-top: 1px dashed var(--input-border); margin-top: 6px; padding-top: 6px; }
+.acct-pane-head { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); margin: 4px 0 2px; }
+
+/* ---------------------------------------------------------------------------
+   Create-project / create-task modals (Projects.kt, TaskBoard.kt and their
+   static/js popups). Both reuse .modal / .modal-content / .close from the calendar
+   modal and .form-grid / .field / .field-err from the account forms; these rules
+   only widen them and lay their two action buttons out side by side.
+   --------------------------------------------------------------------------- */
+/* One small button for every page-level action: + New project, + New task, Set manager, and the
+   Add note button under a card's log. They override the full-width block
+   .submit from base.css
+   with the same metrics the Todo "Add" button has, so the whole app reads alike. The primary CTA
+   inside a modal stays large — .modal-wide .modal-actions .submit below.
+   The selector is .submit.btn-sm, not .btn-sm: base.css writes `button.submit`, which is
+   (0,1,1) and would outrank a bare class, leaving the button full-width and 13px padded. */
+.submit.btn-sm, .btn-sm {
+    width: auto; display: inline-block; margin-top: 0; padding: 5px 12px;
+    font-size: 12.5px; font-weight: 600; line-height: 1.5;
+}
+.new-project-btn, .new-task-btn { white-space: nowrap; }
+
+/* A task card that opens its editor (TaskBoard.kt + static/js/task-modal.js). There are no per-card
+   buttons and no corner mark: the card body IS the target, so clicking anywhere on it that is not
+   already a control asks this page for that card's popup. The hover and the focus ring are the whole
+   hint — a card the reader may open lifts, a card they have tabbed to shows the ring. */
+.kcard[data-task-card] { cursor: pointer; }
+.kcard[data-task-card]:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, .16); }
+.kcard[data-task-card]:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+/* The board's one hidden opener form. `hidden` alone is not enough here: base.css gives forms a display
+   value, and a visible empty form would sit under the last column of the board. */
+.card-edit-opener[hidden] { display: none; }
+.kcol-empty { font-size: 12px; color: var(--muted); font-style: italic; margin: 6px 0 0; }
+/* A lane column always prints its "Nothing here." line last, so the line that says a column has cards is the
+   line hiding it: a card moved in or out changes the message with nothing in the script keeping it in step.
+   The status board does not need this — its columns are only ever drawn by the server, and it reloads. */
+.kcol .kcard + .kcol-empty { display: none; }
+/* The `+ Add task` line at the foot of each lane column (TaskBoard.kt). It is the page head's `+ New task`
+   with one extra hidden field — the lane to open the blank card on — so it is deliberately the quietest
+   control on the board: no border, no fill, the muted text colour, and it answers the cursor with an
+   underline rather than with a button shape. A column already holds cards that look like things; a third
+   framed button per column would read as part of the work. */
+.kcol-add { margin-top: 8px; }
+.kcol-add-btn {
+    background: none; border: 0; padding: 2px 0; font-family: inherit; font-size: 12px; font-weight: 600;
+    color: var(--muted); cursor: pointer;
+}
+.kcol-add-btn:hover { color: var(--accent-strong); text-decoration: underline; }
+.kcol-add-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.modal-wide { max-width: 640px; }
+.modal-wide h3 { font-size: 17px; margin: 0 0 16px; }
+.modal-wide .form-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.field.full { grid-column: 1 / -1; }
+.field-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+.modal-wide .modal-actions { display: flex; align-items: center; gap: 10px; }
+.modal-wide .modal-actions .submit { flex: 1; margin-top: 0; padding: 11px; font-size: 13.5px; }
+.ghost-btn {
+    flex: 0 0 auto; padding: 11px 18px; border: 1px solid var(--input-border); border-radius: 8px;
+    background: transparent; color: var(--muted); font-family: inherit; font-size: 13.5px;
+    font-weight: 700; cursor: pointer;
+}
+.ghost-btn:hover { color: var(--title); background: var(--input-bg); }
+.money { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---------------------------------------------------------------------------
+   Stage 23 — the editor's two sections: the plan under a card and its log.
+   Rendered by modalSteps() / modalNotes() in TaskBoard.kt inside #taskModal, and
+   swapped block-by-block by app.js ([data-live-target]), so a step or a note never
+   closes the form somebody is writing in.
+   --------------------------------------------------------------------------- */
+/* The two openers that are GET forms rather than bare buttons: + New task in the page head and Edit
+   in a card menu. They have to sit in a flex row exactly where the button they wrap used to sit. */
+.opener-form { display: inline-flex; margin: 0; }
+
+/* Fields the reader reads but cannot write — the four management keeps. The service takes these values
+   from the stored row, so the greying explains the rule instead of enforcing it. */
+.modal-wide input:disabled, .modal-wide select:disabled {
+    background: var(--input-bg); color: var(--muted); cursor: not-allowed; opacity: .75;
+}
+.modal-scope { font-size: 12px; line-height: 1.45; color: var(--muted); margin: -10px 0 16px; }
+
+.modal-checklist, .modal-notes {
+    margin-top: 18px; padding-top: 13px; border-top: 1px solid var(--input-border);
+    transition: opacity 120ms ease;
+}
+html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes { border-top-color: rgba(255, 255, 255, .12); }
+.modal-checklist.pts-busy, .modal-notes.pts-busy { opacity: .55; }
+.section-empty { font-size: 12px; font-style: italic; color: var(--muted); margin: 4px 0 6px; }
+
+/* A step row is a `.chk-row` whether it is read on a project board's popup or anywhere else — the read-only
+   ✓/· spelling of a step went out with the card's own list (Stage 41), so `.step-row` and `.step-mark` are
+   gone and every reader of this section ticks it. What stays is the × a plan's author gets. */
+.step-remove, .note-remove { flex: 0 0 auto; margin: 0; }
+/* The same quiet × the todo rows use: it deletes a row, so it must not compete with the section's own
+   Add button for attention. */
+.x-btn {
+    cursor: pointer; border: none; background: transparent; color: var(--muted);
+    font-size: 16px; line-height: 1; padding: 2px 7px; border-radius: 6px; font-family: inherit;
+}
+.x-btn:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
+
+.note-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; padding: 8px 0; border-bottom: 1px dashed var(--input-border); }
+.note-row:last-of-type { border-bottom: none; }
+.note-body { grid-column: 1; font-size: 12.5px; line-height: 1.45; color: var(--title); white-space: pre-wrap; word-break: break-word; }
+.note-by { grid-column: 1; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.note-remove { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
+
+/* One add row per section: the field takes the width and the button keeps its own, so writing a list
+   one line at a time never needs the mouse to find a control that moved. */
+.section-add { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.section-add input[type="text"] { flex: 1 1 auto; min-width: 0; margin: 0; }
+.section-add .btn-sm { flex: 0 0 auto; }
+.section-add.note-add { display: block; }
+.note-add textarea {
+    width: 100%; box-sizing: border-box; margin: 0; font-family: inherit; font-size: 12.5px;
+    line-height: 1.45; resize: vertical;
+}
+.note-add .btn-sm { margin-top: 8px; }
+
+/* --- notification bell, top-right of every page -------------------------------------------
+   Rendered by notificationBell() in Notifications.kt into .page-right; notifications.js only
+   flips `hidden` on .notif-panel, so the open state needs no JS to be correct on load.
+   absolute (not fixed) because the bell is the offset parent and the panel should travel with
+   the page head, exactly like the .mpop pickers above it. */
+.notif { position: relative; flex: 0 0 auto; }
+.notif-btn {
+    position: relative; width: 34px; height: 34px; display: inline-flex; align-items: center;
+    justify-content: center; padding: 0; border: 1px solid var(--input-border); border-radius: 10px;
+    background: var(--input-bg); color: var(--title); cursor: pointer;
+}
+.notif-btn svg { width: 18px; height: 18px; }
+.notif-btn:hover { background: var(--input-border); }
+.notif-badge {
+    position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 4px;
+    border-radius: 9px; background: #d64545; color: #fff; font-size: 10.5px; font-weight: 800;
+    line-height: 17px; text-align: center;
+}
+.notif-panel {
+    position: absolute; right: 0; top: calc(100% + 9px); z-index: 1200; width: 340px;
+    max-width: calc(100vw - 32px); background: var(--card-bg); border: 1px solid var(--input-border);
+    border-radius: 12px; box-shadow: 0 14px 34px rgba(0, 0, 0, .2); overflow: hidden;
+}
+.notif-panel[hidden] { display: none; }
+.notif-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid var(--input-border);
+}
+.notif-head-title { font-size: 12.5px; font-weight: 800; color: var(--title); }
+.notif-head form { margin: 0; }
+.notif-list { max-height: 340px; overflow-y: auto; }
+.notif-empty { padding: 18px 14px; font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.notif-text { min-width: 0; }
+a.notif-item {
+    display: flex; gap: 9px; align-items: flex-start; padding: 10px 12px;
+    border-bottom: 1px solid var(--input-border); text-decoration: none; color: inherit;
+}
+a.notif-item:last-child { border-bottom: none; }
+a.notif-item:hover { background: var(--input-bg); }
+/* The dot is the unread flag; a read row keeps the space transparent so nothing shifts. */
+.notif-mark { flex: 0 0 auto; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: transparent; }
+a.notif-item.unread .notif-mark { background: #d64545; }
+a.notif-item.unread .notif-item-title { color: var(--title); }
+.notif-item-title { font-size: 12.5px; font-weight: 700; color: var(--muted); line-height: 1.35; }
+.notif-body { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+.notif-time { font-size: 10.5px; color: var(--note); margin-top: 3px; }

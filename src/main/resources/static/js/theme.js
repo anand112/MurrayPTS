@@ -1,3 +1,7 @@
+/* theme.js — persisted light/dark theme + accent colour (extracted from DashboardCommon.kt THEME_JS).
+   Reads/writes localStorage keys 'pts-theme' and 'pts-accent'; drives the sidebar
+   #themeToggle and #accentToggle buttons. Wrapped as a self-invoking function so it
+   runs on load (the original inline constant was declared but never invoked). */
 (function () {
     var root = document.documentElement;
     var theme = localStorage.getItem('pts-theme');

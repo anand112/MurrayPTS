@@ -14,10 +14,14 @@ import mn.murray.pts.config.AppConfig
  * - `Content-Security-Policy`         — see note below.
  * - `Strict-Transport-Security`       — only in production (assumes TLS termination).
  *
- * CSP note: the legacy UI still renders inline <style>/<script> and inline event
- * handlers, so the policy currently allows 'unsafe-inline'. Stage 7 extracts those to
- * /static files, after which the 'unsafe-inline' allowances should be removed (and a
- * nonce/hash added for any remaining inline script). Tracked in ARCHITECTURE.md.
+ * CSP note: Stage 7 extracted all inline CSS/JS to /static files and replaced the inline
+ * event-handler attributes with delegated listeners in app.js, so 'unsafe-inline' is gone
+ * from script-src. The only remaining inline exception is style-src-attr 'unsafe-inline',
+ * which permits presentation attributes such as the server-computed progress-bar widths
+ * (style="width:42%") and calendar task-bar colours. Inline <style> and <script> *elements*
+ * are blocked: no nonce/hash is needed because the app emits neither. The one inline script
+ * tag left is <script type="application/json"> on the Team page — a data island, which CSP
+ * does not treat as executable.
  */
 val SecurityHeaders = createApplicationPlugin(name = "SecurityHeaders") {
     onCall { call ->
@@ -27,9 +31,9 @@ val SecurityHeaders = createApplicationPlugin(name = "SecurityHeaders") {
         call.response.header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
         call.response.header(
             "Content-Security-Policy",
-            "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; " +
-                "script-src 'self' 'unsafe-inline'; object-src 'none'; frame-ancestors 'none'; " +
-                "base-uri 'self'; form-action 'self'",
+            "default-src 'self'; img-src 'self' data:; " +
+                "style-src 'self'; style-src-attr 'unsafe-inline'; script-src 'self'; " +
+                "object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
         )
         if (AppConfig.isProduction) {
             call.response.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains")

@@ -47,6 +47,19 @@ class MigrationSmokeTest {
                 "positions", "team_members", "users", "projects", "project_assignees",
                 "buckets", "tasks", "forecasts", "lessons", "todo_lists", "todo_items",
                 "pins", "sessions",
+                // V2: the due-date alert ledger. If this assertion fails after a version bump,
+                // the migration did not run rather than the table name having changed.
+                "due_date_alerts",
+                // V4: the inbox behind the bell in the page head.
+                "notifications",
+                // V5: the steps under a task card.
+                "task_checklist_items",
+                // V6: the running log under the same card.
+                "task_notes",
+                // V7: the lanes a project's board is built from.
+                "project_buckets",
+                // V8: the monthly ledger the Forecasts sheet reads and writes.
+                "project_forecasts",
             )
             for (t in expected) {
                 assertTrue(t in tables, "expected table '$t' to exist; got $tables")
