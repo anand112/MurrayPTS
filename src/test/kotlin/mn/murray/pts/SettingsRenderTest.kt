@@ -127,7 +127,7 @@ class SettingsRenderTest {
         user(noDepartment, "Nomin Erdene", "Viewer", null)
 
         val crusher = ProjectRepository.insert(
-            code = "M-01250", name = "Erdenet Crusher Modernisation", status = "Ongoing", progress = 40,
+            code = "M-01250", name = "Erdenet Crusher Modernisation", status = "In progress", progress = 40,
             managerEmpNo = manager, due = "2026-12-01", type = "Fabrication/Manufacturing",
             client = "Erdenet Mining Corporation", revenue = 2_340_000_000.0,
         )
@@ -177,28 +177,31 @@ class SettingsRenderTest {
         filter: EmployeeFilter = EmployeeFilter(),
         form: EmployeeForm? = null,
         note: PasswordStatus? = null,
-        passwordStatus: PasswordStatus? = null,
-        mustChange: Boolean = false,
         mailStatus: PasswordStatus? = null,
         mailDetail: String? = null,
         bucketNote: PasswordStatus? = null,
         bucketDetail: String? = null,
         bucketDefaultsType: String = PROJECT_TYPES.first(),
+        typeNote: PasswordStatus? = null,
+        typeDetail: String? = null,
+        typeBeingEdited: String = "",
     ): String = render {
         settingsContent(
-            session = UserSession(who, mustChange),
+            session = UserSession(who),
             sheet = EmployeeService.sheet(filter, who, canManage, canAdmin),
             filter = filter,
             form = form ?: employeeFormOf(query(), null, null, "", canManage, canAdmin),
             canManage = canManage,
             canAdmin = canAdmin,
             note = note,
-            passwordStatus = passwordStatus,
             mailStatus = mailStatus,
             mailDetail = mailDetail,
             bucketNote = bucketNote,
             bucketDetail = bucketDetail,
             bucketDefaultsType = bucketDefaultsType,
+            typeNote = typeNote,
+            typeDetail = typeDetail,
+            typeBeingEdited = typeBeingEdited,
         )
     }
 
@@ -265,6 +268,16 @@ class SettingsRenderTest {
     /** The live region — everything a search, a picker or a row write replaces. */
     private fun region(html: String): String =
         html.substringAfter("id=\"team-board\"").substringBefore("id=\"employeeModal\"")
+
+    /**
+     * The Team sheet on its own — [region] cut short at the first app panel below it.
+     *
+     * Since Stage 63 a project category row carries the same two buttons a roster row does, in the same
+     * classes, so a page-wide count of `🗑` or `icon-btns` is no longer a count of the sheet's rows. The
+     * guarantee is unchanged; only its scope is now the sheet rather than the whole page.
+     */
+    private fun sheet(html: String): String =
+        region(html).substringBefore("id=\"projectTypes\"")
 
     /** The toolbar's form: the search box, the two pickers and the count line. */
     private fun toolbar(html: String): String =
@@ -360,11 +373,11 @@ class SettingsRenderTest {
     fun `the team section is the sheet the picture reads, eight columns wide`() {
         val html = page()
         // "Team" is a small label above the card, not a page title — and it is the first of the page's
-        // sections. A manager's page now carries six: the three the account always had (Team, Your account,
-        // Change password) plus the three settings *of the app* that only management sees (Project types,
-        // Email notifications, Bucket defaults). The viewer's page keeps the first three and nothing else.
+        // sections. A manager's page carries five: Team and Your account, plus the three settings *of the
+        // app* that only management sees (Project types, Email notifications, Bucket defaults). The viewer's
+        // page keeps the first two and nothing else — the password box was the third until Stage 99.
         assertTrue(html.contains("<h3 class=\"set-section\">Team</h3>"))
-        assertEquals(6, occurrences(html, "class=\"set-section\""), "the page gained or lost a section")
+        assertEquals(5, occurrences(html, "class=\"set-section\""), "the page gained or lost a section")
         assertTrue(html.indexOf(">Team</h3>") < html.indexOf(">Your account</h3>"), "Team is not the page's first section")
         assertEquals(1, occurrences(html, "<table class=\"grid team-sheet\">"), "the roster printed a second table")
         columns.forEach { (klass, text) ->
@@ -481,7 +494,10 @@ class SettingsRenderTest {
         val html = page()
         val form = tag(html, "tsFilter")
         assertTrue(form.startsWith("<form action=\"/app/settings\" method=\"get\""), "the pickers post instead of answering on their own address")
-        assertTrue(form.contains("data-live-extra=\"#team-counts\""), "a search leaves the count at the old number")
+        assertTrue(
+            form.contains("data-live-extra=\"#team-counts,#bucketDefaults\""),
+            "a search leaves the count at the old number, or the bucket card's hidden view fields stale",
+        )
 
         val box = tag(html, "teamSearch")
         assertTrue(box.contains("name=\"q\""), "the box posts something other than the search key")
@@ -522,16 +538,18 @@ class SettingsRenderTest {
         val html = page()
         // The filter form must not carry a write's fields: the old page's in-place email editor and the
         // drill-down counts are gone, and a search that sent them would answer for a different sheet.
+        // `lanes` is not a fourth control — it is the bucket panel's category carried along so the team's
+        // own search cannot write the address (and, after a reload, the panel) back to the first category.
         assertEquals(
-            listOf("q", "position", "role"),
+            listOf("lanes", "q", "position", "role"),
             Regex("<(?:input|select)[^>]*name=\"([^\"]+)\"").findAll(toolbar(html)).map { it.groupValues[1] }.toList(),
-            "the toolbar sends something other than the three controls",
+            "the toolbar sends something other than the three controls and the category riding with them",
         )
         // The order is the fourth field, and it only arrives when it is not the sheet's own default —
         // choosing a picker must not jump a Z→A list back to A→Z.
         val sorted = page(filter = EmployeeFilter(column = EmployeeColumn.ROLE, descending = true))
         assertEquals(
-            listOf("q", "position", "role", "sort"),
+            listOf("lanes", "q", "position", "role", "sort"),
             Regex("<(?:input|select)[^>]*name=\"([^\"]+)\"").findAll(toolbar(sorted)).map { it.groupValues[1] }.toList(),
             "the order the reader set does not ride with the pickers",
         )
@@ -643,7 +661,8 @@ class SettingsRenderTest {
     fun `nothing on this page nests a form inside a form`() {
         // The parser drops the inner `<form>` rather than nesting it, which turns a control meant to swap a
         // block into a page load — so this is measured, and measured with the popup open too, because that
-        // is the state with the most forms on the page at once.
+        // is the state with the most forms on the page at once. A Viewer's page now carries no form at all
+        // (their only section is the account card), so the ceiling is "never more than one deep", not 1.
         val view = EmployeeFilter(text = "gan", role = "Manager", column = EmployeeColumn.ROLE, descending = true)
         listOf(
             page(),
@@ -654,7 +673,7 @@ class SettingsRenderTest {
             adminPage(form = editForm(worker)),
             page(filter = view),
             adminPage(filter = view, form = editForm(worker, view)),
-        ).forEach { assertEquals(1, maxFormDepth(it), "a form on this page sits inside another form") }
+        ).forEach { assertTrue(maxFormDepth(it) <= 1, "a form on this page sits inside another form") }
     }
 
     // --- the two rights the sheet prints ----------------------------------------------------------------
@@ -662,10 +681,10 @@ class SettingsRenderTest {
     @Test
     fun `only an administrator is offered the pencil`() {
         val html = adminPage()
-        assertEquals(7, occurrences(html, "<button type=\"submit\" class=\"icon-btn ts-edit\""), "an administrator lost a pencil")
+        assertEquals(7, occurrences(sheet(html), "<button type=\"submit\" class=\"icon-btn ts-edit\""), "an administrator lost a pencil")
         assertEquals(
             7,
-            occurrences(html, "<form action=\"/app/settings\" method=\"get\" class=\"opener-form ts-action\""),
+            occurrences(sheet(html), "<form action=\"/app/settings\" method=\"get\" class=\"opener-form ts-action\""),
             "a row is missing its opener",
         )
         // A row with no account behind it is not a reason not to print one: it opens the create filled.
@@ -677,16 +696,16 @@ class SettingsRenderTest {
         // button in it rather than two. (A Viewer is not shown the sheet at all since Stage 51 — see
         // `a viewer's settings page is their own account and the password form, nothing of the roster`.)
         listOf(page()).forEach {
-            assertEquals(0, occurrences(it, "ts-edit"), "a reader who cannot change an account was shown the pencil")
-            assertEquals(0, occurrences(it, "opener-form ts-action"), "a reader was offered a row's popup")
-            assertEquals(7, occurrences(it, "<div class=\"icon-btns\">"), "the actions column lost its row")
+            assertEquals(0, occurrences(sheet(it), "ts-edit"), "a reader who cannot change an account was shown the pencil")
+            assertEquals(0, occurrences(sheet(it), "opener-form ts-action"), "a reader was offered a row's popup")
+            assertEquals(7, occurrences(sheet(it), "<div class=\"icon-btns\">"), "the actions column lost its row")
         }
     }
 
     @Test
     fun `the bin prints the rule that refuses it, in the order the delete route applies them`() {
         val html = page() // a manager: management, but not an administrator
-        assertEquals(7, occurrences(html, "🗑"), "a row lost its bin")
+        assertEquals(7, occurrences(sheet(html), "🗑"), "a row lost its bin")
         val blocked = listOf(
             superAdmin to "The Super Admin account cannot be deleted.",
             manager to "You cannot delete your own account.",
@@ -728,7 +747,7 @@ class SettingsRenderTest {
         assertTrue(opener.contains("<input type=\"hidden\" name=\"new\" value=\"1\">"), "the add control does not say it is a create")
         assertFalse(opener.contains("data-live-extra"), "opening the create repaints the sheet")
         assertTrue(html.contains("<button type=\"submit\" class=\"submit\">+ Add employee</button>"), "the button is not the picture's")
-        assertTrue(html.contains("until you set a password the number is the password"), "the card does not say how the account signs in first")
+        assertTrue(html.contains("until you set a password on this sheet the number is the password"), "the card does not say how the account signs in first")
 
         // The card sits above the sheet it belongs to, so it opens onto the sheet the reader is looking at.
         val filtered = page(filter = EmployeeFilter(text = "gan", column = EmployeeColumn.DEPARTMENT, descending = true))
@@ -748,14 +767,14 @@ class SettingsRenderTest {
     // --- the popup --------------------------------------------------------------------------------------
 
     /**
-     * Stage 51: Settings *is* the roster sheet for management, but for a Viewer it shrinks to the two things
-     * every account owns — their own account card and the password form. The Team heading, the search, the
-     * eight-column roster, the add card and the account popup are all management's and print none of them here.
-     * The password form staying is not cosmetic: a first-login forced change lands on this page for any role,
-     * and a Viewer with no way to set a password would be locked out of the whole app.
+     * Stage 51: Settings *is* the roster sheet for management, but for a Viewer it shrinks to the one
+     * thing every account owns — their own account card. The Team heading, the search, the eight-column
+     * roster, the add card, the account popup and (since Stage 99) the password box are all absent.
+     * There is no password box left to lose: a password is set from the Team sheet now, and the app no
+     * longer gates a reader on a system-assigned one.
      */
     @Test
-    fun `a viewer's settings page is their own account and the password form, nothing of the roster`() {
+    fun `a viewer's settings page is their own account, nothing of the roster and no password box`() {
         val html = viewerPage()
         assertFalse(html.contains(">Team<"), "the roster heading printed for a Viewer")
         assertFalse(html.contains("id=\"team-board\""), "the roster sheet printed for a Viewer")
@@ -763,8 +782,9 @@ class SettingsRenderTest {
         assertFalse(html.contains("id=\"employeeModal\""), "the account popup printed for a Viewer")
         assertFalse(html.contains("/static/js/employee-modal.js"), "the account popup's script shipped to a Viewer")
         assertTrue(html.contains(">Your account<"), "a Viewer lost their own account card")
-        assertTrue(html.contains(">Change Password<"), "a Viewer lost the password section they need to sign in")
-        assertTrue(html.contains("name=\"currentPassword\""), "the password form is not the real one")
+        assertFalse(html.contains(">Change Password<"), "the retired password section printed for a Viewer")
+        assertFalse(html.contains("/app/settings/password"), "the retired password route is still on the page")
+        assertFalse(html.contains("name=\"currentPassword\""), "a password field is still on the page")
     }
 
     @Test
@@ -807,7 +827,7 @@ class SettingsRenderTest {
         listOf("position", "role", "password").forEach {
             assertFalse(modal(asManager).contains("name=\"$it\""), "a manager was offered the $it field")
         }
-        assertTrue(asManager.contains("They sign in with their employee number as the password and change it on first sign-in, as a Viewer."), "the manager's create does not say what it makes")
+        assertTrue(asManager.contains("They sign in with their employee number as the password, as a Viewer."), "the manager's create does not say what it makes")
         assertTrue(tag(asManager, "employeeModal").contains("style=\"display:block\""), "management's add button opened nothing")
     }
 
@@ -911,43 +931,31 @@ class SettingsRenderTest {
             page(note = PasswordStatus.CANNOT_DELETE_ADMIN).contains("<div class=\"flash err\">Managers cannot delete Admin accounts.</div>"),
             "a refused delete is not flashed red beside the row that is still there",
         )
-        assertTrue(
-            page(passwordStatus = PasswordStatus.TOO_SHORT).contains("<div class=\"flash err\">Password must be at least $MIN_PASSWORD_LENGTH characters.</div>"),
-            "the password form's own answer is missing",
-        )
         assertFalse(page().contains("class=\"flash"), "the page prints a banner nobody asked for")
     }
 
     // --- what stayed on the page ------------------------------------------------------------------------
 
     @Test
-    fun `under the sheet the account card and the password form are the sections they were`() {
+    fun `under the sheet sits the reader's account card, and no password box`() {
         val html = page()
-        // The order the approved scope settled: Team first, then the reader's own account, then the password.
+        // The order the approved scope settled: Team first, then the reader's own account — and since
+        // Stage 99 the app panels follow the account card directly, because the password box between
+        // them is gone.
         assertTrue(html.indexOf("id=\"team-board\"") < html.indexOf(">Your account<"), "the sheet is not the first section")
-        assertTrue(html.indexOf(">Your account<") < html.indexOf(">Change Password<"), "the password form moved above the account card")
+        assertTrue(html.indexOf(">Your account<") < html.indexOf(">Project types<"), "the app panels jumped above the account card")
         assertTrue(html.contains("<h3 class=\"set-section\">Your account</h3>"))
         assertEquals(manager, setRow(html, "Employee number").substringAfter(">").substringBefore("<"))
         assertEquals("Munkhtsetseg Otchontoor", setRow(html, "Display name").substringAfter(">").substringBefore("<"))
         assertEquals("Project Manager", setRow(html, "Position").substringAfter(">").substringBefore("<"))
         assertEquals("Manager", setRow(html, "Access level").substringAfter(">").substringBefore("<"))
 
-        val save = Regex("<form action=\"/app/settings/password\"[^>]*>").find(html)!!.value
-        assertTrue(save.contains("method=\"post\""))
-        // The one form a locked account has to be able to use is a plain POST: no live region, no
-        // companion swap and no modal script between the reader and the app unlocking itself.
-        assertFalse(save.contains("data-live"), "the password form now reloads through a script")
+        // Stage 99 retired the self-service password box: no heading, no form, no fields, for any role.
+        assertFalse(html.contains("Change Password"), "the retired password section is still printed")
+        assertFalse(html.contains("/app/settings/password"), "the retired password route is still a form target")
         listOf("currentPassword", "newPassword", "confirmPassword").forEach {
-            val field = Regex("<input type=\"password\" name=\"$it\"[^>]*>").find(html)?.value ?: error("no $it field")
-            assertTrue(field.contains("required"), "$it is not required")
+            assertFalse(html.contains("name=\"$it\""), "the retired form's $it field is still printed")
         }
-        val fresh = Regex("<input type=\"password\" name=\"newPassword\"[^>]*>").find(html)!!.value
-        assertTrue(fresh.contains("minlength=\"4\""), "the form can type past what the service refuses")
-        assertTrue(html.contains("<button type=\"submit\" class=\"submit\">Change Password</button>"))
-
-        val locked = page(who = worker, canManage = false, mustChange = true)
-        assertTrue(locked.contains("Set a new password to unlock the rest of PTS"), "a locked account is not told why it is here")
-        assertFalse(page().contains("Set a new password to unlock"), "an unlocked account is told it is locked")
     }
 
     @Test
@@ -973,7 +981,7 @@ class SettingsRenderTest {
         assertEquals(0, occurrences(fresh, "<th class=\"t-name\""), "an empty sheet drew its own headers")
         // Even empty, the toolbar prints: the pickers belong to the page, not to the rows.
         assertTrue(fresh.contains("<option value=\"\" selected=\"selected\">All positions</option>"), "the empty sheet took the pickers with it")
-        assertFalse(fresh.contains("opener-form ts-action"), "an empty sheet invented a row's pencil")
+        assertFalse(sheet(fresh).contains("opener-form ts-action"), "an empty sheet invented a row's pencil")
     }
 
     @Test
@@ -1053,23 +1061,25 @@ class SettingsRenderTest {
     @Test
     fun `the app-settings panels are management's, not a viewer's`() {
         val own = viewerPage()
-        // A Viewer's page stops at the password form: which categories exist, whether mail leaves the box
-        // and which lanes a new board starts with are settings *of the app*, and none of them is theirs to
-        // read as a control or change.
-        listOf("Project types", "Email notifications", "Bucket defaults").forEach { heading ->
+        // A Viewer's page stops at their own account card: which categories exist, whether mail leaves the
+        // box and which lanes a new board starts with are settings *of the app*, and none of them is theirs
+        // to read as a control or change.
+        listOf("Project types", "Project bucket settings", "Email notifications").forEach { heading ->
             assertFalse(own.contains(">${heading}<"), "the $heading panel printed for a Viewer")
         }
         assertFalse(own.contains("id=\"emailBoard\""), "the email card printed for a Viewer")
         assertFalse(own.contains("id=\"bucketDefaults\""), "the bucket card printed for a Viewer")
+        assertFalse(own.contains("id=\"projectTypes\""), "the category card printed for a Viewer")
         assertFalse(own.contains("/app/settings/buckets/"), "a lane write route was offered to a Viewer")
+        assertFalse(own.contains("/app/settings/types/"), "a category write route was offered to a Viewer")
         assertFalse(own.contains("/app/settings/email-test"), "the mail test was offered to a Viewer")
-        // The management page carries all three, in the order the picture reads them, under the password form.
+        // The management page carries all three, in the order the picture reads them, under the account card.
         val mgr = page()
-        assertTrue(mgr.indexOf(">Change Password<") < mgr.indexOf(">Project types<"), "the app panels jumped above the password form")
+        assertTrue(mgr.indexOf(">Your account<") < mgr.indexOf(">Project types<"), "the app panels jumped above the account card")
         assertEquals(
-            listOf(">Project types<", ">Email notifications<", ">Bucket defaults<").sortedBy { mgr.indexOf(it) },
-            listOf(">Project types<", ">Email notifications<", ">Bucket defaults<"),
-            "the three panels are not in catalog, mail, lanes order",
+            listOf(">Project types<", ">Project bucket settings<", ">Email notifications<").sortedBy { mgr.indexOf(it) },
+            listOf(">Project types<", ">Project bucket settings<", ">Email notifications<"),
+            "the three panels are not in catalog, lanes, mail order",
         )
     }
 
@@ -1085,6 +1095,75 @@ class SettingsRenderTest {
         // counts one and every other counts none — a default lane is only worth adding where projects exist.
         assertTrue(html.contains("<span class=\"type-count\">1 project</span>"), "the seeded project is not counted under its category")
         assertEquals(8, occurrences(html, "<span class=\"type-count\">no projects yet</span>"), "the empty categories are not all read as empty")
+    }
+
+    /** The category card alone, from its swap target to the lane card that follows it. */
+    private fun typeCard(html: String): String =
+        html.substringAfter("id=\"projectTypes\"").substringBefore("id=\"bucketDefaults\"")
+
+    @Test
+    fun `every category row offers the rename and the retirement, and both answer the card alone`() {
+        val card = typeCard(page())
+        // Two writes per row, in the app's own button pair: a GET onto the page carrying the label to open,
+        // and a POST of the letter that keys the row. Nine of each, and every one of them swaps this card
+        // rather than the page.
+        assertEquals(9, occurrences(card, "<form action=\"/app/settings\" method=\"get\" class=\"opener-form ts-action\""), "a category has no pencil")
+        assertEquals(9, occurrences(card, "<form action=\"/app/settings/types/delete\""), "a category has no retirement")
+        // Every form in the card — the nine pencils, the nine bins and the add line — names the card as its
+        // target, so nothing on it reloads the page.
+        assertEquals(
+            occurrences(card, "<form "),
+            occurrences(card, "data-live-target=\"#projectTypes\""),
+            "a category write would reload the page",
+        )
+        assertTrue(card.contains("name=\"edittype\""), "the pencil does not say which category to open")
+        assertTrue(card.contains("name=\"code\""), "a retirement does not carry the letter it retires")
+        // A category is retired from the create form's picker, so the press that lands is worth confirming —
+        // and only that one: a pencil opens a field and can be cancelled.
+        assertEquals(9, occurrences(card, "data-confirm"), "a category was retired without a confirm")
+        assertEquals(0, occurrences(card, "disabled"), "a category write was printed that the route would refuse")
+    }
+
+    @Test
+    fun `the add line asks for a letter and a name and posts them to the catalogue`() {
+        val form = formSection(page(), "<form action=\"/app/settings/types/add\"")
+        assertTrue(form.contains("data-live-target=\"#projectTypes\""), "an added category would reload the page")
+        assertTrue(form.contains("name=\"code\"") && form.contains("maxlength=\"1\""), "the letter is not bounded to one character")
+        assertTrue(form.contains("name=\"name\"") && form.contains("maxlength=\"60\""), "the name is not bounded the way the service bounds it")
+        assertTrue(form.contains("+ Add type"), "the line has no button of its own")
+    }
+
+    @Test
+    fun `the pencil opens one row's name as a field and leaves the letter alone`() {
+        val card = typeCard(page(typeBeingEdited = "Site projects"))
+        val rename = formSection(card, "<form action=\"/app/settings/types/rename\"")
+        // The hidden `name` is what the route renames *from* — read off the catalogue, never from the field —
+        // and the text starts with the words being changed so the reader edits them rather than retypes them.
+        assertTrue(rename.contains("name=\"name\"") && rename.contains("value=\"Site projects\""), "the rename lost the label it renames")
+        assertTrue(rename.contains("name=\"newname\"") && rename.contains("value=\"Site projects\""), "the field does not start with the words being changed")
+        assertFalse(rename.contains("name=\"code\""), "a rename offered the letter as editable")
+        assertTrue(rename.contains("data-live-target=\"#projectTypes\""), "a renamed category would reload the page")
+        // One row's edit, not nine: the other eight still print their chip and their two buttons.
+        assertEquals(1, occurrences(card, "class=\"set-row type-row editing\""), "more than one row opened")
+        assertEquals(8, occurrences(card, "class=\"set-row type-row\""), "the rows beside the edit lost their print")
+        assertEquals(8, occurrences(card, "<form action=\"/app/settings/types/delete\""), "a row beside the edit lost its buttons")
+        assertTrue(card.contains(">Cancel<"), "the opened row cannot be closed without a write")
+    }
+
+    @Test
+    fun `a category answer comes back as the card's own line, beside the reason`() {
+        val refused = typeCard(page(typeNote = PasswordStatus.TYPE_REFUSED, typeDetail = "S is already in use."))
+        assertTrue(
+            refused.contains("<div class=\"flash err\">That category cannot be saved. (S is already in use.)</div>"),
+            "a refused category has no line on the card it belongs to",
+        )
+        // A write that landed has no words of its own: the service's sentence already names the letter, the
+        // label and how many projects moved with it.
+        val added = typeCard(page(typeNote = PasswordStatus.TYPE_ADDED, typeDetail = "P will lead new Parts supply numbers."))
+        assertTrue(
+            added.contains("<div class=\"flash ok\">P will lead new Parts supply numbers.</div>"),
+            "an added category prefixed the reason twice",
+        )
     }
 
     @Test
@@ -1115,16 +1194,62 @@ class SettingsRenderTest {
     }
 
     @Test
-    fun `the bucket card shows the six floor lanes and an empty extras list before any default is seeded`() {
+    fun `the bucket card lists exactly what the category's Settings list holds, and says so when it is empty`() {
         val html = page()
         assertTrue(html.contains("id=\"bucketDefaults\""), "the lane card has no swap target")
-        // The six are a read-only floor: they print as chips, carry no per-row delete, and the caption names
-        // them the way the picture does.
-        assertEquals(6, occurrences(html, "class=\"chip lane-chip\""), "the floor is not the six standard lanes")
-        DEFAULT_PROJECT_BUCKETS.forEach { assertTrue(html.contains(">$it<"), "the floor is missing $it") }
-        assertFalse(html.substringAfter("id=\"bucketDefaults\"").contains("/app/settings/buckets/delete"), "a floor lane got a remove button")
-        // With the catalogue empty the extras list is the honest line, not a blank column.
-        assertTrue(html.contains("adds no lanes of its own"), "an empty per-type list printed nothing")
+        // Settings carries two live regions (the Team roster and this list), so the list names itself:
+        // app.js refreshes the region a form belongs to and matches the response by id. A category picker
+        // that refreshed the first region left this list — and the hidden `lanes` field — on the old
+        // category, so the next add wrote there while the select showed the new one.
+        assertTrue(html.contains("id=\"bucketDefaultsResults\""), "the bucket region does not name itself")
+        // …and the add line, which lives outside that region, is a named companion: its hidden `lanes` and
+        // its *"Adds to … only"* label must move with the picker, or the next add writes the old category.
+        // The toolbar's own hidden `lanes` moves too, so the team filter's next send cannot undo the choice.
+        assertTrue(html.contains("data-live-extra=\"#bucketAdd,#bucketCategoryKey\""), "the category picker does not refresh the add line")
+        assertTrue(html.contains("id=\"bucketAdd\""), "the add line has no id for that refresh")
+        assertTrue(html.contains("id=\"bucketCategoryKey\""), "the team toolbar does not carry the category the picker chose")
+        // Stage 100: the list is the whole board, so there are no fixed phase rows any more — the three phases
+        // appear only where a category names them. A project's own page is still where a column is renamed or
+        // removed, which is why nothing here is read-only.
+        assertEquals(0, occurrences(html, "class=\"set-row lane-row\""), "an empty list printed a row")
+        assertFalse(html.contains("class=\"set-row phase-row\""), "the retired fixed phase rows are back")
+        assertFalse(html.contains("class=\"phase-fixed\""), "a fixed row still says why it has no remove")
+        assertFalse(html.contains("Always on every board"), "the retired fixed-row note is back")
+        assertFalse(html.contains("class=\"bucket-dot dot-0\">"), "an empty list printed a dot")
+        assertFalse(html.contains("class=\"chip lane-chip\""), "the popup's retired chip row is on this page")
+        assertFalse(html.substringAfter("id=\"bucketDefaults\"").contains("/app/settings/buckets/delete"), "an empty list has a remove button")
+        // With the list empty the caption's consequence is the honest line, not a blank column: a board with no
+        // column has nowhere to file a card, and the line has to say where one can come from. Since Stage 104 the
+        // old "its projects cannot be created" is false — the create popup may name the first column — so the line
+        // names that road instead, and the retired wording must not come back.
+        assertTrue(html.contains("has no buckets yet — add one below"), "an empty list printed nothing")
+        assertTrue(
+            html.contains("name one while creating a project"),
+            "the empty line does not say a project can still be made, one column at a time",
+        )
+        assertFalse(html.contains("its projects cannot be created"), "the Stage-100 wording is back")
+        // Stage 77: the caption used to promise that a bucket typed on a project's own picker landed here too. It
+        // does not — that write is behind the tick management alone are shown — so the card has to say so, because
+        // a reader who widens nothing here would otherwise expect every project's private column to appear in this
+        // list and find the page lying about what it holds.
+        assertFalse(html.contains("picker lands here too"), "the card still promises every typed bucket widens it")
+        assertTrue(
+            html.contains("joins this list only when management tick the box under its name"),
+            "the card does not say that a project's bucket joins the list only on management's tick",
+        )
+        // Stage 100: and it says what the list *is* — the whole board, in this order, with nothing added by the app.
+        assertTrue(
+            html.contains("project opens with — these and nothing else, in this order"),
+            "the caption does not say the list is the whole board",
+        )
+        assertTrue(
+            html.contains("name this project's first one while creating it"),
+            "the caption does not say an empty category can still make a project, one column at a time",
+        )
+        assertFalse(
+            html.contains("before a project of it can be created"),
+            "the Stage-100 caption is back, telling management no project can be made",
+        )
         // The category picker is one live GET onto this page carrying ?lanes=, and it lists all nine.
         val lanes = selectNamed(html.substringAfter("id=\"bucketDefaults\""), "lanes")
         assertTrue(lanes.contains("data-autosubmit=\"true\""), "choosing a category reloads the page")
@@ -1133,12 +1258,33 @@ class SettingsRenderTest {
     }
 
     @Test
+    fun `an added lane prints the service receipt, not a status line in front of it`() {
+        // Stage 98: the add route now carries the receipt on success too, because that sentence is the only thing
+        // on this page that tells a reader the columns went onto the boards. It already names the bucket, the
+        // category and how many boards took it, so it must print alone — "Default lane added. (…)" would say the
+        // same thing twice and bury the count.
+        TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "Commissioning")
+        val html = page(
+            bucketNote = PasswordStatus.LANE_ADDED,
+            bucketDetail = "Commissioning is a Fabrication/Manufacturing bucket now — 2 Fabrication/Manufacturing " +
+                "boards gained the column, and every new project will open with it.",
+            bucketDefaultsType = "Fabrication/Manufacturing",
+        )
+        val card = bucketCard(html)
+        assertFalse(card.contains("Default lane added."), "the receipt is prefixed by a line that says nothing")
+        assertTrue(
+            card.contains("2 Fabrication/Manufacturing boards gained the column"),
+            "the count of boards that took the column never reached the panel",
+        )
+    }
+
+    @Test
     fun `a seeded default lane appears with its own remove and both forms carry the chosen category`() {
         TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "Commissioning")
         val html = page(bucketDefaultsType = "Fabrication/Manufacturing")
         val card = bucketCard(html)
         assertTrue(card.contains("<span class=\"lane-name\">Commissioning</span>"), "the seeded lane is not on the list")
-        assertFalse(card.contains("adds no lanes of its own"), "the empty line survived a lane being added")
+        assertFalse(card.contains("has no buckets yet"), "the empty line survived a lane being added")
         // The row's remove posts its own id and the category it came from, so the answer lands back on this
         // category rather than the default first one.
         val remove = formSection(card, "<form action=\"/app/settings/buckets/delete\"")
@@ -1154,23 +1300,87 @@ class SettingsRenderTest {
     }
 
     @Test
+    fun `an extra lane prints as a dot and a name, and the add line asks for a name only`() {
+        TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "Commissioning")
+        TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "QAQC")
+        val card = bucketCard(page(bucketDefaultsType = "Fabrication/Manufacturing"))
+        // The picture's list: one dot and one name per lane, the remove at the row's right edge. The dot is the
+        // row's position in the list, numbered from 0 since Stage 100 — the catalogue's first row is a new
+        // board's first column, because the board is cut from this list and nothing else. Since Stage 80 that is
+        // the fallback rather than the rule — these two rows were inserted with no colour chosen, and a row that
+        // *has* one is the next test.
+        assertEquals(2, occurrences(card, "class=\"set-row lane-row\""), "a lane row is not the row the picture draws")
+        assertTrue(card.contains("class=\"bucket-dot dot-0\""), "the first lane has no dot")
+        assertTrue(card.contains("class=\"bucket-dot dot-1\""), "the second lane repeats the first one's dot")
+        // The add line is a name and a button, with the category riding along hidden — the lane typed while
+        // Fabrication is on show must land on Fabrication.
+        val add = formSection(card, "<form action=\"/app/settings/buckets/add\"")
+        assertTrue(add.contains("New bucket name, e.g. QAQC"), "the add line does not say what it wants")
+        assertTrue(add.contains("+ Add bucket"), "the add line has no button")
+        // Stage 83: no swatch row on creation. The colour is the app's answer — the next place in the run, which
+        // the new row's own dot prints — so the form must not carry a `colour` field a hand-built POST could set.
+        assertFalse(add.contains("type=\"radio\" name=\"colour\""), "the add line is still asking for a colour")
+        assertFalse(add.contains("class=\"colour-row\""), "the add line is still drawing the swatch row")
+        // it says it in the open, at the box: the whole point of the picker above is that a default belongs
+        // to ONE category, so the add line names the category the word will land on rather than leaving the
+        // reader to infer it from a select three panels up and a hidden field they cannot see.
+        assertTrue(
+            add.contains("class=\"bucket-add-for\"") && add.contains("Adds to Fabrication/Manufacturing only"),
+            "the add line does not name the category it adds to",
+        )
+    }
+
+    @Test
+    fun `a default that was given a colour wears it on the catalogue row`() {
+        // The catalogue's dot and the column it later seeds wear the same shade, which is the promise the panel's
+        // caption makes: this is the colour the next Fabrication project's board opens with.
+        TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "Commissioning", colourSlot = 0)
+        TypeDefaultBucketRepository.insert("Fabrication/Manufacturing", "QAQC")
+        val card = bucketCard(page(bucketDefaultsType = "Fabrication/Manufacturing"))
+        assertTrue(card.contains("class=\"bucket-dot dot-0\">"), "the chosen colour did not reach the row")
+        assertTrue(card.contains("class=\"bucket-dot dot-1\">"), "the lane nobody coloured lost the colour of its place")
+    }
+
+    @Test
     fun `the app panels' classes are the ones the stylesheet styles`() {
         val css = appCss()
         Regex("""\.set-row \.type-letter""").find(css) ?: error("the category letter is not laid out")
         Regex("""\.set-row \.type-count""").find(css) ?: error("the project count is not the quiet value it should be")
-        Regex("""\.lane-floor""").find(css) ?: error("the six floor chips are not a wrapped run")
-        Regex("""\.lane-floor \.chip\.lane-chip""").find(css) ?: error("a floor lane is not told from a role pill")
+        // Stage 100 retired the fixed phase rows, so the two rules that laid them out went with them.
+        if (Regex("""\.set-row\.phase-row""").containsMatchIn(css)) error("the retired phase row is still styled")
+        if (Regex("""\.phase-fixed""").containsMatchIn(css)) error("the retired fixed-row note is still styled")
         Regex("""\.set-row \.lane-name""").find(css) ?: error("an extra lane's name is not emphasised")
         Regex("""\.email-mode""").find(css) ?: error("the delivery mode is not set as the machine-readable line it is")
+        // Stage 63: the row pair that replaced the plain lists, and the two inline writes under them.
+        Regex("""\.set-row\.type-row, \.set-row\.lane-row""").find(css) ?: error("a category or lane row is not laid out as one line")
+        Regex("""form\.type-add input\[name="code"\]""").find(css) ?: error("the letter field is not the short one it reads as")
+        Regex("""\.bucket-dot\.dot-0""").find(css) ?: error("a lane dot has no colour")
+        // Stage 75: the dot a board's column head wears is the same bucket's colour the catalogue row gives it,
+        // and that is a specificity fact as much as a markup one. The box used to be sized under `.lane-row`,
+        // which left the head's own sizing rule tying `.bucket-dot.dot-N` on weight and winning on order — so
+        // every column painted the grey of an uncoloured dot and the three buckets lost what told them apart.
+        // Hence: the size lives on the bare class, and nothing downstream of the colours re-paints the head.
+        Regex("""^\.bucket-dot \{[^}]*\}""", RegexOption.MULTILINE).find(css)
+            ?: error("the dot's box is not sized on the bare class the colour rules can beat")
+        if (Regex("""\.kcol-head \.bucket-dot \{[^}]*background""").containsMatchIn(css)) {
+            error("the column head's dot is painted over its own colour")
+        }
+        Regex("""label\.check-row""").find(css) ?: error("the mail switch's label is not the row it prints as")
+        // The add line's scope sentence: it sits in the flex row beside the box and the button, so it is a laid
+        // out item of that form and not a paragraph the panel stacks under it.
+        Regex("""form\.bucket-add \.bucket-add-for""").find(css) ?: error("the add line's category word is not laid out with the box")
     }
 
     // --- Stage 62: the master switch for outbound mail ---------------------------------------------------
 
     /**
      * The switch that lets the installation email anyone at all is a **Super Admin's** alone, layered on top
-     * of the operator's `data/.env`. The email card's two read-only lines print for management (a manager
-     * reads whether mail can leave and their own address), but the ON/OFF form prints only for an admin — the
-     * same right `/app/settings/mail-switch` re-checks — and a Viewer is not shown the card at all.
+     * of the operator's `data/.env`. The email card's read-only lines print for management (a manager reads
+     * whether mail can leave and their own address), but the tick box and its Save print only for an admin —
+     * the same right `/app/settings/mail-switch` re-checks — and a Viewer is not shown the card at all.
+     *
+     * Since Stage 63 the admin's half is a checkbox carrying the state rather than a button offering its
+     * opposite, so the read-back is `checked` and the warning rides on the Save that would arm the mailer.
      */
     @Test
     fun `the outbound mail switch prints for management but only an admin may move it`() {
@@ -1178,14 +1388,17 @@ class SettingsRenderTest {
         assertTrue(managerHtml.contains(">Outbound mail<"), "the card does not report whether sending is enabled")
         assertTrue(managerHtml.contains("Switched off — PTS will not send"), "an unset switch is not read as off for a manager")
         assertFalse(managerHtml.contains("/app/settings/mail-switch"), "a manager was offered the switch that enables the whole mailer")
-        assertFalse(managerHtml.contains("Enable sending"), "a manager was offered to turn sending on")
+        assertFalse(managerHtml.contains("name=\"on\""), "a manager was offered the box that arms the mailer")
 
+        // An admin gets the state as the control itself, so the read-only line steps out of its way.
         val admin = adminPage()
-        assertTrue(admin.contains("Switched off — PTS will not send"), "the admin page does not read the switch's default")
         val form = formSection(admin, "<form action=\"/app/settings/mail-switch\"")
         assertTrue(form.contains("data-live-target=\"#emailBoard\""), "flipping the switch would reload the page")
-        assertTrue(form.contains("value=\"true\""), "the button does not ask to turn sending on")
-        assertTrue(form.contains("Enable sending"), "the off-state button is not the enable label")
+        assertTrue(form.contains("type=\"checkbox\"") && form.contains("name=\"on\""), "the switch is not a tick box")
+        assertTrue(form.contains("value=\"true\""), "the box does not post the state it names")
+        assertFalse(form.contains("checked"), "an unset switch is printed as already armed")
+        assertTrue(form.contains("Enable email notifications"), "the box does not say what it enables")
+        assertTrue(form.contains("Save settings"), "the box has no write of its own")
         assertTrue(form.contains("data-confirm"), "enabling the whole mailer was not confirmed")
 
         // A Viewer never reaches the email card, so the switch is off their page entirely.
@@ -1197,11 +1410,11 @@ class SettingsRenderTest {
     fun `once an admin enables sending the switch reports it on and offers to stop`() {
         MailSwitch.setEnabled(on = true, canAdmin = true)
         val admin = adminPage()
-        assertTrue(admin.contains("Enabled — PTS can send"), "the on-state is not read back after an admin enabled it")
         val form = formSection(admin, "<form action=\"/app/settings/mail-switch\"")
-        assertTrue(form.contains("value=\"false\""), "the button does not ask to turn sending off")
-        assertTrue(form.contains("Switch sending off"), "the on-state button is not the disable label")
-        assertTrue(form.contains("data-confirm"), "disabling the mailer was not confirmed")
+        assertTrue(form.contains("checked"), "the box is not ticked once an admin has armed the mailer")
+        // Pressing Save with the box ticked changes nothing, and unticking it stops the mailer — neither is a
+        // write worth warning about, so the confirmation belongs only to the press that would arm it.
+        assertFalse(form.contains("data-confirm"), "a press that cannot enable sending asks for confirmation")
 
         // A manager sees the state changed on their read-only line, but still gets no control.
         assertTrue(page().contains("Enabled — PTS can send"), "management does not see that sending is now enabled")

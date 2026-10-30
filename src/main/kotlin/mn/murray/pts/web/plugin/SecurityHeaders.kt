@@ -1,8 +1,26 @@
 package mn.murray.pts.web.plugin
 
 import io.ktor.server.application.createApplicationPlugin
+import io.ktor.server.request.path
 import io.ktor.server.response.header
 import mn.murray.pts.config.AppConfig
+
+/**
+ * Is this request for a page the server draws out of the database for the reader standing in front of it?
+ *
+ * Every one of those answers is only true for the instant it was rendered: a card dragged on a board writes a
+ * new status, and the copy of the Team sheet — or of any other page — that the browser kept from before the
+ * drag is simply wrong. Left to itself Chrome does keep such a copy, because an HTML response with no
+ * `Cache-Control` of its own is fair game for the back button and for reopening the tab, and the reader then
+ * sees figures from the past until they press F5 (Stage 69). Telling the browser not to store the answer makes
+ * every visit ask again, which is what makes the numbers on the screen the numbers in the database.
+ *
+ * Paths outside this set are the static assets under `/static` and the uploaded files under `/files`: they are
+ * the same bytes for every reader, so caching them is a win and costs nothing in correctness.
+ */
+internal fun isServerDrawnPage(path: String): Boolean =
+    path == "/" || path == "/login" || path == "/logout" ||
+        path == "/app" || path.startsWith("/app/")
 
 /**
  * Adds baseline security response headers to every response.
@@ -11,6 +29,7 @@ import mn.murray.pts.config.AppConfig
  * - `X-Frame-Options: DENY`           — block clickjacking via framing.
  * - `Referrer-Policy`                 — limit referrer leakage.
  * - `Permissions-Policy`              — disable unneeded browser features.
+ * - `Cache-Control: no-store`         — on the pages the server draws, see [isServerDrawnPage].
  * - `Content-Security-Policy`         — see note below.
  * - `Strict-Transport-Security`       — only in production (assumes TLS termination).
  *
@@ -29,6 +48,10 @@ val SecurityHeaders = createApplicationPlugin(name = "SecurityHeaders") {
         call.response.header("X-Frame-Options", "DENY")
         call.response.header("Referrer-Policy", "same-origin")
         call.response.header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+        if (isServerDrawnPage(call.request.path())) {
+            call.response.header("Cache-Control", "no-store")
+        }
+
         call.response.header(
             "Content-Security-Policy",
             "default-src 'self'; img-src 'self' data:; " +

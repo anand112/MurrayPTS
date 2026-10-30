@@ -66,9 +66,12 @@ object AuthService {
 
     /**
      * True while the account still carries a password it never chose (a legacy import that
-     * defaulted to the employee number, or a bootstrapped super admin with no bootstrap
-     * password). The route gate reads this through [mn.murray.pts.currentSession] so no
-     * handler has to remember to check it.
+     * defaulted to the employee number, an account added without one, or a bootstrapped super
+     * admin with no bootstrap password).
+     *
+     * Recorded, not enforced: since Stage 99 there is no route gate and no Settings password
+     * box — the flag is a note about how the password came to be, and nothing reads it to stop
+     * a reader. A new password, typed here by an administrator, clears it.
      */
     fun mustChangePassword(employeeNumber: String): Boolean =
         UserRepository.mustChangePassword(employeeNumber)
@@ -76,14 +79,6 @@ object AuthService {
     fun logout(token: String?) {
         if (!token.isNullOrBlank()) SessionRepository.revoke(token)
     }
-
-    /**
-     * Issue a fresh session token for an already-authenticated user. Used after a
-     * self-service password change, which revokes all sessions (including the current
-     * one) — re-issuing keeps the user logged in so the success banner is shown.
-     */
-    fun reissue(employeeNumber: String, ip: String = "", userAgent: String = ""): String =
-        SessionRepository.create(employeeNumber, AppConfig.sessionTtlHours, userAgent, ip)
 
     /**
      * Set a new password, then revoke every existing session for the user so a stolen

@@ -793,7 +793,8 @@ sequenceDiagram
 ```
 
 Allowlist while `mustChangePassword` is set: `/app/settings` and `POST /app/settings/password`. `/logout` is
-deliberately not gated, so a locked-out user can always sign out.
+deliberately not gated, so a locked-out user can always sign out. *(Stage 99 retired the gate, the allowlist and the
+password route: `requireSession` now answers only "is there a session".)*
 
 **Known gap:** `Csrf` is implemented and unit-tested but wired into no form and no route — POST protection
 currently rests on the `SameSite=Lax` session cookie. Open decision, tracked in README → Known gaps.
@@ -1066,7 +1067,7 @@ Every `/app/**` handler begins with `call.requireSession() ?: return@…`; rows 
 | To-do | `POST /app/todo/lists`, `/lists/{id}/delete`, `/lists/{id}/toggle`, `/lists/{id}/move`, `/lists/reorder`, `/app/todo`, `/lists/{id}/due`, `/app/todo/{id}/due`, `/{id}/toggle`, `/{id}/delete` *(all no role gate)* | `TodoService` (owner-scoped: every method takes `empNo`) |
 | Access control | `POST /app/access-control` **M** (and only **A** may set a role, via `canSetRoles`), `/delete` **M**, `/password` **A**, `/update` **A** | `UserService`, returns `PasswordStatus` |
 | Positions | `POST /app/positions` **A**, `/update` **A**, `/delete` **A** | `UserService`, `PositionRepository` |
-| Settings | `POST /app/settings/password` *(self only, allowlisted while `mustChangePassword`)*, `POST /app/settings/email` *(self **or** A)* | `UserService.changeOwnPassword` + `AuthService.reissue`, `UserService.updateEmail` |
+| Settings | `POST /app/settings/email` *(self **or** A)* | `UserService.updateEmail` (a password is set from the Team sheet's `POST /app/settings/employee/save`, admin only) |
 | Alerts | `POST /app/alerts/run` **A**, `POST /app/alerts/test` **A**, `GET /app/alerts/recent` **A** | `DueDateAlertService` on `Dispatchers.IO`; plain-text responses for curl |
 
 ---

@@ -4,11 +4,15 @@ package mn.murray.pts.domain
  * Project domain model and the constants/helpers that describe how projects are
  * categorised, coded and status-mapped.
  *
- * Projects belong to exactly one of nine letter-coded categories. The category LABEL is
- * what gets stored (`Projects.type`), the letter is derived from [TYPE_PREFIX] and is
- * also the first token of the project number (`S-01`, `R-12`). Keeping the label in the
- * column means the board needs no lookup table, and the one-letter prefix keeps codes
- * short enough to read in a task title.
+ * Projects belong to exactly one letter-coded category. The category LABEL is what gets stored
+ * (`Projects.type`), the letter is the category's key in the catalogue and is also the first token of
+ * the project number (`S-01`, `R-12`). Keeping the label in the column means the board needs no lookup
+ * per row, and the one-letter prefix keeps codes short enough to read in a task title.
+ *
+ * The categories themselves became data in Stage 63: `project_types` (V14) holds them, management edits
+ * them on the Settings page, and [PROJECT_TYPES] / [TYPE_PREFIX] are the in-process view of that table.
+ * [SHIPPED_PROJECT_TYPES] is what V14 seeds and what every helper falls back to before a database has
+ * been read.
  *
  * These types were relocated from the original `Data.kt` so the JSON importer and the
  * SQLite repositories share one canonical model. Values written before the V3 migration
@@ -16,30 +20,75 @@ package mn.murray.pts.domain
  * [LEGACY_PROJECTS] translate them.
  */
 
-val PROJECT_TYPES = listOf(
-    "Fabrication/Manufacturing",
-    "Repair/Maintenance/other services",
-    "Site projects",
-    "Labor supply",
-    "Distributor product sales",
-    "Engineering",
-    "Internal works",
-    "Goods sales",
-    "Other",
+/**
+ * One category in the catalogue: the letter its project numbers lead with, and the label stored on the
+ * project row. [code] is the primary key, so the pairing is one-to-one by construction — a letter cannot
+ * belong to two categories and so cannot produce two projects with the same number.
+ */
+data class ProjectType(val code: String, val name: String)
+
+/**
+ * The nine categories the app shipped with, in the order the boards group them.
+ *
+ * This is now a *starting* catalogue, not the catalogue: V14 seeds `project_types` from it and management
+ * can add, rename and retire rows from Settings. It stays in code for two reasons — a database that has not
+ * been read yet still has to answer [typeLetter], [codeMatchesType] and [nextProjectCode] (unit tests and
+ * the importer run before any request does), and V14's seed has to come from the same list so the two can
+ * never disagree about what the company's categories were on day one.
+ */
+val SHIPPED_PROJECT_TYPES = listOf(
+    ProjectType("M", "Fabrication/Manufacturing"),
+    ProjectType("R", "Repair/Maintenance/other services"),
+    ProjectType("S", "Site projects"),
+    ProjectType("L", "Labor supply"),
+    ProjectType("D", "Distributor product sales"),
+    ProjectType("E", "Engineering"),
+    ProjectType("F", "Internal works"),
+    ProjectType("G", "Goods sales"),
+    ProjectType("O", "Other"),
 )
 
+/**
+ * The catalogue as a value, with its two derived views built once.
+ *
+ * [names] and [prefixes] are precomputed because the view layer reads them per row and per chip: a Projects
+ * board asks for the letter of the same category a dozen times while it draws one panel.
+ */
+private class TypeCatalogue(val rows: List<ProjectType>) {
+    val names: List<String> = rows.map { it.name }
+    val prefixes: Map<String, String> = rows.associate { it.name to it.code }
+}
+
+@Volatile
+private var catalogue = TypeCatalogue(SHIPPED_PROJECT_TYPES)
+
+/**
+ * Publish [rows] as the catalogue every reader in this process sees.
+ *
+ * [mn.murray.pts.repository.ProjectTypeRepository.all] is the only caller that matters: reading the table
+ * republishes it, so a page that asks the repository is automatically current, and an empty read cannot
+ * wipe the catalogue out from under the boards (it falls back to the shipped nine).
+ */
+fun installProjectTypes(rows: List<ProjectType>) {
+    catalogue = TypeCatalogue(rows.ifEmpty { SHIPPED_PROJECT_TYPES })
+}
+
+/** Reset to the shipped catalogue; what a test does when it finishes with a live database. */
+fun resetProjectTypes() {
+    catalogue = TypeCatalogue(SHIPPED_PROJECT_TYPES)
+}
+
+/**
+ * The category labels, in catalogue order.
+ *
+ * A getter rather than a list literal since Stage 63 made the categories data: the Projects board's panels,
+ * the Forecasts tabs, the create popup's picker and every `?type=` / `fields["type"]` validation on the routes
+ * all ask this one question, and they all ask it of the database now.
+ */
+val PROJECT_TYPES: List<String> get() = catalogue.names
+
 /** Category label -> the letter that leads its project numbers. */
-val TYPE_PREFIX = mapOf(
-    "Fabrication/Manufacturing" to "M",
-    "Repair/Maintenance/other services" to "R",
-    "Site projects" to "S",
-    "Labor supply" to "L",
-    "Distributor product sales" to "D",
-    "Engineering" to "E",
-    "Internal works" to "F",
-    "Goods sales" to "G",
-    "Other" to "O",
-)
+val TYPE_PREFIX: Map<String, String> get() = catalogue.prefixes
 
 /** "Site projects" -> "S — Site projects"; unknown types show their raw label. */
 fun typeLetter(type: String): String = TYPE_PREFIX[type].orEmpty()
@@ -53,36 +102,47 @@ fun typeLabel(type: String): String =
  * This is the app's one statement of that pairing: the Projects board's panel heads and the
  * Forecasts sheet's panels both put a category chip above the same rows, and a project filed under
  * one colour on one page and another on the next would read as two different kinds of job.
+ *
+ * The nine letters the app shipped with each own a class. A category management adds later borrows one
+ * by its position in the catalogue: two categories sharing a colour is a cosmetic question, whereas a
+ * live category rendered in the generic grey would read like an error on the board.
  */
-fun typeChipClass(type: String): String = when (TYPE_PREFIX[type]) {
-    "M" -> "t-m"
-    "R" -> "t-r"
-    "S" -> "t-s"
-    "L" -> "t-l"
-    "D" -> "t-d"
-    "E" -> "t-e"
-    "F" -> "t-f"
-    "G" -> "t-g"
-    "O" -> "t-o"
-    else -> "planning"
+private val TYPE_CHIP_CLASSES = listOf("t-m", "t-r", "t-s", "t-l", "t-d", "t-e", "t-f", "t-g", "t-o")
+
+fun typeChipClass(type: String): String {
+    val letter = TYPE_PREFIX[type] ?: return "planning"
+    TYPE_CHIP_CLASSES.firstOrNull { it == "t-${letter.lowercase()}" }?.let { return it }
+    val position = catalogue.names.indexOf(type)
+    return if (position >= 0) TYPE_CHIP_CLASSES[position % TYPE_CHIP_CLASSES.size] else "planning"
 }
 
-val PROJECT_STATUSES = listOf("Ongoing", "On hold", "Not started", "Blocked", "Completed")
+/**
+ * The five stages a project can be in, in the order a picker lists them and the board sorts them: the progression
+ * itself, read top to bottom (**Stage 96**). The list is deliberately **the same five words, in the same order, as
+ * [mn.murray.pts.domain.TASK_STATUSES]** — a card's *In progress* and a project's *In progress* used to be two
+ * different labels for one idea ("Ongoing"), which is why the Calendar had a map from one to the other and the Team
+ * popup had to colour six words to draw five stages. They are now one vocabulary, so that mapping and that extra
+ * colour arm are gone. The picker used to lead with the most-used choice to keep the click short; the user asked for
+ * the progression instead, and a create form's default (`ProjectService.DEFAULT_STATUS`) is *Not started*, which is
+ * this list's first entry, so the shortest click and the honest order are now the same thing.
+ */
+val PROJECT_STATUSES = listOf("Not started", "In progress", "On hold", "Blocked", "Completed")
 
 /**
- * The order the projects board sorts by status in: not begun, then live, then stuck, then deliberately
- * parked, then finished. It is deliberately **not** [PROJECT_STATUSES] — that list is the picker order,
- * which puts the most common choice first so it is the shortest click, and reading it top to bottom as a
- * progression would look arbitrary on the board. Anything unknown ranks last rather than disappearing.
+ * The order the projects board sorts by status in. Since **Stage 96** it is the progression — the same list the
+ * picker prints — because the reader asked the dropdown to read as one sequence and the sort to follow it; keeping
+ * two orders that disagreed was the one thing that made the old "most-used first" picker look arbitrary. Anything
+ * unknown ranks last rather than disappearing.
  */
-val PROJECT_STATUS_ORDER = listOf("Not started", "Ongoing", "Blocked", "On hold", "Completed")
+val PROJECT_STATUS_ORDER = PROJECT_STATUSES
 
 /** Sort key for a status label; unknown or blank goes to the end of the list. */
 fun statusRank(status: String): Int =
     PROJECT_STATUS_ORDER.indexOf(status).let { if (it < 0) PROJECT_STATUS_ORDER.size else it }
 
 private val OLD_STATUS_MAP = mapOf(
-    "On track" to "Ongoing",
+    "On track" to "In progress",
+    "Ongoing" to "In progress",
     "Planning" to "Not started",
     "At risk" to "Blocked",
     "Done" to "Completed",

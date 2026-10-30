@@ -17,7 +17,7 @@ truth.
 
 1. **Layered architecture**: routes → services → repositories → DB. No route touches SQL directly. No repository renders HTML.
 2. **Real persistence**: SQLite via Exposed ORM + Flyway migrations, replacing single-file JSON.
-3. **Hardened auth**: bcrypt password hashes, DB-backed session tokens (as built — see Security → Sessions, not the signed-cookie `Sessions` plugin originally assumed), first-login password change enforced, per-route guards through one `call.requireSession()` helper (as built — a helper on `ApplicationCall`, not a Ktor plugin).
+3. **Hardened auth**: bcrypt password hashes, DB-backed session tokens (as built — see Security → Sessions, not the signed-cookie `Sessions` plugin originally assumed), per-route guards through one `call.requireSession()` helper (as built — a helper on `ApplicationCall`, not a Ktor plugin). The first-login password change this goal named was withdrawn in **Stage 99**: the box and the gate are gone and a password is set from the Team sheet.
 4. **Preserved behavior**: every current URL, cookie name, flash-banner protocol, and kanban drag-drop endpoint keeps working.
 5. **Understandable later**: consistent package layout, one file per feature area, `ARCHITECTURE.md` + `MIGRATION.md` kept current.
 
@@ -123,10 +123,12 @@ Real foreign keys replace the current string-name joins. **This is a semantic ch
 | `users` | `employee_number` PK, `name`, `password_hash`, `access` (Viewer/Manager/Admin), `email`, `position_id` FK NULL, `is_super_admin` BOOL, `created_at`, `updated_at` | Replaces `AccessRow`. EMP0000 seeded with `is_super_admin=true`. |
 | `team_members` | `employee_number` PK, `name`, `department`, `position` | 23-person canonical roster. |
 | `positions` | `id` PK, `name` UNIQUE, `permission_level` INT, `description` | Catalog only, not enforced (matches current behavior). |
-| `projects` | `id` PK AUTOINCREMENT, `code` UNIQUE, `name`, `status`, `progress` INT, `manager_emp_no` FK→team_members, `due` TEXT (**the end date** — V3), `type` (one of nine category labels — V3), `client`, `start_date`, `revenue` REAL, `created_at` | Manager stored as FK, not name. `code` leads with the category letter (`S-01`). Client/start/revenue added by V3; `due` kept instead of an `end_date` column because the Calendar and the alerts already key off it. See Stage 12. |
+| `projects` | `id` PK AUTOINCREMENT, `code` UNIQUE, `name`, `status`, `progress` INT, `manager_emp_no` FK→team_members, `due` TEXT (**the end date** — V3), `type` (one of nine category labels — V3), `client`, `start_date`, `revenue` REAL, `created_at` | Manager stored as FK, not name. `code` leads with the category letter (`S-01`). Client/start/revenue added by V3; `due` kept instead of an `end_date` column because the Calendar and the alerts already key off it. `status` is **free text with no CHECK constraint** — the five
+words (`Not started / In progress / On hold / Blocked / Completed`, one vocabulary since **Stage 96**) are enforced at
+the form, which is why V19 could rename a status with one `UPDATE`. See Stage 12. |
 | `project_assignees` | `project_id` FK, `employee_number` FK, PK(`project_id`,`employee_number`) | Replaces `List<String>`. |
 | `tasks` | `id` PK, `title`, `project_id` FK NULL, `due`, `priority`, `assignee_emp_no` FK NULL, `status`, `bucket`, `project_bucket_id` FK NULL (V7), `started`, `kind` (`ASSIGNED`/`OTHER`), `display_code` | Merges assignedTasks + otherTasks (they're the same shape). |
-| `buckets` | `id` PK, `name`, `position` INT | Kanban columns for other-tasks. |
+| `buckets` | `id` PK, `name`, `position` INT | Kanban columns for other-tasks — the backlog's buckets. **Never seeded**: V1 creates it empty, `V10` seeds only `project_buckets`, `V12` creates `type_default_buckets` empty and `V16` touches only a project's phases, so a fresh database opens **Other tasks** with no columns; every bucket is named by management through `POST /app/other-buckets`. There are therefore **no default buckets** for project-unrelated task work, and nothing on Settings' **Project bucket settings** card reads or writes this table — the two sets are separate on purpose. Naming a column is management's, confirmed by the user on 2026-10-26 (Stage 51's gate). |
 | `project_buckets` | `id` PK, `project_id` FK cascade, `name`, `position` INT | V7, Stage 30: one **project's** lanes — the phases its own cards are filed under. Separate from `buckets` on purpose (see Stage 30). `tasks.project_bucket_id` is `ON DELETE SET NULL`, so removing a lane un-files its cards rather than deleting them. |
 | `forecasts` | `id` PK, `project_id` FK, `period`, `hours`, `note` | V1's legacy row set: hours per project per period, kept for the importer. Since Stage 43 **nothing reads it** — the Forecasts page is `project_forecasts` now, and the sidebar pill counts projects instead of these rows. |
 | `lessons` | `id` PK, `title`, `project_id` FK NULL, `summary`, `lesson`, `employee_number` FK NULL, `task_id` FK NULL, `logged_on` (`yyyy-MM-dd`, `''` = undated), `discussed` BOOL, `archived` BOOL (all six since V9) | V1's row set widened in place by V9, Stage 44: the Lesson learnt sheet's own record — the one text the page prints, who logged it, which card it came from, the day, and its two states. `title`/`summary` stay (`title` is `NOT NULL`, no default) and the page prints `lesson`; the repository falls back to the old pair only if `lesson` came through blank; the backfill joins each old pair into `lesson` once, guarded by `WHERE lesson = ''`. All three FKs are `ON DELETE SET NULL`, so a lesson outlives the account, the card and the project it names — an unowned row is management's to tidy. See Stage 44. |
@@ -164,7 +166,7 @@ backfill cannot re-run over a lesson somebody has since typed. Flyway runs at st
 | Sessions | **Opaque-token model (as built), not the signed-cookie `Sessions` plugin.** `PTS_SID` carries a random UUID; the authoritative record lives in the `sessions` table (`repository/SessionRepository`): employee_number FK, created_at, expires_at, user_agent, ip. Cookie stays `httpOnly`, name **preserved as `PTS_SID`**, 12h expiry from `AppConfig.sessionTtlHours` — **absolute, stamped at login** (`create` writes `expires_at`; nothing slides it on activity). DB rows survive restart and allow admin revocation (`revokeAllFor`). Expiry is enforced at read (`findValid`) and swept by `purgeExpired`. Chosen over the Ktor `Sessions` signed-cookie plugin because it keeps revocation and audit server-side and matches the legacy token-in-cookie shape. |
 | Authorization | `security/Authorization` (RoleGuard). Effective role resolves **super-admin → Admin, else the linked position's `permissionLevel`, else the account `access`, else Viewer** (`security/Role` ordered enum). This is the v2 change: `permissionLevel` is now enforced. `canManage`/`canAdmin`/`isManagerOrAdmin` replace the ~30 inline `if (access in MANAGE_ROLES)` checks (route call-sites migrated in Stage 6). |
 | CSRF | Stateless session-bound token: `security/Csrf` = base64url(HMAC-SHA256(secret, sessionId)), validated in constant time. Rotates automatically with the session; no extra storage. **Not wired into any route (known gap, deliberately out of launch scope).** POSTs currently rely on the `SameSite=Lax` session cookie as the CSRF defence; `Csrf` is implemented and unit-tested (`CsrfTest`) and the production secret requirement in `AppConfig.validate()` exists precisely so turning it on later needs no config work. |
-| First login | `users.must_change_password` is enforced at the route level: `call.requireSession()` (in `Application.kt`) redirects a flagged account to `/app/settings` for every path except the Settings allowlist (`/app/settings`, `/app/settings/password`), so the user can only set a new password. Settings renders the reason inline in the Change Password card. Flagged by `AuthService.ensureSuperAdmin()` when no `PTS_ADMIN_PASSWORD` was configured, by `JsonImporter` for every legacy account that had no explicit password, and by `UserService.addUser`. Saving a password through `AuthService.changePassword` clears the flag and re-issues the session, so the user stays signed in. |
+| First login | **Deleted in Stage 99** — this is the rule as launched. The route gate, its Settings allowlist and the Change Password card are gone; `must_change_password` is recorded but nothing enforces it, and nothing reads the flag to stop a reader. (Stage 102 later touched only the login screen's case guidance.) As launched: `users.must_change_password` is enforced at the route level: `call.requireSession()` (in `Application.kt`) redirects a flagged account to `/app/settings` for every path except the Settings allowlist (`/app/settings`, `/app/settings/password`), so the user can only set a new password. Settings renders the reason inline in the Change Password card. Flagged by `AuthService.ensureSuperAdmin()` when no `PTS_ADMIN_PASSWORD` was configured, by `JsonImporter` for every legacy account that had no explicit password, and by `UserService.addUser`. Saving a password through `AuthService.changePassword` clears the flag and re-issues the session, so the user stays signed in. |
 | Headers | `web/plugin/SecurityHeaders` (installed): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `Permissions-Policy`, `Content-Security-Policy` (`default-src 'self'; script-src 'self'; style-src 'self' + style-src-attr 'unsafe-inline'` — tightened in Stage 7 once the assets were extracted, see "Stage 7 progress"), `Strict-Transport-Security` in production. |
 | Secrets | `.env` (gitignored) + `.env.example`. `AppConfig` reads system property → env → `.env` → default. `AppConfig.validate()` refuses production boot with the default/short session secret. Secret never logged (`summary()` masks it). |
 | Rate limit | `security/LoginRateLimiter` — in-memory sliding window on `POST /login`, bounds from `AppConfig.loginMaxAttempts`/`loginWindowSeconds` (default 5/60s). The key is the client IP from `X-Forwarded-For` **only when `PTS_TRUST_PROXY=true`**; otherwise it is the socket peer, because on a directly exposed port a forged header would otherwise be a free way to dodge the limiter. Verified live both ways. |
@@ -191,7 +193,9 @@ Stage 6 moves persistence off the legacy `JsonStore`/`DemoData` JSON aggregate a
 - Live test confirmed: bcrypt login (302 + cookie), wrong password (401), unauthenticated `/app/*` (302 → `/`), admin adds user → new user logs in → Manager-by-position reaches assigned-tasks → self password change keeps session → new password works → logout revokes session.
 
 **Done — all remaining aggregates (Stage 6a–6d, verified end-to-end against a live boot on a throwaway DB):**
-- **6a Projects + pins** — `service/ProjectService` wraps `ProjectRepository` + `PinRepository` and owns the legacy rules (`PROJECT_TYPES`/`PROJECT_STATUSES` whitelists with fallbacks, `SIT|MFG|RMS|LAB-NN` code generation *(the four-category scheme and its auto-generated codes — both replaced in Stage 12)*, manager **name→empNo** resolution, roster membership guards). `DemoData.projects` and the `pinnedIds()` helper now read from the DB; the create / manager / assignees-add / assignees-remove / pin routes were converted off `JsonStore.update`. Projects now store manager and assignees as real FKs.
+- **6a Projects + pins** — `service/ProjectService` wraps `ProjectRepository` + `PinRepository` and owns the legacy rules (`PROJECT_TYPES`/`PROJECT_STATUSES` whitelists with fallbacks *(the status words themselves became
+`Not started / In progress / On hold / Blocked / Completed` in **Stage 96**; the whitelist-and-fallback shape did not
+change)*, `SIT|MFG|RMS|LAB-NN` code generation *(the four-category scheme and its auto-generated codes — both replaced in Stage 12)*, manager **name→empNo** resolution, roster membership guards). `DemoData.projects` and the `pinnedIds()` helper now read from the DB; the create / manager / assignees-add / assignees-remove / pin routes were converted off `JsonStore.update`. Projects now store manager and assignees as real FKs.
 - **6b Tasks + buckets** — `service/TaskService` wraps `TaskRepository` + `BucketRepository`, discriminating the single `TaskItem` shape by the DB `kind` column (`ASSIGNED` | `OTHER`). It owns priority/status whitelists, assignee roster checks, project-name→id resolution (with the stricter `/app/team/assign` "project must exist" guard vs. the lenient `/app/assigned-tasks` one), and the kanban "manager-or-own-task" authorization for `POST /app/tasks/status`. `DemoData.assignedTasks` / `.otherTasks` / `.buckets` read from the DB.
 - **6c Todo** — `service/TodoService` wraps `TodoRepository`; every mutation re-checks row ownership against the acting employee (the invariant the legacy handlers enforced inline). List delete cascades to its items via the FK. `POST /app/todo/lists/reorder` still accepts the `order=` CSV (ids not owned by the caller are ignored by the owner-scoped update); `move?dir=up|down` preserved. `DemoData.todos` / `.todoLists` read all-owner rows so the existing views' `filter { owner == session }` is unchanged.
 - **6d Forecasts / lessons + legacy removal** — `DemoData.forecasts` / `.lessons` now read `ForecastRepository` / `LessonRepository`. The legacy `JsonStore` (`Store.kt`) and the unused `MANAGE_ROLES` set were **deleted**; `PtsData` / `AccessRow` survive only as the importer's decode target. `DemoData.seed()` remains solely as the demo dataset the importer's normalizer borrows its default position catalog from — nothing auto-seeds the live DB.
@@ -320,7 +324,10 @@ account to `/app/settings`. The allowlist (`/app/settings`, `/app/settings/passw
 the gate escapable: without it the only form that clears the flag would itself be blocked. Settings
 shows the reason inline in the Change Password card rather than as a page-top banner, and the login
 page's footnote now states the real behaviour instead of the legacy "password is your employee
-number" hint.
+number" hint. *(**Stage 99** retired the whole paragraph: the card, the POST, the allowlist and the
+session's copy of the flag are deleted, and `requireSession()` only asks whether there is a session.
+The `must_change_password` column is still written and still readable — it records how a password
+came to be — but nothing acts on it. See Stage 99.)*
 
 **Packaging.** `Dockerfile` (temurin 21 JDK → JRE, non-root `pts` user, `installDist` directory
 copied rather than a fat jar so the SQLite native driver and `logback.xml` keep working, volumes
@@ -594,14 +601,20 @@ unless all of them pass: category in the whitelist, number non-blank/well-formed
 (`existingCodes()`, compared upper-cased)/unique, description non-blank, both dates ISO and not reversed,
 manager a roster member or blank, revenue parseable and non-negative. `Projects.kt` renders the modal with
 those messages under their fields and re-populates what was typed. Status defaults to **Not started**
-server-side (`ProjectService.DEFAULT_STATUS`), so it holds even if the select is bypassed.
+server-side (`ProjectService.DEFAULT_STATUS`), so it holds even if the select is bypassed. *(Since **Stage 96** that
+default is also the picker's first option, so a bypassed select and a manager who touches nothing get the same word; the
+`Ongoing` this form used to lead with is no longer on the whitelist, and a stale page posting it falls back here — proved
+over HTTP.)*
 
 **CSP constraints shaped the modal.** The open state is server-rendered (`style="display:block"`, allowed
 by `style-src-attr 'unsafe-inline'`), so a rejected submit comes back with the popup already open; the
 behaviour is `/static/js/project-modal.js` (`script-src 'self'`, driven by `data-project-modal-open`,
 `data-modal-close`, and per-option `data-suggest`/`data-letter`). A category change replaces the offered
 number only while it is still untouched (`data-autofilled`), so a hand-typed number survives switching
-categories.
+categories. *(**Stage 91** removed the offer from the **value** altogether: the box now opens empty and the
+next free number is only its placeholder, so there is nothing to replace and no `data-autofilled` left. The
+input was typed — initial included — in both stages; this only stops the app writing the first characters for
+the reader.)*
 
 **Verification.** `./gradlew test` → BUILD SUCCESSFUL, 56 tests in 13 classes, all passing:
 `ProjectServiceTest` (12, real SQLite, one case per rule), `ProjectCategoryTest` (3, the pure
@@ -728,7 +741,9 @@ which is why this had not surfaced.
 
 **Not done here.** Nothing in the data changed, so there is no migration and the live DB is untouched by
 this stage. Whether the arrows are worth keeping for a manager who prefers one click over
-click-then-pick is a taste call the user can reverse by dropping the `&& !canManage`.
+click-then-pick is a taste call the user can reverse by dropping the `&& !canManage`. *(**Stage 103** answered the taste
+call the other way: the `← / →` pair is gone from both status boards, and `taskCard()` renders `.kmove` only on a
+project's lane board, where the single **✓ Done / ↺ Reopen** is a different act from moving a card.)*
 
 ## Stage 15 — projects, managers and assigned tasks are management's call (2026-10-13)
 
@@ -843,7 +858,9 @@ managers." Four scope questions, four answers, and one of them overrode my recom
 box — not the single "Sort by" dropdown I proposed. Status sorts in **working order** (Not started →
 Ongoing → Blocked → On hold → Completed), which is not `PROJECT_STATUSES`; that list is the *picker* order
 for creating a project, so `Project.kt` now also exports `PROJECT_STATUS_ORDER` and `statusRank()`, with an
-unrecognised status ranking last rather than at zero. Search is scoped **within the current tab**, and the
+unrecognised status ranking last rather than at zero. *(Superseded by **Stage 96**: the user asked the picker for the
+progression and the sort for the picker, the two lists are now one assignment, and `Ongoing` does not exist anywhere —
+`PROJECT_STATUS_ORDER = PROJECT_STATUSES`. The "unrecognised ranks last" half of `statusRank` survives.)* Search is scoped **within the current tab**, and the
 box filters **live as you type** with Enter still submitting.
 
 State lives in one value object, `ProjectBoardFilter(text, statusSort, managerSort)`, built by the GET route
@@ -1199,6 +1216,8 @@ token (`extraIds` + three lines in `sendToBlock`, `app.js`). A missing companion
 failure, because a page may carry the tile-less empty-project sentence, and a response that lacks one cannot
 be allowed to fall back to a reload. The contract is documented in the `app.js` header alongside the other
 three; with JavaScript off the forms post and reload as before, and the reloaded page is consistent.
+*(**Stage 93** added a fourth, `[data-live-url]`: on a GET block form whose block is the board itself, the URL the
+response was fetched for replaces the one in history, so a view change made in place survives a reload.)*
 
 `statusDot` moved from two private copies (`TaskBoard.kt`, `AssignedTasks.kt`) to one `internal` function so
 the strip's dots are the board's dots by identity, not by matching strings — the duplicate first surfaced as
@@ -1339,7 +1358,9 @@ written in the same second still print in the order they were written.
 
 **Rules: `TaskService`.** `editableBy(id, empNo, canManage)` answers the single question the whole stage
 hangs on — may this account open this card at all — returning the task or null, so a hand-typed
-`?edit=<somebody else's card>` renders an ordinary board. `updateAssigned` takes the four fields a
+`?edit=<somebody else's card>` renders an ordinary board. *(**Stage 86** renamed it `openableBy` and widened the
+read: on a project board every reader now opens every card, while a backlog card still opens only for management
+and its holder. The write gates described below are unchanged; see the Stage 86 section.)* `updateAssigned` takes the four fields a
 non-manager cannot write **from the stored row, not from the form**, which is the entire permission
 check: greying an input is presentation, and a POST built by hand that omits `title`, `project`,
 `assignee` or `status` still cannot move a card, because the service overwrites them with what the DB
@@ -1451,13 +1472,17 @@ field valued `0`. `task-modal.js`'s click handler finds the card's id, writes it
 that board can actually open something (`canManage || tasks.any { it.assignee == session.employeeNumber }`).
 The card gained the hooks that menu used to carry: `data-task-card="<id>"`, `tabindex="0"`,
 `aria-label="Open <title>"`, and the existing `draggable` — all of them only on a card this account may open,
-so a colleague's card is not merely inert, it has no click target at all and no tab stop.
+so a colleague's card is not merely inert, it has no click target at all and no tab stop. *(**Stage 86** split
+those hooks: `data-task-card`, `tabindex` and `aria-label` are now printed on every card because every card opens,
+the opener is drawn whenever the board carries a card, and `draggable` is the attribute that stays with the
+writers.)*
 
 **Losing the status dropdown costs nothing, and the arrows stay.** A manager has two other ways to move a
 card: drag it between columns, or change **Status** in the editor they just opened — a column is a field of
 the form, not a separate decision. A non-manager's Status field is greyed (Stage 23's permission split), so
 their cards keep the `←`/`→` buttons, which post `/app/tasks/status` from `kanban.js` and reload as they
-always have. That is also why a board swap is still off the table: `kanban.js` binds `dragstart`/`dragover`
+always have. (**Stage 103** ended this: the arrows are off both status boards, the drag and — for management — the
+popup's **Status** field are the two ways a status changes, and a no-JS owner now asks management.) That is also why a board swap is still off the table: `kanban.js` binds `dragstart`/`dragover`
 per card node, and `Save` / drag / the arrows remain plain POST + 302.
 
 **Keyboard and stray-click reachability.** Deleting the `⋯` tab stop would have made the editor
@@ -2639,6 +2664,9 @@ status changes by **clicking the card and editing it in its popup** (not a per-c
 **rename + delete with delete asking which column takes the cards**, and *Show all buckets* **toggles empty
 columns** on the board. No schema change: `buckets` and `tasks.bucket_id` are V1's (Stage 7's JSON→SQLite init), V7 is
 still the head migration, and nothing here needed a column or a table.
+*(**Superseded by Stage 97** in its third answer: the toggle, the `allbuckets` flag and the wide view it switched on are
+gone, and the Stage 93 Bucket picker is the board's only view control — an empty column is revealed by naming it, and a
+newly created one lands on its own `?show=` filter. Read the two below as what was in force then.)*
 
 **The board draws what it has.** `assignedTasksContent` builds `columns: List<Pair<Bucket, List<TaskItem>>>` from
 `TaskService.assignedFor` and the bucket rows, then prints `if (showAllBuckets) columns else columns.filter { it.second.isNotEmpty() }`
@@ -2685,7 +2713,8 @@ keyed off the same id, so a column never goes while cards still point at it; the
 (`?edit=<id>`, plus the reader's `allbuckets`) naming `#taskModal`, which is the same path the status board's cards
 take — the popup is `taskFormModal(state ?: TaskForm(canEditAll = canManage), BACK_ASSIGNED, …)`, and the refuse /
 `?edit=` plumbing is Stage 24's, not new. The card prints its status line from the stored status, and the owner keeps
-the board's `kmove-btn` arrows so status is changeable from either place.
+the board's `kmove-btn` arrows so status is changeable from either place. *(**Stage 103** took those arrows off this
+board too, so the drag and management's popup are the two places a status changes here.)*
 
 **The defect that ask exposed, and its fix.** Clicking a backlog card used to open an editor that could not be saved:
 `TaskService.resolve` demanded an assignee for every task, while `createOther` always inserts
@@ -2707,6 +2736,9 @@ save form, and a card's click-to-edit form. Without that last pair the write wou
 hide the column the reader had opened; six `allbuckets` inputs inside `board(wide)` and none inside `board(narrow)`
 is the assertion that keeps them honest. `bucketsBack` / `respondBuckets` are the two helpers that make each route
 spell the same redirect.
+*(**Superseded by Stage 97**: `showAllOf`, the `showAllBuckets` parameters and `taskRedirect`'s fourth argument no longer
+exist, and `bucketsBack(showBucketId)` now builds `/app/other-tasks?show=<id>` instead of a wide-view URL — the only view
+state a write carries is the bucket filter inside its `back` token.)*
 
 **Scripts-off stays honest.** Every opener above is a GET form and every writer a POST form to a real route, so with
 JS disabled the same clicks load the same page with the same popup open server-side and the same writes land; the
@@ -2803,7 +2835,10 @@ now `TaskForm.viewerEmpNo` is set from the session by the route that loaded the 
 task.assignee == viewerEmpNo)` — which is *exactly* the reader set `TaskService.toggleChecklistItem` accepts and
 `TaskService.editableBy` hands a card to. That identity is what made the popup's read-only branch dead code: there is
 no reader who is shown a step list they cannot tick, so `modalSteps` prints one row shape and nothing else, and the
-`.step-row` / `.step-mark` CSS went with it rather than staying as an untestable style. `viewerEmpNo` is never read
+`.step-row` / `.step-mark` CSS went with it rather than staying as an untestable style. *(**Stage 86** broke that
+identity on purpose: `openableBy` now admits readers who may not tick, `TaskForm.viewOnly`/`mayTick` separate the
+right to read from the right to work, and `modalSteps` prints the stopped row shape ([`stepRowLocked`]) beside the
+live one — there *is* a reader shown a plan they cannot tick now.)* `viewerEmpNo` is never read
 from a form field, so a hand-built POST cannot hand itself somebody else's boxes; and a **refused save** re-renders
 through `taskFormOf(…, viewerEmpNo = session.employeeNumber)` as well, because forgetting who is looking would turn
 the assignee's own steps into a stranger's read-only list on the very page that just rejected their edit.
@@ -2835,7 +2870,9 @@ the popup is the tick box itself, and the whole row sends it` — the box and th
 came from and the popup to come back to, a ticked step comes back `checked` with its words struck through, the boxes
 follow the right to tick rather than the page (`management reads a colleague's percentage with no boxes to tick`, and
 an unassigned card gives the boxes to management alone), and the add line and the × print only for a reader who may
-write the plan. The add line is pinned as **a field and no button**, with exactly one writable field in its form —
+write the plan. *(**Stage 89** moved half of that line: the add line follows the right to work the card too — the
+assignee plans their own card — while the × stays management's alone.)* The add line is pinned as **a field and no
+button**, with exactly one writable field in its form —
 that is what makes Enter the send rather than a convention somebody happens to follow. `a popup on a card with no plan counts nothing and claims nothing`
 grew the bar's half of the rule: an unplanned card prints no `· p%` **and** no `class="progress"`.
 `ProjectsPageRenderTest` moved with it: the project page prints a card's `0%` and no plan, and the
@@ -3429,7 +3466,8 @@ flat roster — **NAME / EMPLOYEE # / POSITION / DEPARTMENT / ROLE / EMAIL / OPE
 control, each row carrying avatars, a role pill and a red ✎ beside a grey 🗑, and the reader's own row wearing a
 green `YOU` pill instead of a pressable bin. Four scope answers fixed the shape before anything was written:
 **Settings only, the Team page stays as it is**; the personal card and **Change Password** stay below Team in that
-order, and the workload drill-down the old table printed is replaced by the OPEN TASKS column; `+ Add employee`
+order *(**Stage 99** removed the password card by the user's decision, so the order is now Team, the personal card,
+then the app panels — see Stage 99)*, and the workload drill-down the old table printed is replaced by the OPEN TASKS column; `+ Add employee`
 opens the app's standard popup and the pencil opens **the same popup filled**, a blank password meaning unchanged;
 and search, both pickers and all seven headers work **in place**, with "N of M shown" counting what the filter
 leaves. No schema, no migration — the app is still at V9.
@@ -3488,7 +3526,9 @@ reason has to arrive under the field that caused it with the words still typed i
 **What did not move, on purpose.** `/app/team`, Access control and `POST /app/positions` are untouched — this stage
 takes the workload table off Settings and puts a roster in its place, it does not move management's catalog page.
 The personal card (number, name, position, access level) and Change Password stay below Team, and
-`POST /app/settings/password` is the route it has always been. The eight-column grid is one shared `table.team-sheet`
+`POST /app/settings/password` is the route it has always been. *(**Stage 99** deleted the password card and that route
+by the user's decision; the personal card stays below Team and the three app panels now follow it directly.)* The
+eight-column grid is one shared `table.team-sheet`
 `<col>` set (19/10/13/9/11/19/9/10) sized the way Stage 44 sizes the lesson sheet — each column's nowrap minimum
 plus the cell's 20px padding — with the email address the one column allowed to break under
 `overflow-wrap: anywhere`. The role pills reuse the existing chip classes rather than a seventh widget, and the
@@ -3508,6 +3548,11 @@ account has its employee number as its password and that number is printed on th
 other accounts before the first password change would hand a guessable credential account-management rights. The
 open choice (raised with the user, not decided here) is whether to hide the write controls while the flag is set, or
 to answer the blocked press with a flash at the top of the sheet naming the reason.
+
+*(**Stage 99** closed the whole question from the other end: the user asked for the Change Password box to be removed,
+and the forced change went with it. A flagged account now reaches the sheet like any other, so neither the allowlist
+gap nor the open choice above exists any more. The add card says only what is still true — a blank password means the
+employee number is the password. See Stage 99.)*
 
 **Tests: 54 new in 2 classes, 414 in 29 classes, 0 failures.** `service/EmployeeServiceTest` (27) pins the read and
 the rules: roster-then-accounts union with an account-only number present, the effective role printed where the raw
@@ -3552,7 +3597,7 @@ hand-built POST, which is the arrangement every other page in the app abandoned.
 beside the open ones" is the workload table's idea returning in a narrower form; the column is OPEN TASKS because
 that is the one number a roster row can act on.
 
-## Stage 47 — Other tasks is a page, and Assigned tasks keeps only its own board (2026-10-18, live, no migration)
+## Stage 47 — Other tasks is a page, and Assigned tasks keeps only its own board (2026-10-18, live, no migration; **its `allBucketsToggle` / `#bucketsToggle` half is superseded by Stage 97** — the control, its `otherToggleApplies` predicate and the `allbuckets` field every form in this section carries are gone, and `#addBucketOpener` is the head's only block now, so read the companion-id reasoning below as the history of a mechanism that no longer has two halves to keep in step)
 
 **The ask.** *"make other tasks like this"* with `other-tasks=pts.png`: the sidebar item **Other tasks** active and
 carrying a count, a page head of **Other tasks** plus the line *tasks outside of projects*, **Show all buckets** at the
@@ -3655,6 +3700,10 @@ which page gets the answer.
 
 ## Stage 48 — A card is filed in one of a project's six sub-categories, or it is on Other tasks (2026-10-19, live, V10)
 
+*Stage 75 renamed the floor: the shared list is the **three** phases Engineering / Procurement / Production, and they are
+ordinary editable lanes rather than a protected set. Everything else on this page — a card belonging to exactly one of
+the two boards, filing in a lane being compulsory, and the empty-string exception being closed — is still the live rule.*
+
 **The ask.** *"the structure is tasks are have to have either way assigned to a project or the other tasks. A project
 means have to be assigned on six sub categories as have on projects. Other tasks could be anything that the user can
 create a bucket"*
@@ -3708,7 +3757,9 @@ select posts nothing, so an owner booking a due date is not made answerable for 
 always refused, and so is a name not on that project. `moveToLane` refuses `bucketId == 0`, and `kanban.js`'s `laneOf`
 returns null for the column marked `data-unfiled`, so the board never highlights a drop the route will bounce: cards
 leave Unsorted by drag, none arrive. `removeLane` checks `LaneError.STANDARD` **before** the count-of-columns rule, so
-a hand-built POST cannot delete one of the six out from under the cards filed in it.
+a hand-built POST cannot delete one of the six out from under the cards filed in it. *(**Superseded by Stage 75**: the
+six became the three, `LaneError.STANDARD` is deleted, and what protects a board now is `LaneError.LAST_LANE` plus the
+card-count guard — a filing rule Stage 75 left exactly as written here.)*
 
 **A card that names neither world is refused, and the picker that used to offer it says so.** *— No project —* is out
 of the Project list, and `resolve` answers an empty `projectName` with *"Choose which project this card is on."* The
@@ -3786,9 +3837,11 @@ it holds one (Stage 37). "Keep *— No project —* and file those cards under O
 apart: a backlog card belongs to a column and to no project, and a migration cannot know which of the two a legacy row
 wanted. "Give the assignee the *Where it lives* picker too" moves work between boards by the person the card happens to
 be on, which is the line the title and status already draw. "Disable the hidden half of the popup" is the bug found on
-the throwaway: a disabled select posts nothing, so the crossing would land cards in no column. "Let management delete
-one of the six from the board" is answered before it is asked — `LaneError.STANDARD`, checked before the count rule —
-and "delete the extra lanes so every board is exactly six" is the one thing the reader explicitly refused. "Give
+the throwaway: a disabled select posts nothing, so the crossing would land cards in no column. ~~"Let management delete
+one of the six from the board" is answered before it is asked — `LaneError.STANDARD`, checked before the count rule~~ —
+**Stage 75 retired the protected list**: the opening lanes are three ordinary lanes and one of them can be renamed or
+taken off from the board, with `LaneError.LAST_LANE` and the card-count guard as the remaining refusals. "delete the
+extra lanes so every board is exactly six" is the one thing the reader explicitly refused. "Give
 anybody the `⋮` so they can rename their own column" takes in a shared column the work of everybody else.
 
 ## Stage 49 — Moving a card between columns is the mover's, on both boards (2026-10-19, live, no migration)
@@ -4005,7 +4058,8 @@ table — is not drawn, and neither is the employee popup (`#employeeModal`) nor
 landing point for a control that no longer exists). What still prints for a Viewer is their own `accountCard`
 (*Your account*) and the **Change Password** form — the personal path that must stay open, and the one `requireSession`
 routes must-change-password accounts to via `MUST_CHANGE_ALLOWLIST = {"/app/settings", "/app/settings/password"}`. So
-the page is reachable by every role; only its management half is withheld.
+the page is reachable by every role; only its management half is withheld. *(**Stage 99** removed the password form by
+the user's decision; a Viewer's page is now the account card alone, and the page stays reachable by every role.)*
 
 **Other tasks** (`OtherTasks.kt`, `Application.kt`). The board is management's, but a Viewer keeps the personal path,
 so it is *scoped* rather than bounced. `otherColumns(canManage, viewerEmpNo)` filters a non-manager's column list to
@@ -4020,6 +4074,12 @@ reading the name; `openingTaskForm` no longer hands a Viewer the `?new=1&column=
 than saving it. `TaskService.createBacklog` itself stays permissive because the Team assign panel (Stage 50,
 management-only) calls it with `canManage = true`.
 
+*(**Stage 90** restored the **self-service half** of that create on the reader's own **Assigned tasks** page, at the
+user's request: an always-drawn **Bucket** picker and a `+ Add task` line under the reader's Other board open the blank
+popup, and a non-manager's card lands as theirs and *Not started*. What Stage 51 keeps is the **shared** board — its add
+line, its popup and its save branch are still `canManage`'s — and the assigned page's **projects** half still grants no
+create. See Stage 90.)*
+
 No migration (schema stays V10) and **no static asset changed** — every edit is Kotlin — so there is nothing to
 Ctrl+F5. `./gradlew test installDist` is green at **442 tests / 30 classes / 0 failures**, and 8080 restarted on PID
 **25188** with `/` 200 and `/app/settings`, `/app/access-control`, `/app/other-tasks` all answering 302 (to login)
@@ -4031,10 +4091,14 @@ reads a section back to a path off that very list — filter at `navItemsFor`, t
 Viewer off `/app/other-tasks` entirely" kills the agreed personal path: their own card arrives through a notification
 that points at that URL, so the board is scoped to their own cards, not refused. "Take the change-password form off
 Viewer Settings too" strands a must-change-password account — `MUST_CHANGE_ALLOWLIST` sends them here precisely because
-it is open to every role; hiding the roster is right, hiding the password box is not. "Let a Viewer still create a
+it is open to every role; hiding the roster is right, hiding the password box is not. *(**Stage 99** retired the premise
+as well as the form: at the user's request the password box and the gate behind it are both gone, so there is no
+must-change account left to strand. The rule still holds for any future self-service form: a form a role is *sent* to
+must not be hidden from that role. See Stage 99.)* "Let a Viewer still create a
 backlog card since Stage 42 made the box universal" is the exception this stage retires: writing a *new* card onto the
 shared board is one of the Other-tasks functions management keeps, so the add line, the create popup and the save-route
-column branch all check the role now. "Lock a page by hiding its link only" is presentation, not the right — the link,
+column branch all check the role now. *(**Stage 90** later gave the reader a create again, but **on the Assigned page**
+and for **their own** card only — the shared board's add line stays management's.)* "Lock a page by hiding its link only" is presentation, not the right — the link,
 the GET and every POST behind it are gated, because a hidden link still leaves the URL.
 
 ## Stage 52 — A project's board is cut by status, not by sub-category (2026-10-19, live, no migration)
@@ -4068,13 +4132,18 @@ html, "class=\"kcol-count\""))` and drops the `data-lane="0"` assertion. **442 t
 V10) and no static asset changed, so nothing to Ctrl+F5. 8080 restarted on PID **640** with `/` 200; both affected
 render suites re-run green after the final comment fix.
 
-**If this is restated.** "Revert the project page to lane columns" is the change this stage retires at the user's
-request. "Rip out `laneKanban` and the `lanes` param since nothing renders lanes any more" over-reaches: the popup's
+**If this is restated.** ~~"Revert the project page to lane columns" is the change this stage retires at the user's
+request.~~ **Stage 75 reverted it in the other direction**: a project's page is its **bucket** columns again and
+permanently, and the five status columns Stage 52 moved there now live only on **Assigned tasks** and **Other tasks**.
+What Stage 52 did keep is the separation of the two shapes — `taskKanban` still falls to `statusKanban` when handed no
+lanes, which is exactly how the general boards are still drawn.
+"Rip out `laneKanban` and the `lanes` param since nothing renders lanes any more" over-reaches: the popup's
 Sub-category picker, `lanesOf`, compulsory filing and the lane tests all still read that capability, and removing the
 renderer would break them for a display change. "Stop filing cards into sub-categories because the board no longer
-shows them" would drop a card's lane and unravel Stage 48 — the field is set, just not the column. Whether the
+shows them" would drop a card's lane and unravel Stage 48 — the field is set, just not the column. ~~Whether the
 Sub-category *picker* should also leave the project page's popup is a follow-up the reader has not asked for, so it
-stays.
+stays.~~ **Stage 87 answered it**: the pair left the editor of a card already on a project (both Project and
+Sub-category), while create, the backlog half and a refusal keep them. The lane itself is still filed and still read.
 
 ## Stage 53 — The Assigned tasks board is personal for every role (2026-10-19, live, no migration)
 
@@ -4165,6 +4234,7 @@ assigned."* Stage 47 had moved the whole backlog to its own page and Stage 51 to
 Viewers, so a reader who owned backlog cards but could not reach the Other tasks page could no longer see them at all.
 Stage 55 puts a **personal slice** of that board back under the assigned one — the reader's *own* Other-task cards
 (`kind = "OTHER"`), not the shared board — and, when they hold none, prints `You don't have any other tasks assigned.`
+(a filtered board names its bucket instead — *"You don't have any other tasks in HR."* — since **Stage 88**).
 It is deliberately scoped to one person: it reuses the assigned page's personal rule, never management's wider read.
 
 **One new read in the service layer.** `TaskService.assignedOtherFor(employeeNumber)` returns `other().filter { it.assignee
@@ -4178,8 +4248,14 @@ editor all work on them for free. To keep the page's "exactly one `#taskEditOpen
 relies on — it binds a single global `[data-task-card]` click handler), `taskKanban` gained a `drawOpener` flag: the top
 board suppresses its opener when the reader has own-Other cards, so the lower board draws the one opener instead; a
 reader with only backlog cards still gets a working editor. One `#taskModal` serves both boards; a backlog card clicked
-anywhere posts `?edit=<id>` to `/app/assigned-tasks`, whose `editableBy` loads either `kind`, and the edit form's
+anywhere posts `?edit=<id>` to `/app/assigned-tasks`, whose `openableBy` (then `editableBy`) loads either `kind`, and the edit form's
 `back = assigned` only steers the redirect, never the row's kind.
+
+*(**Stage 88** added a **Bucket** picker above that second board: it narrows the reader's own Other-task cards to one of
+the board's columns while the five status columns stay as they are, and the chosen filter rides `back` as
+`assigned:<bucket id>` so opening, saving, stepping, noting, deleting and refusing all return to the same narrow view.
+**Stage 89** made that picker one card wide — see Stage 89. **Stage 90** draws it whenever the board has columns, even
+when the reader holds no cards, because it is also the chooser for the `+ Add task` line that stage put under the board.)*
 
 **The pill follows the page.** `visibleTaskCount` now sums `assignedFor(empNo, false).size + assignedOtherFor(empNo).size`,
 preserving the Stage 54 invariant that the number beside *Assigned tasks* is exactly the cards that page prints — which
@@ -4203,7 +4279,9 @@ further reader with one backlog card = 1; a reader with neither = 0). 8080 resta
 **If this is restated.** "Merge the two boards into one" would lose the separate empty message the reader asked for.
 "Show management the whole backlog here" over-reaches — this is the reader's *own* cards, and management's wide read of
 all backlog lives on the Other tasks page, not here. "Bring the flat backlog list back" is the pre-Stage-47 shape this
-replaces with a status board; the shared column structure the reader already knows is the point.
+replaces with a status board; the shared column structure the reader already knows is the point. *(**Stage 90** added one
+`+ Add task` line under this personal board — the reader writing their **own** first card into a bucket — which does not
+widen the read: the board still prints only their cards, and the shared board's own create stays management's.)*
 
 ## Stage 56 — A project's page shows the whole project board to every reader (2026-10-20, live, no migration)
 
@@ -4226,7 +4304,10 @@ editor, the click and the drag. So a Viewer standing on a shared board **reads**
 move, drag or add one that is not theirs — a colleague's card prints with no `data-task-card`, no `draggable`, and no
 move arrows, while their own card on that same board still opens and walks for them. The card popup is now drawn for the
 same condition that draws the opener (`canManage || mayAdd || state != null || tasks.any { it is mine }`) rather than on
-`tasks.isNotEmpty()`, so a Viewer who can only read others' cards gets no dead form. The empty-line wording moved from
+`tasks.isNotEmpty()`, so a Viewer who can only read others' cards gets no dead form. *(**Stage 86** reversed the
+**click** half at the user's request: every card on that shared board now carries `data-task-card`, `tabindex` and
+`aria-label`, a colleague's opens as a read-only popup, and the opener/popup conditions drop to *the board carries a
+card*. The drag, the arrows and **✓ Done / ↺ Reopen** stay with `canManage || mine`; see the Stage 86 section.)* The empty-line wording moved from
 *"nothing assigned to you here yet"* to *"nothing assigned to this project yet"* to match the shared board. `assignedFor`
 is **not** changed and keeps its `canManage` branch — only this page stopped using its personal filter; the Calendar,
 the general Assigned tasks page and the Team sheet's OPEN TASKS drill-down still scope a non-manager to their own cards
@@ -4237,6 +4318,9 @@ widening the list is what surfaced it.
 (not added or removed). `a viewer's project page shows their own cards and no figures about the rest` → `a viewer's
 project page shows every card of the project but edits only their own`: the colleague's cards and their holder (Naran)
 are now asserted **present**, while a `data-task-card` count asserts exactly **one** opener (the Viewer's own card).
+*(**Stage 86** re-pointed both cases again: every card carries `data-task-card` now, so the count asserts every card,
+the colleague's is asserted *read-only* rather than *not openable*, and the popup's one hidden `#taskEditOpener` is
+asserted once.)*
 `the bar measures the project while the board shows only this reader's cards` → `…while the board shows every card
 read-only to a viewer`: the colleague's card title is asserted present and not openable, the project bar still reads 50
 (whole-project) — the point that the bar always measured the project while only the board was personal. The empty-line
@@ -4250,6 +4334,9 @@ a separate whole-board project view and keep Viewers personal" recreates the exa
 assignee's name on the card, not just the avatar" over-reaches the answer to Q2 (avatar as-is) and would make this page
 disagree with Assigned tasks, which prints the same avatar. And the rights must not widen with the list — a Viewer being
 able to move a colleague's card from a board they can now see was never asked for and is refused by `opens`/`mayAdd`.
+*(**Stage 86** kept that sentence true but moved the line: the *click* is everybody's now, while moving stays
+`canManage || mine` (or `mayDrag` on a lane board), so what a Viewer may not do to a colleague's card is move or
+write it, not read it.)*
 
 ## Stage 57 — The Other tasks board is cut by status, one group per bucket (2026-10-20, live, no migration)
 
@@ -4283,6 +4370,9 @@ stacked groups are safe — and a backlog card carries no `draggable`, so nothin
 (Stage 51 scoping), every route, every role check and the popup fields are **byte-for-byte unchanged** — the Viewer is
 still shown only the bucket their card stands in, still gets none of `+ Add bucket` / `⋮` / `#bucketModal` / `+ Add task`
 / the show-all toggle; management still sees every bucket. Only the *shape* of a bucket widened into a group of columns.
+*(**Superseded in part by Stage 97**, which retired the show-all toggle and its `allbuckets` flag outright; the narrow
+rule this stage kept — a board prints the buckets that hold work — is the half that survives, and the Stage 93 picker's
+`?show=` is now what reveals an empty one.)*
 
 **CSS.** `app.css` gained `.other-groups` (flex column, `gap:24px`), `.bucket-group-head`, `.bucket-group-title`,
 `.bucket-group-count`, and dropped `.kanban-other` and `.ostatus`. A **static asset changed → Ctrl+F5** before judging
@@ -4307,6 +4397,9 @@ not this stage and not asked — buckets are changed only through the popup's Co
 buckets, so this prohibition stands.) And the rights must not move with the layout: a Viewer seeing their bucket
 as a five-column board is the same scoped single-bucket view, not a widened one.
 
+**Stage 93** later made `#otherBoard` the page's `[data-live-region]` and put a **Bucket** picker above the groups
+(`?show=<id>`); the stacking, the group-per-bucket reading and the one-id swap described here are unchanged.
+
 ## Stage 58 — A backlog card drags between its bucket's status columns (2026-10-20, live, no migration)
 
 **The ask.** *"since the cards shown in progress we should be able to move cards in status like not started to in
@@ -4316,7 +4409,11 @@ started to In progress. **Stage 58** makes the backlog card a drag source on its
 
 **The layout, not the rights.** Stage 57 already gave the backlog columns `data-status`, and `kanban.js` binds its
 status-drop listeners to *every* `.kcol[data-status]` globally and only starts a drag on a `.kcard[draggable="true"]` —
-so the one missing half was the drag source. `otherCard` now sets `draggable="true"` on the card for
+so the one missing half was the drag source. (**Stage 94 supersedes the binding, not the behaviour:** "binds to every
+`.kcol`" was a `querySelectorAll` at page load, and once Stage 93 made this board a live region a *narrowed* board was
+a fresh set of columns with nothing attached; the handler now lives on `document` and finds the column with
+`closest('.kcol[data-status]')`. The contract this stage relied on — that a backlog drop is a status write — is
+unchanged.) `otherCard` now sets `draggable="true"` on the card for
 `canManage || mine`, which is [TaskService.updateStatus]'s rule (`!canManage && task.assignee != callerEmpNo → false`)
 read as presentation and the exact flag the Assigned and project status boards already print. Nothing else moves: no
 route, service, migration, CSS or script change. A drop posts `/app/tasks/status` and reloads; the server re-groups by
@@ -4347,7 +4444,9 @@ Kotlin-only.
 **If this is restated.** "Make a backlog card draggable to change its *bucket*" is not asked and must be refused —
 the drag writes `status` via `.kcol[data-status]` only; bucket changes stay the popup's Column picker, management's
 (Stage 49). "Give management standing `←`/`→` arrows now that they drag" would re-add what Stage 49 took away: management
-moves by dragging or the popup, the owner by dragging *or* the arrows. And the drag must mirror the route exactly — a
+moves by dragging or the popup, the owner by dragging *or* the arrows — and **Stage 103** took the second half of that
+sentence too, so today the owner moves by dragging as well, and re-proposing an arrow on any status board is the ask the
+user has already answered once. And the drag must mirror the route exactly — a
 `Viewer` who is not the assignee gets no `draggable` on a colleague's card; widening the flag past `canManage || mine`
 would show a grab-handle the server refuses to move.
 
@@ -4370,6 +4469,10 @@ pressing it with the popup up redraws both the toggle and the modal, matching th
 (Stage 51) and gated like the toggle in `respondOtherTasks`; a `Viewer` gets neither. The `.addbucket`/`.addbucket-btn`
 dashed-box CSS and its explanatory comment were retired (the `.dot.d-bucket` rule and its own comment moved up to keep the
 bucket heading colour).
+*(**Superseded in part by Stage 97**: the head now holds **one** control — `addBucketButton`, `id="addBucketOpener"` —
+because `allBucketsToggle` went, so there is no second button to be indistinguishable from, no companion list to widen,
+and no `allbuckets` field riding anything. What Stage 59 settled and this stage kept is the button's place: the head, over
+the board it changes, not a box trailing it.)*
 
 **Tests.** Suite stays green at **449 / 30 classes / 0 failures**. Two `OtherTasksRenderTest` cases were re-pointed, not
 added to. *the add bucket control is a small button in the page head, not a box on the board* (was *the dashed add bucket
@@ -4505,10 +4608,14 @@ category's set (trimmed, ignore-case), or **one of the six standard lanes** (`is
 standard lane or it is not on a project (Stage 48), so offering a standard lane as an *extra* would put one column on a
 board twice. `ProjectService.create` calls `TypeDefaultBucketRepository.seedExtras(id, type)` right after the six are
 seeded, copying each default's name and position onto `ProjectBuckets`. A write here shapes the *next* project of that
-category only; it adds, renames or removes nothing on a board that already exists, and never re-files a card. The panel
+category only; it adds, renames or removes nothing on a board that already exists, and never re-files a card. *(**Stage 98**
+rewrote the first half of that sentence: an add now puts the column on every existing board of the category as well as on
+every future one, and a new project opens with the category's whole catalogue rather than an opt-in tick. Only the
+*removal* still stops at the catalogue, and nothing still re-files a card. Read 98 for the live rule.)* The panel
 (`bucketDefaultsPanel`) prints the six as the always-on floor (`.lane-chip`), a `data-autosubmit` category picker carrying
 `?lanes=`, the category's current extras with a per-lane `buckets/delete` form, and a `buckets/add` form; both routes carry
-`?lanes=` back so the picker stays on the category just edited.
+`?lanes=` back so the picker stays on the category just edited. *(Stage 75 cut the floor to the three phases; **Stage 82**
+moved those three into the list's first rows, so `.lane-chip` no longer dresses this panel at all.)*
 
 **Tests.** Suite green at **478 / 32 classes / 0 failures** (was 458 / 30). `SettingsRenderTest` grew seven cases — the
 three panels are management's not a Viewer's; the types panel prints the nine categories with letters and counts; the
@@ -4530,8 +4637,10 @@ now at version v12"*, `/` 200, served `app.css` carries the new rules. Verified 
 seed off, temp DB): add → list → standard-lane refusal → remove → admin email-test (MAIL_LOGGED dry-run) all behave, and a
 created Fabrication project's board reads the six lanes 0–5 then `Commissioning` at position 6.
 
-**If this is restated.** "Add a new project category from Settings" is out — the nine types are code-defined; a catalogue
-edit there would desync the board from the create form, so the panel is read-only by design. "Wire EmailJS / a
+**If this is restated.** ~~"Add a new project category from Settings" is out — the nine types are code-defined; a catalogue
+edit there would desync the board from the create form, so the panel is read-only by design.~~ **Superseded by Stage 63**:
+the categories moved to a `project_types` table (V14) and the panel edits them for real, with the desync that prohibition was
+guarding against solved by having the repository republish the domain's view of the catalogue on every read. "Wire EmailJS / a
 browser-sent mail" was declined in favour of the existing SMTP mailer. "Send the test to a colleague / another address"
 is refused — the recipient is the caller's own address and it is admin-gated. "Let Bucket defaults edit the six, or push a
 new default onto a live board" is refused: the six are the filing floor and are not editable, and a catalogue row shapes
@@ -4592,6 +4701,96 @@ sending" is refused — the gate is strictly additive-tightening: dry-run and an
 that is not configured does nothing but log. "Cache the switch for speed" is declined — it is read once per send and once per page,
 and a live read is what keeps the panel, the mode line and the mailer agreeing.
 
+## Stage 63 — The project categories come off the table, and Settings' three panels become the picture (2026-10-20, live, V14)
+
+**The ask.** *"make settings bottom and interface like this"* — a picture of the three panels drawn as a bordered list
+per row (round letter badge, name, pencil and bin at the right edge), an add row of *Code, e.g. P* + *Description, e.g.
+Parts supply* + a green `+ Add type`, a *Project bucket settings* card whose extras read as coloured dot + name + bin, and
+an email card whose switch is a tick box with a *Save settings* button under it. The picture left two things open and the
+user resolved them before anything was built: the types panel should **really edit** the categories (Stage 61's read-only
+mirror is superseded — see its own *If this is restated*), and the mail half stays **SMTP**, restyled rather than rewired
+to the picture's EmailJS keys.
+
+**The catalogue is now a table, and the domain reads it without either layer knowing.** `project_types(code, name, position)`
+(**V14**) holds what nine strings compiled into `domain/Project.kt` used to hold. The 35 call sites that ask for
+`PROJECT_TYPES` / `TYPE_PREFIX` were not touched: both became **properties with custom getters** over a `@Volatile`
+`TypeCatalogue` snapshot, and `ProjectTypeRepository.all()` republishes that snapshot on every read (`installProjectTypes`),
+so the board's grouping, the chip colour, the Forecasts tabs and the create picker all follow the table with no lookup and no
+second source of truth. `SHIPPED_PROJECT_TYPES` remains as the fallback — `installProjectTypes(emptyList())` reinstates the
+nine — which is what keeps a database-less unit test from reading an empty catalogue and a half-built board.
+
+**V14 is the first seed-mandatory migration, on purpose.** V12 and V13 create empty tables so nothing changes until somebody
+chooses; an empty `project_types` would leave the create-project form with no category to file under, so V14 inserts the same
+nine, in the same order, with the same letters. A database that has just been migrated behaves precisely as it did a minute
+earlier — verified by `ProjectTypeMigrationTest` reading the rows back, and by the throwaway boot logging *"Project categories:
+9 loaded from the catalogue."*
+
+**A letter is forever; a label travels.** `code` is the PRIMARY KEY and the first token of every project number (`S-01`), so
+it is issued once, never reused and never editable — `ProjectTypeService.add` takes it as one character `A-Z` (a letter outside
+that range would hand out numbers the create form's own validator refuses), and `rename` accepts a new **label** only. Because
+`projects.type` and `type_default_buckets.type` store the label rather than the letter, `ProjectTypeRepository.rename` carries
+the old words across all three tables **in one transaction** and returns how many projects moved — which is the number the
+answer line prints, because that is what a rename actually costs. A rename that touched only the catalogue would drop every
+project filed under the old words out of its panel on the Projects board and stop counting its money on the Forecasts sheet.
+`remove` is the one place the app refuses: while any project still holds the label it answers with a count and an instruction
+("Move them to another category first, then retire it") rather than orphaning a portfolio.
+
+**Layout, not rights — unchanged from Stage 61, and the panel still prints nothing the route would bounce.** All three panels
+stay `if (canManage)`; the three new routes (`/app/settings/types/add|rename|delete`) each `requireSession()` and re-check
+`Authorization.canManage`, and the service refuses a third time. The mail switch is the one control an **admin** alone may
+move, and the checkbox shape did not change that: the box carries the state, the button is the no-JavaScript path to the same
+write, an absent `on` parameter means off, and a Manager still gets only the read-only "Outbound mail" line.
+
+**What the picture changed about the answers.** Every types write replies by swapping `#projectTypes` in place
+(`data-live-target` on all five forms — pencil, bin, rename, cancel, add), so the Team sheet above never moves and the reader's
+scroll position is kept. The pencil is a GET back to `/app/settings?edittype=<label>` that re-renders the card with that one
+row open as a field — no popup for a single input. A refusal comes back as the card's own flash line, and `PasswordStatus`
+gained `TYPE_ADDED` / `TYPE_RENAMED` / `TYPE_REMOVED` / `TYPE_REFUSED` whose `message(detail)` prints the service's sentence
+beside the generic heading when there is one (`?cat=` + `?caterr=`, URL-encoded so a sentence with spaces round-trips). The
+bucket panel's extras became the picture's dot + name (`bucket-dot dot-N`, colour by position cycled over six swatches) and
+its add line asks for a name only; the six standard lanes still print as the `.lane-chip` floor, because Stage 48's filing
+rule is not editable.
+
+**Tests.** Suite green at **501 / 36 classes / 0 failures** (was 486 / 34). New `ProjectTypeServiceTest` (8) drives the rules
+against a real temporary database: the nine read back in shipped order with the domain's views agreeing; add upper-cases the
+letter and the new category is immediately usable (`codeMatchesType("P-01", …)`); eight refusal tuples each writing nothing; a
+rename carrying `projects.type` and `type_default_buckets.type` while `S-01` keeps its number; retirement refused while a
+project exists and allowed after it is deleted; retirement taking its default lanes with it; the empty-catalogue fallback. New
+`ProjectTypeMigrationTest` (2) pins the seed — nine rows, distinct letters, positions 0–8 — and that a value management changed
+is not replayed on the next boot. `SettingsRenderTest` grew five cases (every row offers both writes and each answers the card
+alone; the add line's two bounded fields; the pencil opening exactly one row and leaving the letter a badge; a refusal printing
+heading + reason; an extra lane as dot + name with a name-only add line) and had six re-pointed, not weakened: page-wide ✎/
+counts are now scoped to the sheet via a `sheet()` helper (a category row reuses the same shared button classes, so a page-wide
+count stopped being a count of roster rows), the panel order test reads *Project types → Project bucket settings → Email
+notifications*, and the mail-switch read-back now asserts the checkbox's `checked` state instead of the words it replaced.
+
+**Deploy note.** This added **V14** and changed `app.css` (the `.type-row`/`.type-add`/`.lane-row`/`.bucket-dot`/`.check-row`
+rules), so a **Ctrl+F5** is required. Verified end-to-end on a throwaway (port 8095, seed off, temp DB, all 14 migrations):
+add `P` → `?cat=TYPE_ADDED&caterr=P — Parts supply is now one of the categories…`; the same letter again, a two-character and
+a digit letter, a blank name and a case-swapped duplicate name each refused with the service's sentence and nothing written;
+`P` renamed with a live project under it → *"1 project now reads as Parts supply"*, the board's `?types=` panel printing the
+project and its number still `P-01`; retiring `P` refused with *"1 project is filed under…"*, retiring the empty `T` accepted
+and its tab gone from Forecasts a request later; a default lane added to the new category landing on the *next* project's board
+and on no existing one; the pencil printing one `editing` row and nine plain ones; the mail checkbox arming (`MAIL_ENABLED`,
+`checked="checked"`) and disarming; and an unauthenticated `POST` to `/app/settings/types/add` bounced to `/` with the list
+unchanged.
+
+**If this is restated.** "Make the letter editable" is out — it is the primary key and the head of every project number already
+issued, so changing one would renumber a portfolio's history; the label is what renames. "Delete a category that still has
+projects" is refused by design (see above). "Print the types panel to a Viewer / let a Manager arm mail" is refused — the gates
+are unchanged from Stage 61/62 and re-checked on every route. "Copy the picture's EmailJS PUBLIC KEY / SERVICE ID / TEMPLATE ID
+fields" was declined in favour of the SMTP config in `data/.env`: a password typed into a web form is a password written into a
+database. ~~"Drop the six lanes from the bucket panel because the picture has no floor row" is refused — those six are Stage 48's
+filing floor, and a board without them cannot file a card.~~ **Superseded by Stage 75**, which did exactly that: the six are
+gone and the three phases that open a board are *an opening set, not a floor* — a board without a lane is refused by
+`LaneError.LAST_LANE`, not by a protected list. What still stands here is the panel's shape: the opening lanes print as
+a read-only line, because renaming or removing one is the project's own page's business and never this catalogue's.
+**Stage 82 moved that line into the list's first three rows** — a dot, a name and *"Always on every board"* — so it is
+still read-only, and no longer a chip strip of its own.
+"Sort the panel by the catalogue's own order" was declined in favour
+of the letters: a reader hunting the S knows the letter, not the position somebody added the row at.
+
+
 
 
 `JsonImporter` runs once at startup if `users` table is empty AND `data/pts-data.json` exists:
@@ -4622,6 +4821,3890 @@ Remaining test debt worth knowing: no test exercises the HTTP route layer end-to
 that loses its `requireSession()` guard would only be caught by the manual checklist — including the
 three Stage 10 alert routes, whose 403 / 302 / 400 / "already sent today" behaviour was verified live
 but is not covered by a committed test.
+
+## Stage 64 — The Calendar is the reader's own month, for every role (2026-10-21, live, no migration, Kotlin-only)
+
+**The ask.** "on calendar should be showing tasks for only who logged in." One line, and it exposed a divergence
+between what the README had claimed for two stages and what `Calendar.kt` actually did. The docs listed the Calendar
+among the views "personal for every reader"; the page called
+`TaskService.assignedFor(session.employeeNumber, canManage)`, and `canManage` in that function means *hand back the
+whole board* — so a `Manager` or `Admin` opening `/app/calendar` got every card in the company as bars, while a
+`Viewer` got only their own. The calendar was the last task view still running the pre-Stage-53 rule.
+
+**The change, and why it is one line.** The page now passes `canManage = false`, the same call the Assigned board
+has made since Stage 53 and the same one the sidebar count makes. Deliberately the *caller* decides: `assignedFor`
+keeps both behaviours because the Team sheet's per-person drill-down genuinely needs the unfiltered list, and the
+rule for who sees which card stays in one function rather than being re-derived per page. Nothing else about the
+rule moves — this is the **list**, not the **rights**: no control, editor or route changed, and a manager keeps every
+way they had of reaching a colleague's work (the Team sheet, the project page, which Stage 56 already shows whole).
+The captions follow the scope rather than the reader: the line under the title and the heading of the list under the
+grid say the same thing to a `Manager` as to a `Viewer`, and the `Authorization.canManage` call the page made for
+that wording is gone with the branch it fed.
+
+**What a bar is, unchanged.** A card becomes a bar only when it carries *both* a start and a due date that parse and
+`start <= due`; the packing loop still gives each card the first free row so overlapping spans sit side by side, and
+the title prints once, on the start day. A card with no dates is not a bar but still belongs in the list underneath,
+which is drawn from the same personal slice — the two halves of the page cannot now disagree about whose month it is.
+Cards with nobody on them belong to nobody's month: the filter is on `assignee == employeeNumber`, so an unassigned
+card simply stops appearing (it had only ever appeared for management).
+
+**Tests.** Suite green at **507 / 37 classes / 0 failures** (was 501 / 36). New `CalendarRenderTest` — the calendar's
+first test file — is built so the absence of a card means something: it seeds a real `Manager` account and asserts
+`Authorization.canManage` *before* asserting anything about the page, then pins their own card drawn across each day
+of its span, a colleague's card absent, the unassigned card absent from every page, the two roles reading the same
+scope sentence with the old team-wide wording asserted gone, an undated card listed but not barred, and a reader with
+nothing of their own keeping the grid and reading "No assigned tasks yet."
+
+**Verified on the throwaway, not on live data.** The shipped distribution booted on port 8095 against a temp
+database (`PTS_SEED_DEMO=false`, `PTS_DB_PATH` under `%TEMP%`, a disposable bootstrap password), four dated cards
+were inserted with a one-off JDBC program against the running WAL database — one for the super admin `EMP0000`, two
+for other members, one unassigned — and the admin's `GET /app/calendar` after a real `POST /login` carried only
+their own: four `calendar-task-bar` cells for the one card that spans four days, zero mentions of the two colleagues'
+cards or the unassigned one, and no `All Assigned Tasks Summary` / "View all assigned tasks" wording anywhere. The
+live instance was then stopped, rebuilt and restarted (no migration; schema stays at **V14**) and the same page will
+now show each person their own month. Kotlin-only: `app.css` and `app.js` are untouched, so **no Ctrl+F5 is needed**.
+
+One deployment note that has nothing to do with the feature and everything to do with how this instance gets started: the
+first 8080 boot after the rebuild died silently, because `run.bat` was launched from a backgrounded tool task and the JVM
+it spawns through `start "MURRAY PTS" /min cmd /c java …` belongs to that task's process tree, which was torn down when
+the task finished. `logs/pts.log` is the tell — the last line is a routine scheduler sweep, not a shutdown, and the port
+goes connection-refused. The instance was relaunched detached (a `Start-Process cmd.exe '/c',deploy\run.bat` outside the
+calling shell) and answers on 8080 again, same distribution jar, so the `javap` proof above still describes what is
+running. This is a harness hazard, not an operator one: `deploy\run.bat` from a normal console window is unaffected.
+
+**If this is restated.** Two readings the current wording does not cover, and both would be separate asks: drawing the
+reader's **Other-task** cards on the calendar too (the Assigned page has shown them since Stage 55, the calendar has
+never read `assignedOtherFor`, and the sidebar pill counts both lists while this page counts one), and a management
+*option* to see the team's month behind a control. Do not re-introduce the unconditional team-wide month; that is
+what this stage removed.
+
+## Stage 65 — Any month the reader names, swapped in place (2026-10-21, live, no migration, Kotlin + CSS)
+
+**The ask.** "on calendar should be able choose all the months." Two readings were possible — a chooser that reaches
+*any single month*, and a view of *all twelve at once*. The first was built: the page had been hard-pinned to
+`LocalDate.now()` with no control on it at all, so the missing thing was a way to leave the current month and come
+back, not a second calendar. The year-at-a-glance grid is a different page and is left un-built; if that is what was
+meant, it is one word away.
+
+**The rule moved to the domain, once.** `domain/Forecast.kt` already owned the month vocabulary a page needs — the
+`^\d{4}-(0[1-9]|1[0-2])$` key, `isValidMonthKey`, `shiftMonth`, `monthLabel` — because the Forecasts sheet is a month
+page too. Stage 65 added the two pieces it was missing: `monthKey(YearMonth)`, and `monthKeyOf(vararg named)`, which
+takes the candidate answers *in the order the page trusts them* and falls back to this month when none parses.
+`ForecastService.monthOr` — which had been the Forecasts' own private version of exactly that rule — now delegates to
+it, so "which month is this page reading" has one implementation shared by both month pages rather than two that could
+drift.
+
+**The page reads the address, so the route had to.** `sectionRoute(path, section, title, content)` hands its block a
+session and nothing else, which is why Forecasts, Team and Calendar are plain `get(...)` calls with a
+`respondCalendar(session, month)` helper: the route pulls `month` and `pick` out of the query, resolves them through
+`monthKeyOf`, and `calendarContent(session, month)` draws that month. The parameter is defaulted
+(`month = currentMonthKey()`) so the six earlier `CalendarRenderTest` call sites still compile and still describe the
+pre-Stage-65 page rather than being re-pointed to say "no month" — a defaulted parameter is how a test keeps the
+history honest.
+
+**Two names on one form, and why.** All four controls are submits of one GET form onto the page, and a pressed `‹` /
+`›` also carries whatever the jump box happens to hold. If both answered `month`, the answer would depend on the
+order the browser appends them — with JavaScript the swap hides it, without JavaScript the server would silently read
+the wrong month. So the steps answer `month` and the box answers `pick`, and `monthKeyOf(params["month"],
+params["pick"])` believes the control that was *acted on* first. The box is filled with the month already on screen,
+so the browser's own month control and the address can never disagree, and pressing Enter in the box cannot submit the
+form's default button (`‹`) because the Go button is the only unnamed submit — an unnamed submit adds nothing to the
+question. `app.js` needed no change: one `[data-autosubmit]` control inside a GET form makes `isFilterForm` true, the
+live region is `#calendarMonth`, and `boardUrl` overwrites the params with the pressed button's own value, so the same
+markup is a fetch-and-swap with JavaScript and an ordinary GET navigation without it.
+
+**What moves with the month, and what does not.** The heading, the strip's count, the grid, and the day cells'
+"today" tint are all inside `#calendarMonth`, so choosing a month replaces the month rather than blinking the page —
+the standing rule that a visible reload counts as broken. The card list under the grid is deliberately *outside* the
+region and deliberately *not* cut to the month: it is the reader's workload, dated or undated, the same set the
+Assigned page and the sidebar pill count, and filtering it to the chosen month would quietly drop every card with no
+dates. That is the one judgement a restatement could reverse.
+
+**A bar that starts off-screen still says what it is.** The old grid printed a card's title only on its start day, so
+a span running in from the previous month arrived as an unlabelled strip. The rule is now stated once, in `spanOf`
+(the pair of parseable dates, `start <= due`) and `overlaps` (the span touching the month on screen), and a bar labels
+itself on its first *visible* day and rounds off on its last — `isFirstDay = date == span.first || date ==
+firstDayOfMonth`. Four inline `try { LocalDate.parse(…) }` blocks became those two functions, so the grid and the
+count beside the month title cannot disagree about what a date means.
+
+**Tests.** Suite green at **515 / 37 classes / 0 failures** (was 507 / 37). `CalendarRenderTest` goes from 6 to 13:
+the address decides the drawn month; the step buttons carry absolute month values (a copied link lands on the month it
+showed, not one step from wherever the reader is now); **This month** appears only away from home; the jump box holds
+the month on screen; a word that is not a month opens this month; heading, strip and grid are one live region while the
+list under it stays out; and the clipped bar keeps its label. The precedence rule is asserted where it is decided — a
+new `ForecastServiceTest` case puts `monthKeyOf` under both orders and both garbage inputs, and checks the Forecasts
+page's own `monthOr` still answers identically, so the two pages cannot drift apart later.
+
+**Verified on a throwaway, not on live data.** The new classes booted on port 8095 against an empty database under
+`%TEMP%` (`PTS_SEED_DEMO=false`, `PTS_DB_PATH` in the temp tree, a disposable bootstrap password, the scheduler
+switched off). After a real `POST /login`, `GET /app/calendar` read October with no **This month** control, and
+`?month=2026-12`, `?pick=2026-03`, `?month=2027-01`, `?month=2026-05&pick=2026-08` and `?month=banana` each produced
+the heading, the month label, the picker's value and the step values of exactly one month — the paired case proving
+`month` wins, `banana` proving an unreadable word falls home. Three cards were then created through the app's own
+routes (one wholly inside December, one running 25 Nov to 8 Jan, one with no dates at all): December counted "2 cards
+dated here" and labelled both bars, November and January each counted "1 card" and still printed the long card's name
+at the clipped edge, the undated card appeared in the list under the grid and never as a bar, an empty month printed
+"Nothing assigned to you is dated in Dec 2026." with its way home, and an unauthenticated request was still redirected
+off the page. The live instance was rebuilt (`installDist`, `javap` proof of `calendarMonthStrip` / `monthKeyOf` in the
+packaged jar) and restarted on 8080 detached; schema unchanged at **V14**. `app.css` gained `.cal-strip`, `.cal-pick`
+and `.cal-empty` — base.css writes `label` as an uppercase block and `input` at `width:100%`, so the box beside the
+steps needs both overridden — which means the page needs **Ctrl+F5** once before the strip lays out as drawn.
+
+**If this is restated.** The two decisions above are the ones to reverse if the wording changes: a year-at-a-glance
+view of all twelve months (a different page, not this one wider), and cutting the list under the grid to the chosen
+month. A third reading the current page does not serve is management's month — Stage 64 made the calendar personal for
+every role, and Stage 65 moves that personal month, so a "show my team in December" would be a control with its own
+rights check, not a wider filter. Never re-propose: a single `month` name shared by the steps and the box (two
+controls would answer one question, and the wrong one would win without JavaScript); a page-top error when the URL
+names no real month (a bad word opens this month, quietly); navigating instead of swapping the region.
+
+## Stage 66 — The month holds both boards, and every group of work wears its own colour (2026-10-21, live, no migration, Kotlin + CSS)
+
+**The ask.** *"on calendar the user should be able to see all of their assigned tasks, make it look neat but differ
+from one another."* Two complaints in one sentence, and both were real. The month read
+`TaskService.assignedFor(…)`, which is the reader's **project** cards only — so a backlog card with a genuine start
+date and deadline had no bar anywhere, and with no dates it had no row either, even though the Assigned page (Stage
+55) and the sidebar pill both count it. And every bar was painted by its own **priority**, so a month of High work was
+a wall of one red with nothing on the grid saying which project a bar belonged to.
+
+**Two decisions, asked before building.** *Scope*: the month reads **both boards, dated and undated** — dated cards
+become bars, undated ones keep a row in the list under the grid, which is what makes the page agree with the pill at
+last rather than disagreeing quietly. *Distinction*: **one hue per group**, where a group is a project or — for a
+backlog card, which has no project by definition — the **bucket** it sits in on the Other tasks board; priority keeps
+a voice as a small **dot** inside the bar, and a compact **key** under the strip names the hues.
+
+**What reads the cards.** `calendarContent` now builds one list,
+`assignedFor(employeeNumber, canManage = false) + assignedOtherFor(employeeNumber)`, and every downstream decision —
+the packing loop, the bar lookup, `datedHere`, the palette, the list under the grid — reads that one list, so the strip
+cannot count a set the grid does not draw. This is the **list widening, not the rights**: both halves are personal
+slices by construction (`assignedOtherFor` is `other().filter { it.assignee == employeeNumber }`), `assignedFor`'s own
+signature is untouched because the Team drill-down still needs its unfiltered form, and no control, editor or route
+moved. Stage 64's rule — the calendar is the reader's own month for every role — is exactly what makes adding the
+second board safe: a wider set of *my* cards, never a set of *our* cards.
+
+**How the hues are chosen.** `groupKey` keys a card as `project::<name>` or `other::<bucket>`, lowercased and
+trimmed, and the two prefixes share no letters, so a project that happens to be named like one of the six sub-categories
+still keeps its own colour rather than merging into that bucket's. `hueByGroup` then walks the **distinct, sorted keys
+over the reader's whole workload** and hands each one `CALENDAR_HUES[index % size]`. Assigning over the whole workload
+rather than the month's slice is the load-bearing part: on a per-month assignment, stepping from October to November
+would repaint the same project, which is the opposite of what a colour is for. That rule has its own test, comparing
+one card that is a bar in both months. Priority became `priorityDot` (`cal-dot-high|medium|low`) with the word as its
+tooltip, so the dot is legible on any hue and the old priority fills are gone from the markup entirely.
+
+**Where the key lives, and when it speaks.** `calendarColourKey` sits **inside** `#calendarMonth`, because which
+groups are on screen is a fact about the month the reader is looking at — outside the live region it would keep
+describing the month they left. It prints its group swatches only when the month holds more than one group (a key that
+repeats a single name explains nothing), and always prints the priority line when any bar exists, because the dots are
+new and a reader who has to guess them will not trust the colours either. The list under the grid gained a per-row
+swatch, an `OTHER` tag on backlog rows, and a heading change from *Project* to **Where it lives** — "Project" being a
+word a backlog card does not answer to. A backlog card's popup is told `Other tasks · <bucket>` rather than a blank.
+
+**The CSS, and the one bug the screenshot caught.** `app.css` gained `.cal-key`, `.cal-key-item` / `.cal-group`,
+`.cal-key-prio`, `.cal-swatch`, `.cal-dot` (each with an inset ring so it reads on a pale page and on a dark bar) and
+`.cal-tag`. Rendering the page rather than only the markup also caught a layout fault the markup could not show: a
+bar's label is `white-space: nowrap`, and under a table's default **auto** layout that nowrap text is a *minimum*
+content width — so one long card title widened its whole column, the seven columns stopped being seven equal sevenths,
+and the month spilled past the right edge of the panel it sits in. Backlog titles are long, so Stage 66 made that
+visible on the first screenshot. The fix is two declarations: `.calendar-grid { table-layout: fixed }` (the columns are
+equal whatever the labels say) and `.calendar-task-link { min-width: 0 }` (the label can give up its own width, which
+is what finally lets the existing `text-overflow: ellipsis` clip it). Both are pinned by a test that reads `app.css`,
+because markup cannot see either.
+
+**Tests.** Suite green at **526 / 37 classes / 0 failures** (was 515 / 37). `CalendarRenderTest` goes from 13 to 24:
+a dated backlog card drawing its bar across exactly its days with the strip counting *one card* (cards, not days) and
+three fragments; an undated backlog card in the list and never on the grid; a colleague's project card and an
+unassigned backlog card both absent, so widening the boards did not widen the readership; two projects in two hues and
+one project's days in one hue; a backlog card wearing its bucket's hue; the priority dot present and the old priority
+fills asserted gone; the key naming groups only above one group; the hues not moving between months; the new list
+column and the page's own sentence about which boards it reads; and the popup's `Other tasks · <bucket>` line.
+
+**Verified on a throwaway, not on live data.** The new classes booted on port 8095 against an empty database under
+`%TEMP%` (`PTS_SEED_DEMO=false`, `PTS_DB_PATH` in the temp tree, a disposable bootstrap password, the scheduler off),
+and everything was made through the app's own routes: two projects (`POST /app/projects` — note its manager field
+wants a team member or nothing at all, and a hand-typed name is refused inline rather than saved), five project cards
+and two buckets plus five backlog cards (`POST /app/assigned-tasks/save`, the backlog ones carrying `column=<id>` and
+no `taskId`, which is the Stage 51 management path). October came back with 36 bar fragments in **four** distinct hues
+— two projects and two buckets — `7 cards dated here`, a key of four group swatches plus the priority line, seven
+`OTHER` tags, and popup lines of `Other tasks · Yard work` / `Other tasks · Workshop`. The November page drew the one
+November card in `#c8681f`, the same hue that card's October **list row** carried, which is the whole-workload palette
+doing its job; September drew zero cards and no group key. A headless-Chrome screenshot was read, and a DOM probe over
+the same page measured the grid: table right edge 1371, seven cells of 150.4px, and the worst bar overflow across all
+36 bars `-0.50px` — no bar leaves its cell, which is the fix above holding. The live instance was then rebuilt
+(`installDist`; `javap -p` on the packaged `CalendarKt` showing `CALENDAR_HUES` / `hueByGroup` / `groupKey` /
+`modalProject` / `priorityDot`, and `cal-key` present in the jar's `app.css`) and restarted on 8080 detached — schema
+still **V14**, "Project categories: 9 loaded", scheduler in dry run, `/` 200, an unauthenticated `/app/calendar` still
+302 to `/`. `app.css` changed, so the page needs **Ctrl+F5** once before the key and the equal columns appear.
+
+**If this is restated.** The two readings the page does *not* serve are worth naming before they are asked for: a
+management view of the team's month (Stage 64's rule, and it would need its own rights check rather than a wider
+filter), and a per-person legend (the key is by group, not by holder, because the grid is one person's plan). A month
+whose bars all come from one project deliberately shows no group key — if a reader asks to see it anyway, that is the
+one-line condition to lift, not the palette. Never re-propose: colouring bars by priority (it is what made the month
+unreadable, and priority now has the dot); assigning the palette per month (a project would change colour as the reader
+steps through the year); leaving the key outside `#calendarMonth` (it would describe the month the reader left);
+putting a backlog card's bucket in the *Project* column of the list (the heading is *Where it lives* for exactly that
+reason); or dropping `table-layout: fixed` / `min-width: 0` again, which is the difference between a month that fits
+its panel and one that spills out of it.
+
+## Stage 67 — The Team row counts a person's cards, from both boards (2026-10-21, live, no migration, Kotlin)
+
+**Ask.** *"when count tasks on team count tasks from projects and other tasks outside of projects"*.
+
+**What the page actually did.** Two separate things were wrong with the same row, and only one of them is what the ask
+named. The Team row's five status columns and its **Total** were counted from `DemoData.projects.filter { it.manager ==
+member.name }` — the projects a person **manages**, grouped by *project* status — while the **Tasks** button beside them
+counted that person's **cards**. So one row printed two incompatible measurements under headings that looked like one:
+a manager of three Ongoing projects read `3` under **Ongoing** and, next to it, a Tasks figure that had nothing to do
+with it, and nothing on the row could be reconciled with the drill-down underneath. That is the older, untested bug, and
+it is why the ask was not simply about backlog cards. The second half is the ask itself: work that belongs to no project
+was invisible on this page, so a planner holding four **Other tasks** cards and no project printed an empty row while the
+sidebar pill and the *Assigned tasks* page both counted four.
+
+**The decision, and the two answers that fixed it.** The row now counts **cards from both boards**, and the header
+vocabulary follows the card rather than the project: **Ongoing** became **In progress**, because a card's states are
+`TASK_STATUSES` — Not started, In progress, On hold, Blocked, Completed — and *Ongoing* is a word a card cannot answer
+to. *(**Stage 96** finished the convergence this chose: projects were renamed onto the card's word too, so the heading is
+no longer the card's vocabulary *rather than* the project's — it is the one vocabulary both wear.)* Managed projects were not removed from the page, only from the arithmetic: they are still listed in the member's
+popup, which is where *what they run* belongs as against *what is on them*. Second answer: **management reads every
+row's figures, and a Viewer reads dashes on every row but their own** — the previously-visible colleague counts came
+out rather than staying, because the widened figure is a workload number and Stage 51 already made the row's task list
+management's.
+
+**One list, so the figures cannot disagree.** `memberTaskRows(employeeNumber)` was already the union of
+`TaskService.assignedFor(empNo, canManage = false)` and `TaskService.assignedOtherFor(empNo)`, sorted open-first then by
+due date, and it is what the row's own drill-down prints. The row's cells now read from it:
+`val tasks = if (seesTasks) memberTaskRows(...) else emptyList()`, `val cards = tasks.map { it.first }`, then
+`count(status) = cards.count { it.status == status }` for each of the five and `cards.size` for **Total**. Because
+`TaskService` refuses a status outside the five and defaults to one on create, the five columns *necessarily* sum to
+Total — which was not true of the old project-status columns and is now a test rather than an accident. `val projects =
+DemoData.projects` came out of `teamContent` with the last use gone; the project picker in the assign panel reads
+`DemoData.projects` where it needs it.
+
+**Layout, not rights.** Nothing moved in who may act: no route, no control, no editor changed hands, and the assign
+panel is still management's. The only visibility change is the one the user approved — a Viewer's colleague rows lose the
+counts they used to print. `seesTasks = canManage || member.employeeNumber == viewerEmpNo` is the same predicate that
+already gated the row's drill-down and its `tasks-toggle`, so the row now withholds one thing rather than two. Two
+helpers carry it: `TD.notYours()` prints the `—`, and `TR.counted(sees, kind, n)` draws one status cell either way, so
+the seven cells cannot drift into disagreeing about who may read them. `TR` is the receiver because a row helper has to
+emit its own `<td>` — the precedent is `TR.positionRow` in `AccessControl.kt` and `TR.identityCells` in `Forecasts.kt`.
+
+**Why a dash and not a zero.** The two say opposite things. `0` on a colleague's row tells a Viewer *that person has
+nothing on them*, which is a claim about the workload the page has just refused to show; `—` says *not yours to read*.
+The distinction is already the sheet's own — Stage 46 made `—` sort to the bottom of **Open tasks** on the Settings
+sheet for the same reason — and `notYours()`'s KDoc keeps it on the record.
+
+**Tests.** Suite green at **530 / 37 classes / 0 failures** (was 526 / 37). `TeamPageRenderTest` goes 13 → 17. Four
+new: a member's figures coming from their cards on **both** boards (two project cards and three backlog cards →
+`[2, 0, 1, 1, 1, 5]`, and the colleague who *manages* that project while holding no card → `[0, 0, 0, 0, 0, 0]`, which
+is the old bug pinned shut); the five status figures summing to the row's Total; the seven `<th class="num">` headings
+reading exactly *Tasks, In progress, On hold, Not started, Blocked, Completed, Total*; and a Viewer being withheld all
+seven figures on a colleague's row while their own row keeps them. One existing test was **re-pointed, not loosened**:
+`a viewer opens the task list on their own row only` counted `roster.size - 1` dashes, and now counts
+`(roster.size - 1) * 7`, since each withheld row lost seven cells rather than one.
+
+**Verified on a throwaway, not on live data.** Port 8096 against an empty `%TEMP%` database, everything made through the
+app's own routes: two accounts (`POST /app/settings/employee/save` — its **Position** picker is the position catalogue,
+so a hand-typed position is refused with *"That position is no longer in the catalog."* and the field has to be left
+blank to follow the roster), a project (`POST /app/projects`), its manager set (`POST /app/projects/1/manager`), a bucket
+(`POST /app/other-buckets`), and six cards (`POST /app/team/assign`, the backlog three carrying `board=other&column=1`,
+the project two carrying `board=project&project=<name>&lane=<sub-category>`). The management page read exactly:
+EMP0011 `[2, 0, 1, 1, 1, 5]` with **Tasks** `4` (Total minus the one Completed card), EMP0012 `[0, 1, 0, 0, 0, 1]`, and
+EMP0000 — who manages the project and holds nothing — `[0, 0, 0, 0, 0, 0]`. Signed in as the Viewer, both colleague rows
+printed seven `mtd-empty` dashes, zero `tasks-toggle` and no `quick-add`, while their own row kept its figures. A
+headless-Chrome screenshot confirmed the wider heading costs nothing: eleven columns, one header line, no wrap, and
+`Other tasks` in the sidebar agreeing with the row's backlog cards at 4. Live then rebuilt (`installDist`; `javap -p` on
+the packaged `TeamKt` showing `counted(TR, boolean, String, int)` and `notYours(TD)`) and restarted detached on 8080 —
+schema still **V14** ("Schema main is up to date. No migration necessary"), "Project categories: 9 loaded", scheduler in
+dry run, `/` 200. Kotlin-only, so **no Ctrl+F5**.
+
+**If this is restated.** The row is now a *workload* reading and the popup is the *what they run* reading; if a reader
+asks for managed projects back in the columns, that is asking for the two incompatible measurements again. Never
+re-propose: counting a member's managed projects in the status columns or Total (the bug this stage removed, and the
+reason the five-figures-sum-to-Total test exists); the word **Ongoing** as a column heading (no card can hold that
+state); a `0` where a Viewer may not read (it is a claim about the work, not about the readership); widening a Viewer's
+view of a colleague's workload to keep the old page looking the same (the ask was about *both boards*, and the approved
+answer withdrew the colleague figures rather than keeping them); or moving the counting into `EmployeeService`/the
+repository, since the row and its drill-down are required to be the same list and that is what `memberTaskRows` is for.
+
+## Stage 68 — Every reader sees the workload figures, and a Projects column joins the row (2026-10-21, live, no migration, Kotlin + CSS)
+
+**Ask.** *"and the user able to see all users how many tasks and projects they have"* — the sentence straight after
+Stage 67 made the row's figures count cards from both boards, and it loosens exactly the one thing that stage tightened:
+the figures themselves. Two questions are in it, and they were answered separately. *How many tasks* — the six card
+figures Stage 67 built, which a Viewer could see only on their own row. *How many projects* — a number the sheet did not
+print at all.
+
+**The two answers, and the line they draw.** Figures became public; the **cards behind them stayed gated**. Every reader
+now gets every row's Projects, Tasks, five status columns and Total, while the thing that names individual work — the
+drill-down row under a **Tasks** figure, and the task list inside the popup — remains `canManage || own row`, as Stage 51
+and 67 left it. That is the approved wording: *"counts only, the list stays gated"*. Project **names** in the popup did
+become public with the new figure, because a project's name is already public on the Projects board since Stage 56 — the
+popup holds no secret the sheet has not already printed.
+
+**The Projects figure, and why it is not a seventh status column.** It is the same set the member's popup lists, from one
+helper: `memberProjects(name, cards)` returns the projects a member **manages** *plus* the projects holding at least one
+of their cards — "everything they're on", which is the reading the ask's own page supports. Because the row and the popup
+call the same function, the number on the sheet and the list behind it cannot disagree; that is the same argument Stage
+67 made about the card figures, applied to the second question. It is deliberately **outside the arithmetic**: five
+statuses sum to Total because every card holds exactly one of them, while a member's projects and their cards are
+different populations — a colleague with six cards on two projects reads `2` and `6` on the same row, and a backlog card
+moves Total without touching Projects at all. So it is `span("proj-count")`, not a `count` pill, which keeps it out of
+the `figures()` test regex and out of the sum.
+
+**A number nobody may open is not a button.** `seesDetail = canManage || member.employeeNumber == viewerEmpNo` now
+decides the *control*, not the *figure*: an openable row prints the `.tasks-toggle` button, a colleague's row prints
+`span.tasks-static` with the same number in the same pill shape. A button that opens nothing reads as a broken page
+rather than as somebody else's list, and the sheet's rule about visible dead ends is older than this stage. The `—`
+disappeared with it: `TD.notYours()` is deleted and `TR.counted` lost its boolean flag, because a cell that always
+prints a number has no second shape to keep in step. Both static variants are styled to sit beside the button
+indistinguishably (`.tasks-static`, plus `.zero` for the muted empty case) and the sheet grew to **thirteen columns**,
+which `departmentRow` and `memberTasksRow` carry in their `colSpan`.
+
+**Tests.** Suite green at **532 / 37 classes / 0 failures** (was 530 / 37). `TeamPageRenderTest` goes 17 → 19. The
+withheld-figures test was **replaced rather than edited**: `a viewer is given a colleague's figures and not their cards`
+now asserts the colleague's six figures print exactly as management sees them, that the row carries `tasks-static` and no
+`tasks-toggle`, and — the half that stayed gated — that the popup JSON slice for that colleague holds zero task titles
+while the reader's own slice holds one. The other new test pins the Projects figure to its definition: cards on two
+projects managed by others → `2`, a managed project with no cards → `1`, two backlog cards and no project → `0`, a
+project both managed and worked → `1` and not `2`; and a third assertion states the cross-check outright — the row's
+figure equals the length of the popup's project list *for a reader who cannot see the cards*. The heading test now
+expects eight `num` headings starting **Projects, Tasks**, and the two role tests count toggles, statics and sub-rows
+instead of dashes.
+
+**Verified on a throwaway, not on live data.** Port 8096 on a fresh `%TEMP%` database, everything written through the
+app's own routes. Two gotchas cost an hour and are worth keeping: a genuinely fresh database has **no backlog column**,
+so the four `POST /app/team/assign` calls carrying `column=1` were silently refused until one was created with
+`POST /app/other-buckets` (management-only since Stage 51) — and `| Out-Null` on those calls hid the refusal, so the
+follow-up script prints every response status. The figures then read, identically for management and for the signed-in
+`Viewer`: EMP0011 Projects `2` with `[2, 1, 1, 1, 1, 6]`, EMP0012 Projects `1` with `[0, 1, 0, 0, 0, 1]`, and EMP0000 —
+who manages a project and holds no card — Projects `1` with `[0, 0, 0, 0, 0, 0]`, which is the case the ask was really
+about. The Viewer's page carried zero `—`, zero `tasks-toggle` and one `tasks-static` per colleague row, one
+`member-tasks` sub-row (their own), zero `quick-add`, and a colleague popup of two project names with no task titles.
+`app.css` changed, so the live page needs **Ctrl+F5**. A headless-Chrome render of both saved pages confirmed the
+thirteen-column header stays on one line inside its panel at 1680px, and that the static pill is not visibly a
+disabled button. Live then rebuilt (`installDist`; `javap -p` on the packaged `TeamKt` showing `memberProjects(String,
+List)` present, `counted(TR, String, int)` with the flag gone, `notYours` gone, and `proj-count` / `tasks-static` in the
+constant pool) and restarted detached on 8080 — schema still **V14**, "Project categories: 9 loaded", scheduler in dry
+run, `/` 200, `/app/team` 302 to the login page when signed out.
+
+**If this is restated.** The gate is now between *the number* and *the list*, and that is the line to hold: a reader who
+asks to "see what the others are doing" is asking for the card titles back, which is a different decision from the one
+this stage made. Never re-propose: a `—` on any row (the ambiguity it created is why it is gone, and Stage 67's
+prohibition against a `0` there died with it — the two were a pair); counting projects inside the five-status arithmetic
+or as a `count` pill (a project is not a card's state, and the sum-to-Total test is the guard); a `.tasks-toggle`
+pointing at a drill-down that is not printed; or moving `memberProjects` off the popup's list so the row and the popup
+can each have their own idea of what somebody is on.
+
+## Stage 69 — A card moved elsewhere never leaves the Team sheet printing the past (2026-10-22, live, no migration, Kotlin + JS)
+
+**Ask.** *"when card is moved on team count is not working"* — three answers pinned it: the move is a card **dragged
+between status columns** on a board, the figure that reads wrong is **Tasks** (the open cards), and it **fixes itself
+after F5**. That third answer is the whole diagnosis. A number that comes right the moment the page is asked again was
+never a counting bug: `DemoData` is a live view and `findByKind` is an unfiltered `selectAll()`, so the arithmetic Stages
+67 and 68 built cannot go stale on its own. What goes stale is the **page**, and it goes stale on its way to the reader
+two different ways, which need two different fixes.
+
+**Half one — the tab that never navigated.** A Team sheet already open in a tab has no reason to ask again when a card is
+moved in another tab, so it keeps printing the counts from before the move. `Team.kt` now wraps the caption and the sheet
+in `id = "teamSheet"` — that panel and nothing else, deliberately excluding the popup's data island, which the script
+refreshes by itself, and the assign form below, where the reader may be mid-sentence in a task title. `team.js`
+`recount()` pulls **this very URL** with `cache: 'no-store'` (the one answer wanted is what the server says *now*, and a
+copy out of the browser's own cache would re-paint the very numbers the request exists to replace), parses it, and
+`paint()` swaps the panel by name. The reader's own state rides through: `openDrills()` / `reopen()` put back every row
+they had expanded, `bind()` re-listens to the swapped rows, the island is copied over and the open popup re-rendered, so a
+fresh table never sits under a stale popup. It fires on `pageshow` with `persisted`, on `visibilitychange`, and on `focus`
+(a second window over the same page never changes this document's visibility), all behind `QUIET_MS = 3000` so a tab
+flicked past costs no request. Nothing here navigates: the answer to a stale number is not allowed to be a page that
+restarts.
+
+**Half two — the page the browser never asked for.** Half one shipped, and the Back button *still* printed the pre-drag
+figures on the throwaway. Because for that Back there is no request to intercept: an HTML response with no
+`Cache-Control` of its own is fair game for Chrome's document cache, so the sheet as it was drawn before the drag is
+re-parsed — and `pageshow` fires with `persisted` **false**, so no listener above ever ran. The evidence keeps this
+distinct from bfcache, which the two must not be confused with: `transferSize: 0` and a planted `window.__loadToken`
+*gone* is a cached document re-parsed, while bfcache keeps the JS heap, so the token would survive and `persisted` would
+be true. The fix therefore belongs on the response, not in the script: `isServerDrawnPage(path)` in `SecurityHeaders.kt`
+answers yes for `/`, `/login`, `/logout`, `/app` and every `/app/…`, and those pages now go out as
+`Cache-Control: no-store`, so every revisit reads the database again. `/static` and `/files` are the same bytes for every
+reader and keep caching, which is why the helper exists instead of a blanket header. The two halves are complementary and
+neither substitutes for the other: `no-store` does not disable bfcache, and a tab that never navigated at all is exactly
+what `recount()` is for.
+
+**Tests.** Suite green at **537 / 38 classes / 0 failures** (was 532 / 37). `TeamPageRenderTest` goes 19 → 21: one test
+places the hook — one `#teamSheet` on the page, the `<table>` and every figure inside it, and the assign form *outside*
+it, read off the markup as a `<div>`/`</div>` balance over the slice rather than off an index — and the other pins the
+behaviour onto `team.js` the way the board's stylesheet is pinned: it knows the panel by name, listens for both
+`pageshow(persisted)` and `visibilitychange`, fetches with `cache: 'no-store'`, carries `openDrills` across the swap and
+re-`bind()`s, and `assertFalse(js.contains("location.reload"))` makes a visible reload a failing build. New
+`ResponseCachingTest` (3): the page set is `no-store`'d, the asset set is not, and the *emission* is pinned inside the
+plugin file by position — the guard, the `call.request.path()` it tests, and the header it sends, all within a 160-byte
+window that closes before the block ends. That last one started life as a regex and failed for a reason worth keeping:
+`if (isServerDrawnPage(path)) {` already spends three `)` on `if (` plus the call, so the pattern's two closes never
+reached the brace — position arithmetic, not another backslash.
+
+**Verified on a throwaway, not on live data.** Port 8097 on a fresh `%TEMP%` database, everything written through the
+app's own routes. The user's repro exactly: the Team sheet read Projects `1`, Tasks `1+`, Not started `1`, Completed `1`,
+Total `2`; card 5 was dropped into **Completed** on `/app/assigned-tasks`; Back then printed Tasks `0`, Completed `2`,
+Total `2` — with `navType: "back_forward"` and `transferSize: 19351`, i.e. a real fetch where the bug had been a `0`.
+The other half needs a page that never leaves the tab: with the Team sheet sitting there, card 4 was POSTed to *Not
+started* through `/app/tasks/status` and the row read **unchanged** (correct — nothing has asked yet), then the tab's
+visibility flipped and the same row reprinted itself Tasks `1+`, Not started `1`, Completed `1` with `location.href`
+untouched. Four harness gotchas cost time: browser-use's `drag` times out against HTML5 drag-and-drop, so the move is
+synthesised (`new DragEvent('dragstart'/'dragover'/'drop', {dataTransfer: new DataTransfer()})`) and runs `kanban.js`
+verbatim — after which the eval dying with *"Inspected target navigated or closed"* **is** the board's reload, not a
+failure; a browser-use tab reports `visibilityState: 'hidden'`, so `comeBack()` rightly bails and must be driven with
+`Object.defineProperty` (a harness limitation, not a pass); `GET /login` is a 405 with an empty body because the form
+lives at `/`; and a genuinely fresh database has **no backlog column**, so cards filed there are silently refused.
+Live then rebuilt (`installDist`; `javap -p` on the packaged `SecurityHeadersKt` showing `isServerDrawnPage(String)`, and
+the `static/js/team.js` inside the jar sha-equal to the source) and restarted detached on 8080 — schema still **V14**,
+"Project categories: 9 loaded", scheduler in dry run, `/` 200 **with `Cache-Control: no-store`**, `/app/team` 302 with the
+same header, `/static/js/team.js` 200 with **no** `Cache-Control` at all. One honest caveat: a reader who already holds a
+stale copy in their browser keeps it until they reload once — the header governs copies made from now on.
+
+**If this is restated.** Hold the split between the two halves: whoever asks to "make the Team numbers live" is asking
+either about a tab that is open or about a page the browser never requested, and only the first is a JS problem. Never
+re-propose: fixing the Back button in JavaScript alone (there is no request there to intercept, which is precisely what
+this stage discovered); `no-store` on `/static` or `/files`, or a blanket header; `location.reload()` in `team.js` as the
+answer to a stale figure (the standing rule, now asserted by a test that fails on the string); a re-count that clears the
+assign panel; or two panels named `teamSheet`. Flagged and deliberately left alone: `POST /app/tasks/status` discards
+`updateStatus`'s Boolean refusal and redirects anyway, so a *refused* move reloads into the column it was refused — a
+different decision from the one this stage made.
+
+## Stage 70 — Finishing a card ticks its whole plan, and reopening it puts the plan back (2026-10-22, live, V15)
+
+**Stage 101 supersedes the late-step rule in this historical section:** a new step always lands unticked, even on
+Completed or a card created directly into Completed. The old ticked insert argument, late-step 100% guarantee and
+late-step verification figures describe Stage 70 only. Finishing still ticks the plan present at that moment;
+reopening restores remembered rows only, and Completed rows remain locked.
+
+**Ask.** *"when task card is completed checklists should be checked auto and when user drag it back checklists come back
+to the last status"*. Three answers pinned it, and each one is a decision a later reader can easily undo: **the boxes
+lock while the card is Completed** (a finished card's plan is readable, not clickable, and the only way to change it is
+to move the card back); **every status-change path ticks and restores**, not just the drag — the ◀ ▶ arrows and
+management's **Status** picker in the editor (**Stage 103** retired those arrows from both status boards, so the paths
+today are the drag and the picker, and each still ticks and restores); and, at this stage, **a step added to a finished card landed ticked**,
+because a card that said it was done was not to read 75% because somebody wrote another step on it. **Stage 101
+supersedes only that late-step rule**: every new step now starts unticked, including on a card born *Completed*;
+the finish/restore cycle and the Completed lock remain.
+
+**The rule lives in the service, once.** `syncPlanWithStatus(taskId, from, to)` in `TaskService` ticks the existing
+plan on a real crossing into *Completed* and restores it on the way out. It is called from `updateStatus` (the drag
+and the arrows, which both arrive there) and from `updateAssigned` right after the row is written — the picker being
+the third way a card changes status. At Stage 70, `addChecklistItem` read the card's status to pick its starting tick;
+**since Stage 101** it always calls `ChecklistRepository.insert(taskId, text)`, whose insert writes `done = false`
+and accepts no `ticked` argument. `toggleChecklistItem` still refuses while the card sits in *Completed*, before it
+looks at who is asking. A POST built by hand finishes exactly the plan a drag finishes; adding a row is not finishing it.
+
+**What "the last status" is stored as.** `task_checklist_items.pre_completed INTEGER NULL` (**V15**), one remembered
+value per step rather than a snapshot of the plan on the card. The column is nullable with no default and NULL is the
+answer to "is a completion outstanding on this step?", which is why `restoreAll` moves *only* the rows that carry a
+memory. At Stage 70 a fourth step added while finished kept its tick on reopening; **Stage 101 supersedes that starting
+state**, not the selective restore: a new row has `done = false`, `pre_completed = NULL`, and reopens still unticked.
+The alternative — a JSON blob of the plan on `tasks` — was dropped before it was written: a tick is one UPDATE today,
+and a blob would make every tick a read-modify-write of somebody else's whole list. `finishAll` stamps each step's own
+`done` into its own `pre_completed` before ticking, so a second completion remembers the plan as it stood the second
+time (a test pins exactly that, because the first memory is the obvious thing to keep wrong).
+
+**V15 also makes the rule true for work already finished.** `ALTER TABLE … ADD COLUMN` alone would leave every card
+already in *Completed* holding a half-ticked plan that the new code has no memory of — an exception carved into the
+live data by the migration itself. So V15 runs one completion over those cards: `SET pre_completed = done, done = 1`
+where the task's status is *Completed*, which works in one pass because SQLite reads the pre-update value of `done` on
+the right-hand side. Nothing else in the database is touched, and the migration is not re-runnable by design (Flyway
+runs it once); a card *finished after* the upgrade is finished by the service, not by the backfill.
+
+**The lock is a row, not a section.** The obvious implementation — take `mayTick` away while the card is Completed —
+would have hidden the whole plan, because `modalSteps` is only called when that flag is set, and answer (1) is that a
+finished card's plan stays worth reading. So `modalSteps` picks between two renderings of the same row:
+`stepTickForm` (the form, the label, the `data-autosubmit` box) and `stepRowLocked`, which prints the same square and
+the same struck label with the form taken out from under it — `disabled` on the input, the reason on its `title`. It is
+deliberately not the old ✓/· mark come back, and management keeps the add line and the × on a finished card, because
+those two write the plan rather than work down it, and their routes still check the right.
+
+**Consequence worth naming: the project's bar moves.** A Completed card now reads 100% of its own plan, and a
+project's progress averages its measurable cards, so dropping a card into *Completed* raises the project figure and
+dragging it back lowers it again. Measured on the throwaway: 88% → 100% → 88%. That is Stage 26's arithmetic doing its
+job, not a second behaviour, but it is the first thing a manager will notice.
+
+**Tests.** Suite green at **549 / 39 classes / 0 failures** (was 537 / 38). `TaskServiceTest` goes 83 → 90 with a
+block titled for the promise rather than the method: the tick-and-restore cycle, the picker behaving like the drag, a
+second completion remembering the second state, no box moving on a finished card for either account, a step added to a
+finished card keeping its tick across the reopen, a save that leaves the status alone leaving the plan alone, and a
+card with no steps finishing with nothing to remember. New `ChecklistCompletionMigrationTest` (3) builds a real V14
+database in a temp file, puts a Completed card's steps at `[1,0,1]`, runs the real `Migrations.migrate`, and asserts
+the column arrives last and nullable with no default, that the backfill ticks-and-remembers in one pass while an *In
+progress* card's steps stay untouched and NULL, and that no row ends up `done = 0 AND pre_completed IS NOT NULL`. The
+middle test failed once and the failure is worth keeping: the case that should have started from *In progress* started
+from a card created *Completed*, so both steps were inserted ticked and the "restore" had nothing to undo.
+`TaskBoardRenderTest` goes 53 → 55: a finished card's rows are locked for the manager and for the owner alike (two
+`chk-box locked`, zero toggle forms, no `data-autosubmit`, `disabled` and `checked` on the input, add ×1 and remove ×2
+still present), and a *Blocked* card keeps its clickable boxes — the lock is about *Completed* and no other status.
+
+**Verified on throwaways, not on live data.** Seventeen HTTP checks on a fresh database at 8095 (`PTS_SEED_DEMO=false`,
+`PTS_DB_PATH` in `%TEMP%`, everything written through the app's own routes): three steps with two ticked → the drag to
+*Completed* prints `TTT` with three locked rows, zero toggle forms and `3 of 3 done · 100%`; a hand-built toggle POST
+for step 3 changes nothing; a fourth step added while finished arrives ticked; the drag back reads `TTfT` with four
+clickable boxes; a second completion and reopen gives the same `TTfT`; the picker gives the same; `Blocked → Completed
+→ Not started` gives the same; a card born *Completed* prints no boxes at all until a step is added, and that step
+arrives ticked and locked; and the project roll-up moves 88 → 100 → 88. Then the upgrade case on a **copy** of that
+database at 8096, put back into the shape a live file holds with `jshell --class-path <sqlite-jdbc jar>` (the
+`pre_completed` column dropped, its `flyway_schema_history` row deleted, one card left *Completed* with its plan at
+`[1,0,1,0]`): the boot logs `Flyway: 1 migration(s) applied, schema at version 15`, the card reads `TTTT` settled, and
+the first drag back restores `TfTf` — the state the person had actually left it in, nine checks green. Three gotchas
+cost time: a killed JVM leaves its data in the `-wal`, so copying the 4 KB main file alone copies an empty database —
+take the `-wal` with it; `jshell` treats `exit;` as a symbol rather than a directive, so the script runs and then sits
+at a prompt; and PowerShell reads a UTF-8 `.ps1` without a BOM as ANSI, so the `·` in an expected `chk-count` string
+never matched the page's — compare with `-like '3 of 3 done*100%'` rather than typing the middle dot into a harness.
+
+**Deploy note.** `data/pts.db` was copied to `pts.pre-v15-20261022-093425.db` (with its `-wal`/`-shm`) before the boot
+that applied **V15**; `stop.bat`'s polite `taskkill` was refused on this machine (`/F` only), so the live JVM is
+force-stopped and the WAL copy is the consistent snapshot. Rebuilt with `installDist`, and the packaged jar proved by
+`javap` (`ChecklistRepository.finishAll(int)` / `restoreAll(int)`, `TaskService.syncPlanWithStatus(int, String, String)`,
+`V15__checklist_completion_memory.sql` in the jar). Restarted detached on 8080: `Flyway: 1 migration(s) applied, schema
+at version 15` against the real `data/pts.db`, `/` 200, and `/static/css/app.css` already serving the two
+`.chk-box.locked` rules from disk. **A reader needs Ctrl+F5 once** — `app.css` is cached and there is no cache-buster in
+the markup, and without it a finished card's locked rows render as ordinary boxes.
+
+**If this is restated.** The two halves are one rule with one memory: an ask to "auto-complete the checklist" that
+comes back without a restore is a different feature, and the restore is why the column exists. Never re-propose:
+narrowing `TaskForm.mayTick` for a Completed card (it hides the entire plan section, which is answer (1) broken); a
+per-card JSON snapshot of the plan (a tick would become a read-modify-write of somebody else's list); ticking the boxes
+in `kanban.js` or `task-modal.js` instead of the service (the arrows and the picker would then not tick, and a
+hand-built POST would not either); restoring *every* step on the way out instead of only the remembered ones (it would
+untick a step added while the card was finished, breaking answer (3) in the one place it matters); or dropping the
+backfill and leaving cards finished before the upgrade as an exception to a rule that says they are ticked. Flagged and
+deliberately untouched, as in Stage 69: `POST /app/tasks/status` still discards `updateStatus`'s Boolean refusal and
+redirects anyway, so a refused drag reloads as though it happened.
+
+## Stage 71 — A Viewer's project header is the same one line management's is (2026-10-22, live, no migration, Kotlin + CSS)
+
+**The ask.** *"when the user click on project it looks like this should be looking in one line"*, with
+`non-manager.png` attached — a 1,591 × 142 crop of a project page read as a Viewer: the pill row
+(`Fabrication/Manufacturing` · `M-03111` · `Not started` · `★ Pinned`), the name, then **seven** `CAPTION value`
+pairs on one line and Revenue + Progress on a **second** one. Standing feedback says a restated UI ask means
+removing the exception, and the exception here was the second line — so this is Stage 29's nine fields asked for
+again, with the answer being that the row cannot be nine pairs and one line at the same time.
+
+**Two answers, both pinned before anything was written.** (1) *Copy management's strip* — make the read-only
+header the twin of Stage 60's `.edit-strip`: caption **over** value, all nine fields across one row in the same
+flat borderless style. Rejected: keep the inline pairs and squeeze them (fonts and gaps, which is what the ask
+would have come back as), and drop Project number and Status because the pills above already say them — answer
+(1) says copy the strip, so nothing is dropped, shortened or reordered. (2) *Keep the bar* — the Progress cell
+keeps its bar plus the percentage even though management's cell shows a bare `%`, because this is the only place
+a non-reader-of-numbers sees what the project has reached.
+
+**The arithmetic, measured rather than guessed.** Nine side-by-side `CAPTION value` pairs ask roughly 1,600px.
+The panel they sit in measures **1,114px** in a 1,500px window (viewport − 264 sidebar − 64 page padding − 40 card
+padding − 2 border), which is why two fields have fallen onto their own line in every window anyone has used. A
+caption over its value halves what a field asks for: the nine read-only cells' minimum legible widths came to
+~1,000px of text plus 112px of gaps, which fits 1,114 with a little to spare. Stage 60's lesson is what makes it
+a promise instead of a hope — every cell carries a **zero flex-basis** (`W 1 0`), so it has no intrinsic width for
+`flex-wrap` to fold on and nine cells always divide the row between themselves; measured one row at every viewport
+from 1,064 to 2,084.
+
+**What changed.** `Projects.kt`: the Viewer branch's `detail-grid` of seven `detailItem`s plus its `detail-pair`
+wrapper became one `div("edit-strip detail-strip")` of nine cells, and `detailItem` became
+`detailCell(caption, value, extra)` — an `.ef` div with an `.ef-label` caption and a `.detail-val` span carrying
+the whole string as its own `title`. The Progress cell keeps `id = "project-progress"`, so the `data-live-extra`
+swap in `app.js` still repaints it from a step form's response; it now holds a `.detail-line` (bar + percentage)
+where the other eight hold text. `app.css`: `.detail-grid`, `.detail-item`, `.detail-pair`, `.detail-key` and
+`.detail-val`'s old inline rule are gone, replaced by the Stage 71 block. Management's strip is untouched.
+
+**Two traps the first pass fell into.** `.edit-strip .ef:first-child { flex: 2.2 1 0 }` is management's
+Description share, and it ties with `.detail-strip .ef.num-ef` on specificity (three class-level selectors each),
+so the *later* rule wins — the read-only block answers it with its own `:first-child` weight rather than inheriting
+the widest cell on the row. And `.ef-label` is `white-space: nowrap` with no overflow rule of its own, so a caption
+that outgrows its share does not shorten — it **paints across its neighbour**: at the first set of weights
+"PROJECT NUMBER" overflowed by 31px and Category by 44 at a 1,114 panel. Hence the measured weights (number 1.45,
+category 2.75, manager 2, client and status 1.15, dates 1.15, money 1.1, progress 1.4), a narrower 14px column gap,
+and `.detail-strip .ef-label { overflow: hidden; text-overflow: ellipsis }`. A value that still outgrows its share
+is ellipsised, never wrapped — a wrapped field is two lines tall and takes the row with it — and the full text rides
+on the cell's `title`, which is the same bargain an input makes when its text scrolls.
+
+**Tests.** `ProjectsPageRenderTest` 25 → 26, suite **550 / 39** (one test replaced by two). The Viewer test now
+slices the strip out of the page with a div-balance helper and asserts no `<input`, no `<select`, no `field-err`
+inside it, while keeping the pin form. `the nine read-only fields are one row of caption-over-value cells…` pins
+nine `.ef`, nine captions in the exact historical order, eight `.detail-val` spans (the ninth cell is the bar) each
+carrying a `title`, and no `detail-pair` in the markup *or* in `app.css`. `the read-only row is weighted to hold
+nine cells on one line` reads `app.css` and pins the zero-basis weights, the `:first-child` answer and the three
+ellipsis declarations, so a future `1 1 120px` fails the build instead of the layout. The roll-up test's End date
+assertion became a regex, because every value gained a `title`.
+
+**Verified by rendering, not by logging in.** A throwaway test (deleted after the check) rendered the Viewer header
+with the screenshot's own values into a standalone file with `base.css` + `app.css` inlined, and headless Chrome
+measured it through an inline probe: `LINES=1` at 1,064 / 1,204 / 1,344 / 1,484 / 1,839 / 2,084 viewport, and at
+1,484 every cell clip-free (109 / 207 / 87 / 151 / 87 / 87 / 87 / 83 / 105px). Screenshots at 1,220, 1,360 and 1,500
+show the row and its graceful shortening. Four harness gotchas: a PowerShell `function` cannot assign to `$args` —
+it is automatic — so the first harness "ran" seven widths and launched nothing; a *shared* `--user-data-dir` makes
+every headless call after the first write nothing, so the profile has to be fresh per invocation; `sed -n
+'/<pre id="probe">/,/<\/pre>/p'` also catches the probe's own source, so filter the emitted lines by prefix; and an
+unauthenticated `curl` to 8080 is still refused by this machine's classifier, so the live check stops at `/` → 200
+plus proof read out of the packaged jar.
+
+**Deploy note.** No migration — markup and CSS only, so no `data/pts.db` copy was taken. Live JVM 26468 stopped,
+`installDist`, the packaged jar proved with `unzip -p … static/css/app.css` (`.detail-strip .ef.cat-ef { flex: 2.75
+1 0; }`) and `javap` (`detailCell(DIV, String, String, String)`), then restarted detached through
+`Start-Process cmd.exe '/c', deploy\run.bat -WindowStyle Hidden`: new PID **25564** on 8080, `/` 200, log clean at
+`Responding at http://127.0.0.1:8080`. **A reader needs Ctrl+F5 once** — `app.css` is cached and there is no
+cache-buster in the markup; without the reload a Viewer's header keeps rendering the old two-line card.
+
+**If this is restated.** Never re-propose: putting a `detail-pair` (or any wrapper) back around two fields — that
+wrapper is the exception the ask was about; giving a `.detail-strip .ef` a content-based flex-basis, which
+re-enables wrapping and puts the ninth cell on a line of its own; dropping Project number or Status because the pills
+duplicate them (answer (1)); letting a long value wrap instead of ellipsising; replacing the Viewer's bar with
+management's bare `%` (answer (2)); or shrinking fonts and gaps to squeeze the old inline pairs, which is the same
+1,600px ask wearing a smaller typeface. Deliberately untouched, as ever: the rights split — a Viewer is still served
+no edit form, no delete and no `field-err`, and the routes refuse those writes again behind the markup.
+
+## Stage 72 — Management can delete the card from inside the card (2026-10-22, live, no migration, Kotlin + CSS)
+
+**The ask.** *"for managements when click on any card right corned of the tab beside add note button add delete task
+button"* — after a click opens a card, management gets **Delete task** at the right corner of the same line that
+carries *Add note*. "The tab" is the card popup, `#taskModal`, and that reading needed no question: the popup is the
+only place in the app with an *Add note* button, so it is the only place the ask can be anchored to.
+
+**Why the delete lives at the bottom of the panel.** `POST /app/assigned-tasks/delete` has existed since Stage 17 and
+has always checked `Authorization.canManage`, but the popup — the only surface a card is ever opened on — had no
+control pointing at it; card removal was reachable only from places a click had already left behind. Writing a note
+and taking the whole card off are the two things a person does at the *end* of this panel, so the button goes on the
+note box's own foot line, at its far right: the destructive action kept away from the button that adds to the log, and
+reachable from the card it destroys. Rejected: a delete out on the board's card (Stage 22 took the buttons off cards,
+and Stage 24 made the card itself the open gesture — there is no room that is not the whole card), and a delete in the
+popup's header next to Save (the popup's header belongs to writing the card, not to destroying it).
+
+**Rendered on the flag the route already checks.** The form is drawn on `TaskForm.canEditAll`, which *is* management
+and is the same line `Authorization.canManage` draws behind the route, so nobody is ever offered a button that would
+silently redirect. The card's owner who is not management, and a reader with no part in the card, get the note box and
+no delete; a card being created has nothing yet to delete, and `modalNotes` returns before the foot row exists at all
+(`task ?: return`). Rights were tested from both directions on a throwaway instance: the Viewer's own popup prints no
+`/app/assigned-tasks/delete`, and a hand-built Viewer POST to that route came back with the card still on the board.
+
+**The fields, and the one field deliberately missing.** `taskDeleteForm` posts exactly what the route reads —
+`taskId`, `back`, `projectId`, plus `allbuckets=1` when the popup was opened from the wide backlog view. It carries
+**no `edit`**, unlike every other form in this panel: those come back with the popup still open on the card they just
+wrote, and after this one there is no card to be open on, so `edit=<deleted id>` would reopen the popup on a
+non-existent task. `taskRedirect` then lands the delete on whichever board the card came from — `/app/projects/{id}`,
+`/app/other-tasks?allbuckets=1` when that view was the one in use, otherwise `/app/assigned-tasks`. The button is the
+app's existing destroy shape (`ghost-btn btn-sm danger` + a `data-confirm` naming what else goes with the card and that
+it cannot be undone), and it is deliberately **not** a `data-live-target` block form: the card it names is leaving the
+page, so there is nothing left to repaint in place.
+
+**Two sibling forms, one row.** A form cannot live inside the note form, so `.note-foot` lays them out as siblings:
+`display: flex; align-items: flex-end; gap: 10px`, the note box `flex: 1 1 auto; min-width: 0` and the delete
+`flex: 0 0 auto`. The bottom alignment is what makes the pair read as one line — a two-row textarea and a one-line
+button meet on their baselines rather than their tops. **The specificity trap:** `.ghost-btn` is written after
+`.btn-sm` in this file at equal specificity, so it wins both `padding` and `font-size`, and a delete built from the two
+classes alone stands taller than the *Add note* button beside it. Hence `.note-foot .task-del .ghost-btn` spells the
+button's metrics out (`padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5`) instead of inheriting
+them — the same lesson Stage 41 and Stage 71 each had to learn about this stylesheet's ordering.
+
+**What the delete takes with it.** `task_checklist_items` and `task_notes` are `ON DELETE CASCADE` and the connection
+turns `PRAGMA foreign_keys = ON`, so a card's plan and its log go with it. That was proved rather than assumed: after
+stopping a throwaway JVM, the database (snapshotted together with its `-wal`) was read with raw SQL through `jshell` —
+before the delete the popup showed `0 of 2 done` with both step labels and a note body, and after it
+`tasks=0 steps=0 notes=0` with the project, the roster and the six lanes still standing.
+
+**Tests.** `TaskBoardRenderTest` 55 → 59, suite **554 / 39** classes, 0 failures. `formPosting(html, action)` was added
+because a tag-only match stops at the opening `>` — exactly where every field this route reads lives — so the helper
+returns the whole `<form>` element. The four cases pin: the button and its three fields with no `edit` and no
+`data-live-target`; `allbuckets` carried from the wide view and *not* handed to the narrow one, plus the route's half
+of that promise asserted straight off `taskRedirect`; a non-manager offered no delete in three shapes (owner, reader,
+fresh create); and the row itself — three exact CSS declarations, the metrics block read out of `app.css`, and the
+markup sliced from `class="note-foot"` proving *Add note* really is on the delete's own line. Stage 40's count of
+`allbuckets` occurrences moved 5 → 6 for the new form.
+
+**Verified over real HTTP, on throwaway instances only.** Two scripts against `%TEMP%` databases on 8095, seeded
+managing and reader accounts through the app's own routes: **33 checks, FAILS 0** for the markup, the rights, the three
+landings and the wide view; **FAILS 0** again for the create-a-plan-then-delete cycle whose rows were then counted in
+SQL. Five harness traps came out of it, all recorded in project memory: PowerShell 5.1 swallows `$P?edit` inside a
+double-quoted string (`"/app/projects/$P?edit=$BID"` became `/app/projects/=2` and looked like a broken route), so
+interpolation next to a `?` needs `${P}`; `'column=' + $v` written *inside* an `@(...)` element splits into two curl
+arguments; a function's `Write-Output` lines vanish when its return value is assigned; the Other tasks page has no
+`data-task-card` — its cards open through `<form class="kcard-open">` with a hidden `edit`; and a Viewer's card cannot
+be read off management's `/app/assigned-tasks` at all, because that board has been personal since Stage 53, so the
+"the other reader's card survives" check has to be fetched as that reader.
+
+**Deploy note.** No migration: markup and CSS only. Live JVM **25564** stopped, `data\pts.db` copied to
+`pts.pre-stage72-20261022-115017.db` (+ its `-wal`) as insurance, `installDist`, and the packaged jar proved with
+`unzip -p … static/css/app.css | grep -n note-foot` plus the same grep on `mn/murray/pts/TaskBoardKt.class`.
+Restarted detached through `Start-Process cmd.exe '/c', deploy\run.bat -WindowStyle Hidden` — never from a backgrounded
+task — new PID **6792** on 8080, log clean at `Responding at http://127.0.0.1:8080` with `foreign_keys=ON`,
+`journal_mode=WAL` and `0 migration(s) applied`. **A reader needs Ctrl+F5 once**: `app.css` is cached and the markup
+carries no cache-buster, so without the reload *Add note* keeps rendering alone on its line.
+
+**If this is restated.** Never re-propose: putting the delete back out on the board's card, or in the popup's header
+beside Save; nesting the delete form inside the note form (impossible in HTML, and the reason the row exists at all);
+letting `.ghost-btn` set the delete's own padding and type size, which is what makes an unscoped button taller than its
+neighbour; posting `edit` from this form, which would reopen the popup on a card that no longer exists; drawing the
+button on anything looser than `canEditAll`, or on the card's owner — the route refuses a non-manager whatever the
+markup offers, and an offered-but-refused button is the bug Stage 51 was built to remove; or `data-live-target` on it,
+since there is no card left for a repainted block to describe. Deliberately untouched, as ever: the route itself, the
+service rules behind `TaskService.deleteAssigned`, and the cascade — all three predate this stage and this stage only
+connected the popup to them.
+
+## Stage 73 — A project's buckets are chosen when it is made, and on its own page afterwards (2026-10-23, live, no migration, Kotlin + CSS + JS)
+
+**The ask.** *"for these buckets for cards when create a new project the management have to choose from buckets to
+assign what kind of tasks the project have such as Engineering Procurement Production etc. Plus user can add new bucket
+from the same page. On the setting function there is project bucket settings."* Four things were settled before any
+code was written, because the ask reads two ways on each of them: the tick-list comes from **that category's
+*Settings › Project bucket settings* catalogue**, a name typed on the create page lands on **the project *and* that
+catalogue**, the picker **is** available after creation — *"Yes, same picker on the page"* — and **a bucket that still
+holds cards cannot be unticked**. The fourth scoping answer, given descriptively rather than as a choice, is what fixed
+the model: *"So we have types of projects such as labor supply site projects etc. These sub categories have buckets
+that related to each own act"* — the offer is cut by **category**, not global.
+
+**No migration, and that is the point.** The schema stays at **v15**. `project_buckets` (V7) already holds a project's
+lanes and `type_default_buckets` (V12) already holds a category's catalogue; what was missing was only the choice
+between them. The picked set is **additive on top of the six compulsory sub-categories** — Stage 48's floor, which
+Stage 63 recorded as never-to-be-dropped — so `ProjectBucketRepository.seedDefaults` still writes the six at positions
+0–5 and `seedExtras` appends the ticked ones from 6 onwards in the catalogue's own order. Rejected on those grounds: a
+V16 that seeds a starter catalogue, and any table change, since neither question was actually about storage.
+
+**The rules are one object, read by two pages.** `BucketDefaultsService.chosenFor(type, posted, canManage)` resolves
+the create popup's tick-list, and `TaskService.saveLanes(projectId, posted, newBucket, callerEmpNo, canManage)`
+resolves the page's picker in a single write. Both check every name through the shared `nameProblem` **before writing
+any of them** — a picker that applied its first three ticks and then refused the fourth would leave a board matching
+nothing on the screen — and both treat a typed name as one more tick, which is the whole point of offering both on one
+page. `saveLanes`'s order is **DENIED → NO_PROJECT → BAD_NAME → CATALOGUE_DENIED → HAS_CARDS → write**. The refusal a
+reader actually sees is one of four sentences: a name blank or over `PROJECT_BUCKET_MAX`, one of the six
+(*"… is one of the six every project board already starts with — it is not a bucket to choose."*), a new name offered
+by a caller who is not management (*"Only management adds a new bucket to the Site projects catalogue."*), or the
+untick that would hide work (*"QA hold still has cards in it. Move them to another bucket before unticking this
+one."*). A name the category does not know is not a refusal for management — inventing it *is* the ask, and it goes
+into `type_default_buckets` so the next project of that category is offered it too.
+*(Both sentences in that paragraph were re-cut by **Stage 77**: the reach of a
+typed name is now behind an explicit `also_type` tick rather than automatic, and the sentence above about a
+non-management caller is now about the tick alone — a project's own manager may add a project-local column freely.
+Read Stage 77 for the rule that is live.)*
+
+**HAS_CARDS is the new rule, and it is deliberately stricter than the route it sits beside.** `removeLane` has always
+let a lane be deleted with its cards falling to Unsorted under `tasks.project_bucket_id`'s `ON DELETE SET NULL`. That
+answer predates Stage 52 cutting the project board to status columns: there is no Unsorted column on the page a reader
+is standing on, so unticking an occupied bucket would **hide** work rather than move it. The picker is the path a
+person can actually reach, so there the cards are the reason for the refusal — while `removeLane` keeps its older,
+wider answer for the hand-built route that is all that is left of it. `ProjectBucketRepository.cardCounts` answers this
+by lane id and returns **only the occupied ones** (a lane with nothing in it is absent, not zero), which is what lets
+`saveLanes` and the panel both read `counts.containsKey(id)` / `counts[lane.id] ?: 0`.
+
+**The popup renders every category's set and switches the others off.** `bucketSet` is drawn once per category
+(`data-bucket-type`), and only the chosen one is enabled. That is because the popup is one `<form>` and the category is
+a `<select>` the reader may change a dozen times before pressing Create — asking the server each time would restart the
+page under them — and because a checkbox behind `display:none` **still rides on the post**: `project-modal.js`'s
+`refreshBuckets()` therefore sets `disabled`, not merely visibility, so a project is never created with a bucket nobody
+can see. A fresh popup opens on `PROJECT_TYPES.first()` (`selectedType` in `projectCreateModal`), independent of the
+board's `?type=` — a fact the verification had to be re-pointed at, since the live set is the one the select names.
+*(**Deleted by Stage 92**: `bucketSet`, `bucketOption`, `bucketNewLine` and `refreshBuckets` are gone, because the create
+popup no longer asks which buckets a project has. Every board opens with the same three phases; the popup names them and
+says where a fourth is added. Read Stage 92 for the rule that is live.)*
+
+**A locked bucket is ticked, disabled, and still stated to the save.** `bucketOption(name, ticked, off, locked)` prints
+the third state the page needs: `checked` **and** `disabled`, plus a hidden twin `<input type=hidden name="bucket">`
+carrying the same name, since a disabled control posts nothing and the save would otherwise read the box's silence as
+an untick. The label wears `bucket-opt locked`, and `span("bucket-cards")` prints *"— N card(s) in it"* beside the name
+so the reason shows before the save is refused rather than after.
+*(**Retired by Stage 79**: this third state went with the panel that needed it, and `bucketOption` is down to
+`ticked` and `off`; the card-counting lock is printed by the column popup as a count line over an unpressable
+**Remove bucket**. The hidden-twin lesson stands, and the popup's add form still uses it — every current lane goes into
+the POST as a hidden `bucket`.)*
+
+**One panel, one save, and its own answer.** The project page's `projectBucketPanel` is the same object, not a second
+design — the six as `span.chip.lane-chip` on a `bucket-floor` line, this project's buckets ticked, the category's other
+buckets offered unticked, one `new_bucket` box, and a single **Save buckets**. It hangs on
+`TaskService.mayEditLanes` (management or this project's own manager, the same answer as `mayAddTasks`): a `Viewer`
+gets **no panel at all** rather than a form that cannot save, and `POST /app/projects/{id}/buckets/save` bounces a
+hand-built `DENIED`/`NO_PROJECT` to `/app/projects` having written nothing. The form is
+`data-live-target="#projectBuckets"` with `data-live-extra="#taskLane"`, and the route answers by naming its outcome in
+`?buckets=ok|err` and carrying the sentence in `?bucketnote=`; the note prints **inside** `#projectBuckets` because that
+is the block the swap replaces — a note above it would be left stating yesterday's outcome under re-ticked boxes. The
+`#taskLane` companion is not decoration: a bucket added here is a place a card can be filed the moment the save lands,
+and a popup still listing the old set would refuse the reader's own first card.
+*(**The panel is gone since Stage 79** — `projectBucketPanel`, its `#projectBuckets` block and its **Save buckets**
+button were deleted from the project page on the user's instruction. Everything else in this paragraph still describes
+the live code: the route, `mayEditLanes`, the bounced hand-built `DENIED`, the whole-set save, and the `?buckets=` +
+`?bucketnote=` answer. What moved is the target and the companions: the one form the page prints now is the column
+popup's add half, and it names `data-live-target="#projectBoard"` with `data-live-extra="#taskLane,#projectLaneModal"`,
+because since Stage 75 the columns *are* the buckets.)*
+
+**The typed bucket becomes a tick in the page, not a second kind of answer.** `app.js` owns `[data-bucket-add]` rather
+than `project-modal.js`, because the project page loads the picker but not the popup's script. The button is
+`type=button` — a form cannot live inside a form, so the popup's Create and the page's Save cannot be given a second
+submit — and pressing it (or pressing Enter in the box) inserts the typed name into the set as one more checked
+`input[name="bucket"]`, which is the only shape either save reads. If the name is already offered, the existing box is
+ticked instead of duplicated. No validation happens in JavaScript on purpose: the service owns the rules and a refused
+name comes back as a sentence under the picker, not as a browser's opinion about spelling.
+*(**Deleted by Stage 92**, with the create picker that was its only remaining producer: no page prints `[data-bucket-add]`
+now, and the project page's add form is a plain submit carrying every current lane as a hidden `bucket`.)*
+
+**Rights, and the round trip.** A create's refusal still answers 200 with the popup open on the filtered board the
+reader was on (the `board_*` hidden fields, Stage 17), with the ticked set back as **ticks** and the typed word back in
+its own `new_bucket` box — `fields.getAll("bucket")` versus `fields["new_bucket"]` is what lets the two be put back
+apart. `manager` on this form is a **name** from the roster, not an employee number, and empty is legal.
+
+**Tests.** Suite **571 / 39** classes, 0 failures (554 → 571). The seventeen new cases sit in `ProjectsPageRenderTest`
+(the popup's catalogue over the six floor, a rejected create returning the ticks as ticks, the page's picker locking an
+occupied bucket, the category's un-ticked offers still listed, and the picker being the project manager's and nobody
+else's), `ProjectServiceTest` (the board is the six then only the ticked ones, in catalogue order; a typed name goes on
+the board *and* into the catalogue; a ticked and a typed name that are the same bucket make one box; a six-floor name
+refused with **no project written**; a catalogue addition after the fact does not reach an existing board),
+`TaskServiceTest` (tick-joins / empty-untick-leaves, an occupied bucket cannot come off, the six are not the picker's to
+choose, an unknown name is management's to invent, a rightless press changes nothing, a hand-built double tick is one
+column, and a bucket is locked by its card count and an emptied one is not) and `SettingsRenderTest`.
+`TaskBoardRenderTest` 291-305 moved onto the new page: the board's **one** `/buckets` action is the picker, and what
+stays gone is the old per-lane plumbing — `/buckets/delete`, `?lane=`, `laneName`, `laneArea`.
+
+**Verified over real HTTP, on a throwaway only.** `verify73.ps1`, 62 checks against a fresh `%TEMP%` database on 8095
+at **v15** (`Successfully applied 15 migrations` read off the boot log): **FAILS 0**, covering the popup's markup,
+Settings' add line, a create that ticks one bucket and types another, the refusal round trip, the page's panel, the
+catalogue widening, a card filed in a typed bucket, the occupied-bucket lock, the untick once emptied, the `Viewer`'s
+missing panel and bounced POST, the six-floor and 41-character refusals, and `/static/js/app.js` serving the add hook.
+Two smaller scripts proved the pieces the driver first misread: one for the length refusal standing alone (200 +
+*"A bucket name is 40 characters or fewer."*), and a seven-check contract for the live save — `?buckets=ok&bucketnote=…`
+landing on a page that prints both `#projectBuckets` and `#taskLane`, the popup's option list carrying the new bucket,
+and three boxes ticked in the panel. Harness lessons this stage added to memory: **browser-use's `fill` of login
+credentials is classifier-blocked even against a throwaway instance**, so a signed-in browser check could not be driven
+that way and the in-place-save claim had to be made server-side instead; and `'new_bucket=' + $v` written *inside* an
+`@(...)` element splits into two curl arguments, which is what made a 41-character name look like a pass — the app had
+received an empty name.
+
+**Deploy note.** No migration: Kotlin, `app.css`, `app.js` and `project-modal.js` only. `installDist`, and the packaged
+jar proved before launch — `javap -p` showing `saveLanes` / `cardCounts` / `mayEditLanes` / `chosenFor` /
+`nameProblem` / `projectBucketPanel`, and `unzip -p` counting `data-bucket-add` (3), the bucket CSS rules (10) and
+`refreshBuckets` (3). The live JVM was **found down** when this stage came to deploy, so nothing had to be stopped;
+`data\pts.db` was copied to `pts.pre-stage73-20261023-103610.db` (327,680 bytes, WAL already checkpointed into it) as
+insurance, and the new build was launched detached through `Start-Process cmd.exe '/c', deploy\run.bat -WindowStyle
+Hidden` — never from a backgrounded task. New PID **9572** on 8080, log at `Current version of schema "main": 15` /
+`Schema "main" is up to date. No migration necessary.` and `Responding at http://127.0.0.1:8080`; the live check reads
+`/` → 200, `/static/js/app.js` 24,882 bytes with the three `data-bucket-add` hits, `/static/css/app.css` 98,194 bytes
+with the ten bucket rules. **A reader needs Ctrl+F5 once**: `app.css` and `app.js` are cached and the markup carries no
+cache-buster, so without the reload the picker's boxes and its *+ Add bucket* button render unstyled and inert. Server-
+drawn pages ship `no-store` already, so the page itself is never the stale half.
+
+**If this is restated.** **Stage 75 supersedes the floor half of this paragraph**; read the first clause as history. Never re-propose: ~~dropping the six-lane floor in favour of the picked buckets, or letting a
+posted list that omits one take it off (Stage 48 and Stage 63 both stand, and `LaneError.STANDARD` is the reason a
+six-floor name is *refused* rather than quietly dropped)~~ — Stage 75 retired the six, `LaneError.STANDARD` is deleted, and
+the three a board opens with are the picker's to untick like any other bucket; what the picker still may not do is take a
+board to **zero** lanes (`LaneError.LAST_LANE`) or empty a bucket by unticking it out from under its cards (`HAS_CARDS`,
+counted across every lane the press would remove before any of them is deleted). A V16 was in fact needed for the re-cut,
+though no new table and no new column: ~~a V16, a new table, or a seeded starter catalogue, since
+nothing here was a storage question~~ — the storage question was always *which lanes exist*, not *how they are stored*.
+What stands unchanged from here:
+unticking a bucket that holds cards and letting its cards fall to Unsorted, which
+after Stage 52 means hiding them; rendering only the chosen category's set server-side, which restarts the create popup
+under the reader on every category change; leaving the other sets merely `display:none`, since their ticks still post;
+a `Viewer` given a greyed panel instead of no panel, or a per-lane **×** coming back beside the picker; a note printed
+outside `#projectBuckets`, which the live swap leaves behind; *(Stage 79 deleted the page's panel and its note now
+prints over the board — the rule this clause guards, one sentence per write and printed inside the block the swap
+replaces, is unchanged.)* validating the typed name in JavaScript rather than in the
+service; or putting the add control in `project-modal.js`, which the project page does not load. Deliberately untouched:
+`addLane` / `removeLane` and the two older `/buckets` routes, `tasks.project_bucket_id`'s `ON DELETE SET NULL`, and
+the compulsory filing of a new card in one of the board's own buckets.
+
+## Stage 74 — An empty project's board *is* its buckets, and each column can be re-shaped from the board (2026-10-23, live, no migration, Kotlin + CSS + JS)
+
+**The ask.** *"when project does not have any bucket tasks or when creating a new projects should be looking like this"*,
+with a picture (`Screenshots/buckets.png`): a row of columns — each head a coloured dot, a name, a count and a `⋯` at
+the right, each foot a `+ Add task` line — trailing a dashed **+ Add bucket** box the width of a column. Four things
+were settled before any code was written, because the ask reads two ways on each of them: the bucket columns show
+**"Only while it has no cards"**, the columns are **"All of them: six + extras"**, the `⋯` means **"Rename / remove
+that bucket"** (management and this project's manager, with Stage 73's picker still the place that ticks the whole
+set), and the dashed box means **"Add to this project + the catalogue"** — the same offer the picker's typed name
+makes, reached from the board.
+*(**Stage 79** makes the last clause the whole story: the project page's picker — Stage 73's panel — is gone, so the
+board's dashed box **is** the place a bucket is named and the whole set is posted, as hidden twins beside the one word
+typed. The create popup's tick-list is the remaining picker.)*
+
+**No migration, and again that is the point.** The schema stays at **v15**. `project_buckets` already holds the
+columns and `tasks.project_bucket_id` already holds the filing; the whole stage is a *reading* change. The rule is one
+line at the board: `lanes = if (tasks.isEmpty()) lanes else emptyList()`. A project with no cards is its buckets, and
+from the first card onwards it is Stage 52's five status columns — nothing moves in data, because `status` and
+`project_bucket_id` are separate columns of the same row and the same list is simply read two ways. The columns a
+reader adds or retitles while the board is empty are still there filing cards once it is not. [taskKanban] takes the
+`board-empty` invitation back exactly when this hands it a column set (`tasks.isEmpty() && canAdd && lanes.isEmpty()`),
+because then the columns and their own `+ Add task` lines *are* the invitation.
+
+**The head is a dot, a name, a count and — for one kind of lane — a `⋯`.** `laneKanban` prints
+`span(bucketDotClass(index))` before the title, the same six-position cycle (`dot-${i % 6}`) the Settings catalogue
+uses to name its buckets, so **QAQC** is the same shade on both pages and a seventh column is back to the first hue.
+The menu is drawn only `if (mayWriteLanes && !isStandardLane(lane.name))`: the six are neither renamable nor
+removable — `renameLane` and `removeLane` both refuse them as `LaneError.STANDARD` — and a `⋯` that opened a form
+whose every button answers *no* is the dead control Stage 51 made a rule about. So the picture's six menus came in as
+one menu on the one column that could use it, which is what `TaskBoardRenderTest` now pins (`assertEquals(1, …)` on a
+board with an extra). The dashed box is a sibling of the columns, not one of them: no `data-lane`, so `kanban.js`
+never offers it as a drop target and no card could ever sit in it.
+
+**Both openers are GET forms, and the popup is the page's, not a click's.** `?laneadd=1` and `?laneedit=<id>` each
+carry `data-live-target="#projectLaneModal"`, which `app.js` answers by following the URL and swapping that one node
+for the copy the server drew already open — so a reader with scripts off gets the identical popup from a plain click,
+and a refusal is just the same page again with its reason under the field. `?laneedit=` is a key of its own because
+`?lane=` on this URL already names a code a lane request was refused with and `?into=` the lane a new card aims at.
+The popup block is **drawn (shut) whenever the board is a lane board** — `laneModalDrawn = mayWriteLanes &&
+tasks.isEmpty() && lanes.isNotEmpty()` — because the openers swap that node and a swap needs a target; only its
+`display:block` is conditional. `lane-modal.js` is new and owns only the way out (the `×`, **Cancel**, the backdrop,
+and the caret into `#laneName`), since opening is decided server-side.
+
+**Two routes came, one route changed shape.** `POST /app/projects/{id}/buckets/rename` is new: the lane is named by
+**id** — never by name, since the name is the thing being changed and the only address that survives the write is the
+row's own — and checked against the project in the URL exactly as `removeLane` checks it, so a POST naming somebody
+else's lane renames nothing. `POST /buckets/save` is Stage 73's picker route and now answers **two** forms, told apart
+by the board's own hidden `src=board`: a picker save builds the identical URL it always did, a board save goes back
+over the board. And `POST /buckets/delete`, which had no control pointing at it since Stage 35, now has one — so
+before deleting it **re-asks the card count** and refuses with *"That bucket has N cards in it now, so it cannot come
+off. Move them first."* The guard belongs in the route rather than in the markup because the page the popup was opened
+from can be stale: the columns only exist while the project has no cards, and a card arriving between the reader
+opening the popup and pressing **Remove bucket** is exactly the case a `⋯` cannot see.
+
+**One sentence, printed once.** A bucket write answers with a single line, and the URL now says where it belongs:
+`?bucketsrc=board` plus `?buckets=ok|err` plus `?bucketnote=`, read by `openingLaneForm` into a `LaneEntry`. Over the
+board when a board write landed (inside `#projectBoard`, so the columns and the words about them arrive in one
+repaint); under the popup's name field when a board write was refused, with the popup put back up carrying the word
+the reader typed (`?lanetyped=`); in the picker for a write the picker itself made. `noteIsAtTheField = laneModalDrawn
+&& lane.nameError != null` is what keeps the picker quiet in the second case — a page that answers the same refusal
+twice reads as two problems rather than one — and it is deliberately gated on the popup being *drawn*, because when it
+is not (the stale page where the project gained its first card in between) the sentence must fall back to the picker
+rather than vanish with the form.
+*(**Stage 79 re-cut this read for the panel-less page.** There is no picker on a project page to keep quiet, so
+`openingLaneForm` answers one flag — `noteOnBoard = !inPopup`, where `inPopup` is a *refused* board write that names a
+popup to open: `bucketsrc=board` with `laneadd=1` or a `laneedit` id. A refusal at the field still carries the word the
+reader typed back and still puts the popup up; a landed write, a create-popup answer, and any sentence with no popup to
+sit inside are printed over the board as `p.bucket-said ok|err`. The rule underneath — one sentence, placed where the
+reader can act on it — is Stage 74's and is unchanged.)*
+
+**Tests.** Suite **587 / 39** classes, 0 failures (571 → 587). `TaskBoardRenderTest` (62) gained the head's
+dot-name-count shape, the one-menu rule, the add box trailing the run without being a column, and the rightless reader
+given neither opener; `ProjectsPageRenderTest` (37) gained *"a project with no cards is its buckets and a project that
+has one is its statuses"*, the dot colours matching the picker's, the popup's two halves, and the
+refusal-at-the-field / landed-write-over-the-board pair; `TaskServiceTest` (103) the rename rules. Two assertions moved
+onto the markup that is actually true rather than the markup one would expect: a `<form…[^>]*>` match stops at the
+**opening** tag, so an ask carried as a hidden field needs a whole-`<form>`-section helper (`formSection`), and a
+lane board **always** carries its popup — closed — so "the picker's answer stayed in the picker" is pinned as *the
+popup is not `display:block` and no `field-err` was printed*, not as the node being absent.
+
+**Verified over real HTTP, on a throwaway only.** `pts74_verify.ps1`, **56 checks / 0 failures** against a fresh
+`%TEMP%` database on 8095 at v15: login, a created project, the six columns with six dots and six `0` counts and six
+`+ Add task` lines and exactly one `lane-add-box`, no `kcol-menu` and no `board-empty` and no `data-status`, the
+`?laneadd=1` popup, **QAQC** added from the board (column appears, one menu appears, exactly one `bucket-said ok`, the
+popup shuts, the dot is `dot-0`, the picker lists it), the `?laneedit=` popup, a rename refused as a duplicate (name
+error at the field, **zero** `bucket-said` on the page, popup still up, the typed word back), a rename that lands, a
+removal returning the board to six, then the flip: a card saved gives five `data-status` columns, no bucket titles, no
+add box, no popup, and a Sub-category picker that survives. A hand-built delete of the now-occupied lane answers *"so
+it cannot come off"* with the count in it and the card still filed. Screenshots of the empty board and of the refusal
+were rendered off the saved pages with the stylesheets inlined, and read against the picture.
+
+**Deploy note.** No migration: Kotlin, `app.css` and the new `lane-modal.js`. `installDist` at 13:17 with nothing in
+`src` newer than the dist, the old JVM stopped, then launched detached through `Start-Process cmd.exe
+'/c', deploy\run.bat -WindowStyle Hidden` — never from a backgrounded task. New PID **12292** on 8080; the log reads
+`Successfully validated 15 migrations` / `Current version of schema "main": 15` / `No migration necessary` and
+`Responding at http://127.0.0.1:8080`, with the first due-date sweep landing normally after it. `/` → 200. **A reader
+needs Ctrl+F5 once**: `app.css` and `lane-modal.js` are cached and the markup carries no cache-buster, so without the
+reload the dashed box renders unstyled and the popup's `×` is inert.
+
+**If this is restated.** **Stage 75 reversed two of the four answers recorded above** — the six are the three, and the
+columns are permanent rather than *"only while it has no cards"* — so read this paragraph with those two clauses struck.
+Never re-propose: ~~a `⋯` on any of the six (they refuse as `LaneError.STANDARD`, and Stage 51's
+dead-control rule stands)~~ — the three are ordinary lanes and every one of them carries the menu now; what Stage 51's rule
+still decides is that the menu and the dashed box hang on **`mayWriteLanes`** alone, a *right* question, so a reader whose
+every button would answer *no* is given neither; ~~bucket columns on a board that has cards, which Stage 52 settled the
+other way and the scoping answer here kept ("only while it has no cards")~~ — that is now the board's permanent shape, and
+the five status columns live only on **Assigned tasks** and **Other tasks**;
+a rename addressed by name, which cannot survive its own
+write; a rename that retitles the **category's catalogue** as a side effect — a lane's heading is this board's
+business, and the catalogue is Settings' and the picker's write; letting a lane with cards be removed silently, or
+giving a `Viewer` either opener or the popup (both hang on `mayEditLanes`, management or this project's own manager);
+drawing the popup on a status board, where nothing can open it; printing the bucket sentence in both the popup and the
+picker; or a `+ Add bucket` that only touches this project — the typed name goes to the category's catalogue too, which
+is what the fourth scoping answer asked for. Deliberately untouched: `tasks.project_bucket_id`'s `ON DELETE SET NULL`,
+the compulsory filing of a new card in one of the board's buckets, and the picker as the one place the whole set is ticked.
+*(**Stage 77** made the widening opt-in, and **Stage 79** deleted this page's picker: the whole set is now ticked only on
+the **create** popup, while a board's whole set travels on the add popup's hidden twins. The clause above should be read
+as "the one place the whole set is *posted*", which since Stage 79 is the board.)*
+
+## Stage 75 — Every project is Engineering / Procurement / Production, editable, and its board is always its buckets (2026-10-23, live, V16, Kotlin + CSS + JS)
+
+**The ask.** *"the bucket structure is shown all in kanban and buckets have 3 different default types which is Engineering,
+Procurement and Production, also the user can add more as we have on settings, assigned tasks and when clicking on a project.
+Means every project types have 3 buckets default as Engineering, Procurement and Production. But the user can edit them once a
+project is created. After when user clicks on their assigned tasks user able to see and edit their tasks. But shown in progress
+kanban as we have not started in progress on hold blocked and completed"*. Read against the code this ask touches four surfaces
+— the domain's opening lane list, a project's board, that board's editor controls, and the Assigned tasks page — and four
+questions had to be answered before the first line was written, because the sentence reads two ways on each of them:
+
+* **What happens to Stage 48's six?** — *replaced*. The six come off the board and the three go on, and the three are **not** a
+  protected floor: they are an opening set that a project's own manager may retitle, untick or empty and remove exactly like a
+  lane somebody added for itself.
+* **Which projects get them?** — *"Seed all of them"*. Not only the next project created: the twenty already open are re-cut by
+  a migration.
+* **When is the board buckets and when is it statuses?** — *"Always, buckets forever"*. The project page is its bucket columns
+  whether it holds one card or none; a card's status is a thing its editor says, never a place on that board.
+* **Where does Add-bucket live?** — *"Other tasks was meant"*. The bucket controls live on Settings' catalogue, on **Other
+  tasks**, and on a project's own page. **Assigned tasks keeps the five status columns** — that page is the reader's own day,
+  cut by how far each card has got, which is the one question a bucket cannot answer.
+
+**`DEFAULT_PROJECT_BUCKETS` is three names, in [domain/Task.kt] not in a migration.** The list is what
+`ProjectService.create` seeds with the project row, what the create popup prints its tick-boxes from, what the card popup
+falls back to when it has no project's lane ids to read, and the three names a migration repeats as literal SQL in its
+cross-join — a mirror rather than a read, since Flyway has no Kotlin on the other side of that connection, which is why
+`V16__three_phase_buckets.sql` and this list have to be changed together or a fresh board and a migrated one disagree.
+[isStandardLane] survives it, but
+its one remaining job is a *catalogue* question: `BucketDefaultsService.nameProblem(name, allowStandard)` refuses one of these
+names as a category's **extra** bucket — a bucket every board already starts with is not a thing to be offered — and the same
+function is deliberately *not* consulted by `renameLane` or `removeLane`. `LaneError.STANDARD` is deleted, which is the whole
+stage in one enum entry. What still refuses a removal is work (`HAS_CARDS`) and the last column standing (`LAST_LANE`).
+
+**`V16__three_phase_buckets.sql` adds no table and no column, and its header argues one rule: never destroy a card's
+filing.** It deletes an *empty* sub-category of the six (the only case in which a lane can go without work going with it),
+leaves one that holds cards standing under its own name as an ordinary lane, dedupes empty copies of the three, cross-joins
+the three onto every project that lacks them, then numbers the board: the three take positions 0..2 **by name**, so a project
+that already carried *Procurement* from V7 keeps its column, its cards and its place at the head of the row, and everything
+else is renumbered `3 + count of lower ids`. Counting ids rather than positions is V10's reasoning carried over — an id is
+never rewritten by this migration, so a row's place cannot shift under the statement computing it. It does **not** refile a
+card into a phase (that is a guess about the work, and since this stage the phase is a thing its owner sets), does not touch
+`type_default_buckets` (the catalogue never held one of the six, because the service refused it) and does not touch
+`buckets` — the Other tasks columns V1 created and Exposed mirrors as `Buckets` (a different set for a different kind of
+work). V16's own header names that table `backlog_buckets`, which has never been its name; the comment cannot be corrected
+without changing the file's Flyway checksum, so the header stands as written and the docs are where the right name appears.
+The name comparison is exact and case-sensitive on purpose:
+a lane somebody renamed to `engineering` is unusual enough that folding it into a default silently would be a guess, so it
+simply stands on after the three.
+
+**The project page's board stopped being read two ways.** Stage 74's rule was `lanes = if (tasks.isEmpty()) lanes else
+emptyList()`; now the page hands `taskKanban` its lanes always, and the branch inside the renderer — `val laneBoard =
+lanes.isNotEmpty()` — is the only thing left deciding between `laneKanban` and `statusKanban`. That makes
+`LaneError.LAST_LANE` (`ofProject(projectId).size < 2`) load-bearing in a new way: it is no longer a guard against a fussy
+picker, it is the rule that keeps a project's page a *board*, because a project emptied to zero buckets would fall through to
+the five status columns Stage 75 took off it. `Assigned tasks` and `Other tasks` reach `statusKanban` on purpose and print the
+five columns; the popup's *Sub-category* select and a drag are now the only ways a card moves on a project.
+*(Stage 87 later took that select off the editor of a card already on a project; on this page the drag is now the
+only way to move one, and the pickers survive on create, on the backlog half and on a refusal.)*
+
+**A `⋯` on every column, and the gate is a right rather than a name.** `laneKanban` draws the menu and the dashed
+**+ Add bucket** box `if (mayWriteLanes)` — management or this project's own manager — and nothing else, so the three carry a
+menu like the extras do. Stage 51's dead-control rule still decides *whether* to draw it, but the question it asks is now
+"can this reader write buckets here?" rather than "is this lane one the app will let them touch?". Cards on a bucket board are
+`draggable = mayDrag ?: opens` with `mayDrag = canMoveCards`, so the person a card belongs to **cannot** drag it between
+buckets — that would be filing somebody else's work — and gets instead one `✓ Done` / `↺ Reopen` button (`if (opens &&
+!canManage)`), which posts `/app/tasks/status` and does reload. A bucket drag posts `/app/tasks/bucket` and is finished in
+place. ~~No status word prints on a card here~~ — **Stage 76** put one on the card's own top line, as a pill, precisely
+because this page's columns name a phase and not a stage; a card still tints only when it is done. **Unsorted** prints *after* the board's
+own lanes and only `if (unfiled.isNotEmpty())`, carries `data-unfiled` so `kanban.js` keeps it out of the drop targets, and
+has no `+ Add task` line.
+
+**The rest of the surfaces followed the list, not the board.** Settings' bucket card now keys its read-only chips
+*"What every new board opens with"* with the three names where the six used to stand, and its extras number from **3** —
+the first extra is a new board's fourth column and wears that column's dot, which is why the catalogue's dot index is offset
+by `DEFAULT_PROJECT_BUCKETS.size`. The create popup's tick-list shows the whole set including the three, because
+`ProjectService.create` writes them with the row and the list is what chooses which of them that project keeps. The general
+board's and the Team sheet's *Sub-category* pickers list the three **by name** without loading any project's lane ids, and the
+name is resolved against the lanes the project the card actually lands on has — so a board that renamed *Engineering* refuses
+that name rather than filing the card in a column that is not there.
+
+**A CSS trap worth keeping.** The bucket dot is sized on the bare `.bucket-dot` class rather than under `.lane-row`, and that
+is not tidiness. The same span prints on a Settings row and on a column head; sized under `.lane-row` as well, the head's own
+rule *tied* it on specificity and **won on order**, so every column painted the quiet grey of an uncoloured dot and the three
+buckets lost the one thing that told them apart at a glance.
+
+**Tests.** Suite **589 / 39** classes, 0 failures (587 → 589). `ProjectBucketMigrationTest` (7) pins V16 against a real
+SQLite file: every existing project is given the three in the board's order; a lane holding a card under one of the three names
+keeps its row and is not given a twin; a retired sub-category that holds work survives as an ordinary lane; a lane the project
+added for itself stands on; a card that predates its lane is left unfiled rather than guessed at; removal unfiles and cascade
+still works; and the backfill runs once and is not replayed. `TaskServiceTest` (103 → **104**) gained *the three a board opens
+with are the picker's to untick, and one lane always stays* and holds *an empty bucket unticked beside an occupied one
+**stays** too* — every lane the press would remove is counted before one is deleted, or `ON DELETE SET NULL` silently
+un-files somebody's work. `TaskBoardRenderTest` (62) flipped its project half: `a project page is cut by its buckets and
+carries no manager panel`, `a project board is cut by its lanes and never by status`, `the general board is still the five
+status columns` and `the status board has no lane control either`. `ProjectsPageRenderTest` (37) reads the board as buckets
+whatever it holds; `SettingsRenderTest` (43), `BucketDefaultsServiceTest` (7), `TypeDefaultBucketMigrationTest` (3) and
+`ProjectServiceTest` (30) carry the catalogue, the dot offset, the per-category isolation and the extras-from-3 numbering.
+
+**Verified over real HTTP, on a throwaway first.** V16 was run against a fresh `%TEMP%` database on 8095 (seed off,
+`PTS_DB_PATH` set, `murray-pts-2.0.0.jar` excluded from the dist `lib/*` so Flyway does not see every migration twice), then
+read back with `scratch/stage75-v16-read.jsh` — `jshell --class-path <sqlite-jdbc.jar>` is the raw-SQL tool here, there is no
+`sqlite3` or `python` on this machine — against a copy of the live database before and after, comparing
+`flyway_schema_history`, the lane sets and `tasks.project_bucket_id`, and confirming the project columns come out 0..2 then
+3-on. `scratch/stage75-ui-proof.ps1` then drove the app's **own routes** over HTTP on that throwaway — login, a project
+created through `POST /app/projects`, its board read **before** and **after** three cards are filed one per opening bucket, a
+bucket added through `POST /app/projects/<id>/buckets`, and the reader's Assigned tasks page — and counted the columns out of
+the returned markup: `class="kcol" data-lane` on the project page before and after the cards arrive (the same number both
+times, which is the whole Stage 75 claim), `class="kcol" data-status` **zero** there and exactly **five** on `/app/assigned-tasks`
+with each of *Not started, In progress, On hold, Blocked, Completed* printed as a `.kcol-title`. This is deliberately proven
+server-side rather than by driving a browser: `browser-use fill` of login credentials is classifier-blocked even against a
+throwaway, and `browser-use drag` times out on this app's HTML5 drag-and-drop, so a drag would have to be synthesised anyway
+— and the filing itself is the service's, which `TaskServiceTest` already holds.
+
+**Deploy note.** **Schema v15 → v16**, so the live database was copied to `data/pts.pre-stage75-20261023-155152.db` (+ its
+`-wal`) before the write. Kotlin, `app.css`, `kanban.js` and `app.js` changed, so `installDist` with the JVM stopped, then
+launched **detached** — `Invoke-CimMethod -ClassName Win32_Process -MethodName Create`, because a `Start-Process` child of a
+backgrounded harness task is torn down with that task's process tree and the Stage 64 JVM died exactly that way. The instance
+answering on 8080 as PID **17428** logs `Successfully validated 16 migrations` / `Current version of schema "main": 16` /
+`Responding at http://127.0.0.1:8080`, and `/` → 200. **A reader needs Ctrl+F5 once**: `staticResources("/static", …)` serves
+from the **classpath inside `murray-pts-2.0.0.jar`**, not from disk, so a CSS change only lands with the rebuild — and the
+markup carries no cache-buster.
+
+**If this is restated.** Never re-propose: a protected floor of any lane names — `LaneError.STANDARD` is gone and its return
+undoes the ask's *"the user can edit them once a project is created"*; the project page as five status columns, populated or
+not, which was Stage 52's answer and this stage's reversal of it, so if a status board appears on a project page the fix is
+the picker's `LAST_LANE` rule and not the renderer; re-cutting the board by *status* under a bucket heading, or by *bucket*
+under a status heading — the two pages answer two different questions and each holds exactly one of them; a bucket drag that
+reloads the page (it posts `/app/tasks/bucket` and is finished in place — a visible reload counts as broken here); an owner
+given the drag, since dropping a card files somebody else's work; a `⋯` gated on the lane's *name* again; a migration that
+deletes a lane holding cards, refiles a card into a phase to " tidy" the board, or rewrites `tasks.project_bucket_id`;
+offering *one of the three* as a Settings **extra** (that refusal stands, and it is the catalogue's only one); the
+**Assigned tasks** page losing its five status columns, which the fourth scoping answer kept on purpose; or giving the
+*Unsorted* column a `+ Add task` line or a drop target. Deliberately untouched: `tasks.project_bucket_id`'s
+`ON DELETE SET NULL`, Stage 48's rule that a new card on a project must answer a bucket, the Other tasks `buckets` set, and the
+six-position dot cycle (`BUCKET_DOT_COLOURS = 6`) — a colouring rule of six shades was never a list of six lanes, and now
+fewer columns wear it.
+
+## Stage 76 — A project's card prints the stage it has reached (2026-10-26, live, no migration, Kotlin + CSS)
+
+**The ask.** *"when user click on the project should be displaying the tasks in progress"*. Read literally that is a
+filter, and the first answer to it was the code's: since Stage 75 a project page is cut by **bucket**, so a card's stage is
+nowhere on that page — not a column head, not a word on the card, not in the header. Clicking a project therefore could not
+show tasks *in progress* as opposed to any other tasks, because it showed no progress state at all. Asked which half to
+change, the user chose **show each task's status on the card**: print the stage every card has reached, in the app's existing
+status colours, hiding and reordering nothing.
+
+**What changed.** Two lines in `taskCard` (`TaskBoard.kt`), above the title: the card's code and its stage now share a top
+line, `.kcard-top`, and the stage is a `<span class="kstat s-…">` carrying `statusSlug(task.status)` as its class and
+`task.status` as its text. It is drawn **on a lane board only** — `if (laneBoard)` — which makes this the one status word a
+project page prints and the one word the two status boards do not. In `app.css`, `.kcard-top` is a `space-between` flex row
+(the code left, the pill right, both `flex: 0 0 auto` so neither is squeezed) and `.kstat` is a 10.5px/700 pill in the
+board's own five hues, light and dark: grey for *Not started*, amber *In progress*, orange *On hold*, red *Blocked*, green
+*Completed*.
+
+**Why the status board prints no pill.** Its column head already *is* the stage — `Not started`, `In progress`, … each
+printed with the same dot the pill is coloured by — so a word on the card under it would be two places for one fact, on the
+one page where the fact is already the heading. This is the same reason Stage 75 gave for keeping the two boards separate:
+they answer different questions and each holds exactly one copy of the answer.
+
+**Why the tint stayed binary.** A lane card has worn a left bar and a background only when it is *done* (Stage 75).
+Colouring open cards too would paint the same amber five times down a column that is five cards deep in one phase and say
+nothing the pills do not, while *green means finished* still reads at a glance with no legend. So the pill took the five-way
+palette and the tint kept the one fact — which is why an open card's node is still plain `class="kcard"` and only a
+`Completed` one is `kcard s-completed`.
+
+**If this is restated.** Never re-propose: a pill on the **Assigned tasks** or **Other tasks** board, whose status columns
+already print the word above every card in them; the card tint widened to all five statuses now that the word is printed
+(the two are deliberately split, and the split is the design); a *filter* to in-progress cards as the reading of this ask —
+the user was offered that and chose to show every card and name its stage instead, so nothing here hides, reorders or
+defaults a board to one status; moving the stage into `.kmeta`, which already carries priority, due date, percentage and the
+owner inside a fixed 288px column and would wrap; or a sixth colour — the pill reuses `statusSlug`'s five and `statusSlug`
+falls through to `s-notstarted`, so an unknown status word cannot reach an unstyled pill. Deliberately untouched:
+`statusDot` and the column heads, Stage 75's always-bucket board, `LaneError.LAST_LANE`, and `.kmove-btn`'s
+post-then-`location.reload()` (pre-existing, and it means the pill always repaints).
+
+*Superseded in part by **Stage 78**, on the user's instruction and against two of the clauses above: the word left the
+`.kcard-top` line beside the code and became a dot + word on a foot line of its own, the `tcode` chip came off project
+cards altogether, and the tint was widened to all five statuses — which is exactly the "never re-propose" line this
+stage drew, reversed because a picture to match asked for it. `statusSlug` inside the emitted `kstat` span, the
+lane-board-only condition on the word, and the no-word rule for the two status boards all stand.*
+
+**Tests.** Suite **589 → 590** / 39 classes, 0 failures. `TaskBoardRenderTest` (62 → **63**) gained
+`a lane board prints the stage and a status board leaves it to its column`, which walks all five `TASK_STATUSES` through
+`TaskService.updateStatus` and asserts the exact `<span class="kstat s-…">…</span>` each time, then renders the general
+board and asserts it carries no `kstat` at all, and reads the pill's own line to prove code and stage share it. Three
+existing cases moved onto the new markup: `a project board is cut by its lanes and never by status` now requires the
+*Not started* pill, `an assignee closes a card from a lane board with one button` requires it rather than its absence, and
+`a finished card on a lane board offers to reopen itself` asserts the *In progress* **pill** beside an open card while still
+denying the *In progress* **tint** — the distinction this stage drew, in one pair of assertions.
+
+**Verified over real HTTP, on a throwaway first.** 34 checks on a fresh `%TEMP%` database on 8095 (seed off, own
+`PTS_DB_PATH`): a project created through `POST /app/projects` opens with the three phase columns and **no pill** because it
+has no card; three cards filed one per phase print three pills reading *In progress*, *On hold*, *Blocked*, each on the same
+line as its `T-000n`; the column count is read **before and after** the cards arrive and is three both times, which is Stage
+75's claim held intact by this change; one card then walked through all five statuses, each time asserting its pill and that
+the number of *tinted* cards on the whole board is 1 exactly while that card is Completed and 0 otherwise.
+`/app/assigned-tasks` still shows five `class="kcol" data-status` columns and **zero** `kstat`, and `/app/other-tasks` none
+either. Screenshots of both pages — CSS inlined into the whole saved page, rendered by headless Chrome at 1440px — confirm no
+wrap and no overflow.
+
+**Deploy note.** No migration; schema stays **v16**. `installDist` with the JVM stopped (the live database was copied to
+`data/pts.pre-stage76-20261026-111602.db` + `-wal` first, as habit rather than need), then launched detached; the instance
+answering on 8080 as PID **27212** logs `Responding at http://127.0.0.1:8080`, `/` → 200, and
+`GET /static/css/app.css` serves the pill rules out of the jar. **A reader needs Ctrl+F5 once** — the CSS is on the
+classpath, not on disk, and the markup carries no cache-buster.
+
+## Stage 77 — A bucket belongs to its project; widening it to the category is a separate, management-only act (2026-10-26, live, no migration, Kotlin + CSS)
+
+**The ask.** *"when creating a new project project takes type which are M-Manufacturing R-Repair S-Site project
+L-Labor D-Distributor E-Engineering F-Internal G-Good sales and O-Other. They all have 3 types of initial buckets
+which are engineering, procurement and production. Once a project been created they have 3 initial buckets also user
+can create a new buckets for the project. Meaning every project has their own buckets created"*. The first two
+sentences were already the app's behaviour (nine categories from the V14 catalogue, three opening lanes seeded at
+positions 0–2 by Stage 75's V16), so the stage is about the last two: **a new bucket per project**, and what
+*"every project has their own"* does to the rule Stage 61/73 built, where a bucket a project's picker invented was
+written into `type_default_buckets` **on its own** and so quietly became the category's offer to every future project.
+Two decisions were put to the user and taken there: **per-project, but offer a tick to save it for the type** (the
+name a reader types stops at their board unless the box under it is pressed, and that box is **off by default**), and
+**project manager too, project-local only** — which withdrew Stage 73's outright refusal of a non-management
+`new_bucket`: a manager who cannot name a column for their own board has no board left to manage.
+
+**What changed.** One flag, carried to the two writers of the catalogue and nowhere else:
+
+- `TaskService.saveLanes(projectId, posted, newBucket, callerEmpNo, canManage, alsoForType = false)` — the board
+  write is `mayEditLanes` (management **or** the account in `projects.manager_emp_no`) exactly as before, and a new
+  name is now legal under that right alone. The `TypeDefaultBucketRepository.insert` that follows it is gated on
+  `alsoForType && canManage`, and the refusal order's **`CATALOGUE_DENIED`** — Stage 73's own code, sitting between
+  `BAD_NAME` and `HAS_CARDS` in the fixed sequence
+  (`DENIED → NO_PROJECT → BAD_NAME → CATALOGUE_DENIED → HAS_CARDS → LAST_LANE`) — now answers **the tick rather than
+  the bucket**, with the same one sentence *"Only
+  management adds a new bucket to the X catalogue."* A tick from a caller who is not management therefore writes
+  **nothing at all** — not the board, not the catalogue — because the check runs before any row is touched.
+- `BucketDefaultsService.chosenFor(type, posted, canManage, alreadyOnBoard, alsoForType = false)` is the create
+  popup's half of the same rule, and keeps Stage 73's **two passes**: every name is validated (and the tick's right
+  checked) before any `insert`, so a refused list cannot leave the first bucket in the catalogue and the second out.
+  A name the catalogue already holds is a no-op for the tick — **one row, not two** — and a name ticked twice by a
+  hand-built post is one column.
+- `ProjectDraft.bucketForType` (default false) feeds `ProjectService.create(… alsoForType = draft.bucketForType)`,
+  and both POST routes read the flag from the same field name: `fields["also_type"].orEmpty().isNotEmpty()`.
+- `Application.kt`'s `laneRedirect` adds **`widen=1`** to the URL when a save was refused *and* the tick was pressed,
+  and `openingLaneForm` reads it back (`forType = query["widen"] == "1"`), so the box comes to the reader still
+  ticked instead of making them ask twice. It is not added on a success, because the sentence that landed already
+  said whether the category widened.
+- `Projects.kt` draws the box. `bucketNewLine(type, newBucket, off, widen, ticked)` (written for the create popup
+  **and** the project page's picker — *since **Stage 79** the page's picker is gone, so this call site is the create
+  popup alone, and the board's tick is the `laneAddBody` half below*) puts a `label("bucket-widen")` with `input(name = "also_type")` under the new-bucket field,
+  reading *"Also make it a default bucket for X"*, plus `p("bucket-widen-why")` saying what each state means;
+  `widen` is passed as `canManage`, and the project page's own caption tells a manager who sees no box why:
+  *"It belongs to this project; X is only told about it if management tick the box below."* The column popup's add
+  body (`laneAddBody`) is the same rule in the other shape — the tick and its `p("modal-scope")` explanation are
+  drawn `if (canManage)`, so a non-management reader is never shown a box that would be refused. *(**Stage 79** left
+  that caption where it is, inside `laneAddBody` — that sentence and the tick are now the page's only copy of this
+  rule.)* In `app.css`,
+  `label.bucket-widen` is `flex: 1 1 100%` (the tick takes its own line under the name field, inside the picker's
+  wrapping row) and `p.bucket-widen-why` is muted 11.5px. *(**Since Stage 92** the create popup's half is gone with the
+  picker it sat in: `laneAddBody` is the tick's only home, and so is this paragraph's caption.)*
+- The answer text follows the write rather than the role: `"Saved: $board"` and only a widened name appends
+  *" — Dewatering added to the Site projects catalogue, so new projects of that category are offered it"*, so an
+  unticked press is never receipted as a change to every future project.
+
+**Also fixed while documenting this (the same day, same deploy).** `Settings.kt`'s bucket card still taught the old
+rule — *"A bucket typed into a project's own picker lands here too, which is how the catalogue grows out of real
+work rather than out of a form nobody fills in"* — which Stage 77 made false, and a reader who widened nothing here
+would have found the page claiming their project's private columns should have appeared in its list. The caption now
+says the reach is behind the tick (*"…it lands here only when management tick the box under the name that asks for
+it… Left clear, that bucket is one board's own."*), and `bucketDefaultsPanel`'s KDoc names both the tick and
+`alsoForType`. `SettingsRenderTest` pins the sentence and **denies** the old one.
+
+**Why a tick, and why management-only.** The catalogue is a company-level statement about a category, and the ask
+called for the opposite: boards that differ from each other. Automatic widening made one project's private column a
+rule for every future project of that type, which is what the user's *"every project has their own buckets created"*
+objects to. So the split is by **reach**, not by the right to write a name: re-shaping one board is the manager's,
+deciding what every future board of that category is *offered* stays the company's, and the only thing that crosses
+that line is a deliberate tick that is not shown to anyone who cannot make it stick. The catalogue remains an offer,
+not an order (Stage 73): a widened name is *offered* to the next project of that category and lands on its board only
+if that form ticks it. *(**Stage 98** changed what "the next project" does with the offer — `ProjectService.create` now
+ticks the whole catalogue itself, so an offer lands without anybody pressing anything. What the tick still governs is
+the *other* boards of the category: a widened name never reshapes them, and that is the half of Stage 77 that stands.)*
+
+**If this is restated.** Never re-propose: a typed bucket widening its category **by itself** — that is the exact
+behaviour this stage was asked to stop, and it is now behind `alsoForType && canManage` in both writers; a refusal of
+a project's own manager's `new_bucket` (Stage 76's answer is withdrawn — the right to name a project-local column is
+`mayEditLanes`); the tick drawn for a non-management reader, or a hand-built `also_type` from one being honoured, or
+one that is silently dropped instead of refused at the field; the tick defaulting to **on** (off is the answer the
+reader means almost every time); a tick that dedups nothing, so `Engineering`-style names or a name the catalogue
+already holds grows a second row or a second column; `CATALOGUE_DENIED` reordered after `HAS_CARDS`/`LAST_LANE`, which
+would tell a reader their tick was refused for the wrong reason; or a `widen=1` on a successful save. Deliberately
+untouched: V16's three seeded phases, `LaneError.LAST_LANE`, Stage 73's two-pass validation and locked-by-card-count
+boxes, the create popup's disabled-not-hidden category sets, and the fact that changing the catalogue never edits an
+existing board.
+
+**Tests.** Suite **590 → 598** / 39 classes, 0 failures. `TaskServiceTest` 104 → **107**: `a name the category does
+not know is this project's own column` (re-point of the Stage 73 case that read *…is management's to invent* — the
+manager's unticked add lands, management's unticked add lands no further either, and a rightless caller is still
+refused outright), `the tick under the add box offers a new name to every future project of the type` (board **and**
+catalogue, and the receipt says so), `a tick from a caller who is not management is refused and writes nothing`
+(`CATALOGUE_DENIED`, board unchanged, catalogue unchanged), and `a phase name put back on a board is neither a
+refusal nor a catalogue write` — a manager may take **Engineering** off and put it back, and that lands at the right
+end of the run in the domain's own spelling without touching the category's list. `ProjectServiceTest` 30 → **32**:
+Stage 73's `a bucket typed on the create page goes on the board and into the category's catalogue` was split into
+`a bucket typed on the create page is this project's column alone` (and the next project of that type is not offered
+it) and `a typed bucket ticked for the type also joins the category's catalogue`, with
+`a tick for the type on a name the catalogue already has writes one row, not two` added — three names written, one
+retired, so the file moves by two. `ProjectsPageRenderTest` 37 → **40**: `the create popup asks whether a typed
+bucket is for the category as well`, `the project page offers the category tick to management only`, `the column
+popup's add asks management, and asks nobody else, about the category`. `SettingsRenderTest` gained two assertions
+inside the existing bucket-card case rather than a case of its own.
+*(**Stage 79** retired the middle of those three names with the panel it tested. The tick's rights are now pinned where
+the tick lives — `the column popup's add asks management, and asks nobody else, about the category` — and the wider
+rule, who may see any bucket control at all, by the case Stage 79 wrote for it:
+`the bucket controls are the project manager's too, and nobody else's`.)*
+
+**Verified over real HTTP, on a throwaway first.** 43 checks (`TOTAL=43 FAILURES=0`) on a fresh database under
+`%TEMP%` on port **8096** (seed off, own `PTS_DB_PATH`, classpath of `build/classes` + `build/resources` + the dist
+jars with `murray-pts-2.0.0.jar` excluded so Flyway does not see every migration twice), driven as management and as
+a hand-made second account named manager of one project: a plain create opens exactly the three phases; a create with
+`new_bucket=QA hold` and **no** `also_type` puts it on that board's fourth column and leaves Settings saying the
+category *"offers no buckets of its own"*; a create **with** `also_type` lands the name on its board *and* in the
+category's catalogue; a later project of the category is not forced to take it, and takes it when its form ticks it.
+On a project page: management see `name="also_type"` and the box names the category and explains off/on; after a save
+every tick is left clear; management's ticked add answers *"added to the Site projects catalogue"* and grows the
+catalogue to both names. The second account — that project's own manager — reaches its board, is offered
+`name="new_bucket"` and the copy that the column *"belongs to this project"*, and is **not** shown `also_type` at all;
+their unticked add saves and the answer says nothing about a catalogue, while a **hand-built** `also_type` from them
+comes back as *"Only management"* in a `p.field-err` at the field (not a banner), with the board exactly as it was and
+the catalogue untouched; a refusal under an otherwise-valid ticked name returns with the tick **still pressed** and
+adds nothing. The rows themselves were then read straight out of the throwaway with `jshell` + the sqlite-jdbc jar
+(`type_default_buckets`, the boards' `project_buckets`, the user count) after the JVM was stopped, so the HTTP
+answers and the stored rows were checked separately.
+
+**Deploy note.** No migration; schema stays **v16** (the live log reads `Current version of schema "main": 16 … No
+migration necessary`). The live JVM (PID **27596**) was stopped, `data/pts.db` copied by script to
+`data/pts.pre-stage77b-20261026-145110.db` + `-wal` (356,352 bytes; the two earlier `pts.pre-stage77-*` snapshots are
+the same live database from the first Stage 77 deploy), then `installDist` — the dist jar is stamped
+**2026-10-26 14:51:22** — and the instance was launched **detached** (`Start-Process cmd.exe '/c',deploy\run.bat
+-WindowStyle Hidden`, never from a backgrounded task, whose process tree is torn down when it is reaped). It answers
+on 8080 as PID **27772**, started **14:54:08** — after the jar — with `Responding at http://127.0.0.1:8080` in
+`logs/pts.log` and `/` → 200. The packaged caption was proved off the jar rather than off the source: `jar xf`
+extracting `mn/murray/pts/SettingsKt.class` **with its package directories into a scratch dir** (extracting into the
+repo root silently leaves a stray `mn/` tree and makes `javap -classpath <scratch>` find nothing), then
+`javap -verbose` shows constant `#1569` holding the new sentence and **no** `picker lands here too`. **A reader needs
+Ctrl+F5 once** — Kotlin-rendered text and CSS both ship from the classpath inside the jar and the markup carries no
+cache-buster.
+
+## Stage 78 — A project's card is its title, its plan line, and a foot line saying how far and who (2026-10-27, live, no migration, Kotlin + CSS)
+
+**The ask.** *"when the user click on a project if project has tasks it show what bucket has what tasks just like shown
+in image"*, with a picture of a three-column bucket board whose cards carry no code, a coloured dot + stage word on
+their own bottom line beside the holder's avatar, and a background tinted by that stage. The grouping half of the ask
+was already live (Stages 74/75: a project page *is* its buckets, each column headed by its name and count), so the
+picture's difference from the running build was entirely inside the card. Asked which half to move, the user chose
+**match the picture exactly** — which is a direct instruction to reverse two decisions Stage 76 drew deliberately: the
+stage word as a pill on the code line, and a tint reserved for finished cards.
+
+**What changed.** Three lines of `taskCard` (`TaskBoard.kt`), and the card is now read top-to-bottom as
+**title → priority · due · percentage → stage word + holder**, on a lane board:
+
+- `div("kcard ${statusSlug(task.status)}")` is **unconditional**, where Stage 75/76 emitted plain `class="kcard"` for
+  an open card on a lane board. The five `.kcard.s-*` tint rules already existed for the status boards, so widening the
+  tint needed **no new CSS at all** — only removing the `if` that withheld it.
+- The code chip is now `if (!laneBoard) { div("kcard-top") { span("tcode") { +taskCode(task.id) } } }`. A project card
+  prints no number: the page it sits on already names the project, and the number is in the popup its click opens.
+  *(Stage 88 later changed what that chip carries on a status board — the card's project code, or a backlog card's
+  bucket — while leaving this lane-board rule and the chip's markup shape as they are.)*
+- The avatar moved off `.kmeta` onto a `div("kmeta kfoot")` line of its own, which a lane board emits and a status
+  board does not, and the stage word is emitted into that line rather than into `.kcard-top`. Its markup string is
+  byte-identical to Stage 76's — `span("kstat ${statusSlug(task.status)}") { +task.status }` — so the exact-markup
+  assertions written last stage survived the move untouched; only the line it sits on and its stylesheet changed.
+  `.kmeta.kfoot { justify-content: space-between }` already existed for the backlog's avatar line, so the foot needed
+  no layout rule either.
+
+In `app.css`, `.kstat` stopped being a pill: it is now the word in `var(--title)` with a `::before` dot, and the five
+`… .s-<stage>::before { color: … }` rules carry the board's existing five hues on the **dot alone**. Ten background
+rules (five light, five `html[data-theme="dark"]`) were deleted; no dark override replaces them because the dot hues
+are the shared palette values that read on both themes. `.kcard-top` and `.kcard-top .tcode` stay, because the
+Assigned board still uses them.
+
+**Why the tint reversed rather than the word.** The picture's card has to be readable from across the room, and a
+lane board's heading names a *phase*, so the tint is the only thing on that card that says where the work itself got
+to — Stage 76's "five cards painting the same amber five times" objection only holds where the heading is the same
+word. *Not started* deliberately keeps a bare grey left edge with no wash, which is what its `.kcard.s-notstarted`
+rule has always been: an unstarted card is not a problem to be coloured.
+
+**Why the status boards did not move.** **Assigned tasks** keeps its `T-0000n` chip on `.kcard-top`, prints no
+`kstat` and no `.kfoot`, and keeps its holder inside `.kmeta`: its five columns *are* the stages, so the word is the
+heading. The **Other tasks** board is untouched by this stage — its `otherCard` in `OtherTasks.kt` never had a chip,
+still prints no stage word, and keeps `class="kcard s-other"` (a grey edge) rather than a status tint.
+*(**Stage 95** keeps the chip and the silence exactly as written here and reverses only the last half: the backlog
+card now wears the same status tint every other card wears, and `s-other` — which was that edge colour and the
+whole-card opener's layout hook at once — is now `kcard-overlay`, a hook with no colour in it.)*
+
+**If this is restated.** Never re-propose: a `tcode` chip on a project's lane card (this stage took it out on the
+user's instruction, and the popup is where the number lives); a stage word on the **Assigned** or **Other tasks**
+boards, whose column heads are that word; the pill *background* coming back on `.kstat` (the dot is the idiom the
+priority beside it already uses — `.prio::before` — and one card holding two boxed chips is the reason the pill was a
+compromise in the first place); a sixth colour, or a tint for *Not started* beyond its grey edge; or moving the
+avatar back into `.kmeta` on a lane card, which is what made the foot line crowd — the fixed 288px column fits
+priority · due · percentage, and does not fit a fifth cell plus the stage word. Deliberately untouched: `statusDot`
+and the column heads, `cardBodyRegion`'s live-swap scope (the foot is **outside** `kbody`, so a step ticked in the
+popup repaints the percentage and not the stage — the stage only changes on a move, which reloads), the drag source
+`data-task-card` and its `tabindex`/`aria-label`, and Stage 77's `also_type` tick.
+
+**Tests.** Suite **598 → 599** / 39 classes, 0 failures. `TaskBoardRenderTest` (63 → **64**) gained
+`a lane card carries its stage and its holder on one foot line`, which denies `kcard-top` and `tcode` on the whole
+lane render, slices the card at `<div class="kmeta kfoot">` and requires both the `kstat s-notstarted` span and the
+`avatar xs` inside it, then reads the `kbody` line above and requires `prio p-high` while denying it `avatar` — the
+holder is on one line, not both — and renders the status board to require `<div class="kcard-top"><span class="tcode">`
+and deny `kfoot`. `a lane board prints the stage and a status board leaves it to its column` now asserts the word
+**and** `class="kcard $slug"` at each of the five statuses. `a finished card on a lane board offers to reopen itself`
+flipped: it had denied `class="kcard s-inprogress"` on an open lane card, and now requires it.
+
+**Verified over real HTTP, on a throwaway first.** 56 checks, 0 failures, on a fresh `%TEMP%` database on 8096 (seed
+off, own `PTS_DB_PATH`, boot off `build/classes` + `build/resources` with the dist's own application jar excluded):
+two roster people added through `POST /app/settings/employee/save` so a card's avatar has initials to print, a project
+through `POST /app/projects`, four cards filed across the three phases with three different priorities and holders.
+The board then reads as four `data-task-card`s, **zero** `kcard-top`, **zero** `class="tcode"`, four `kmeta kfoot`,
+four `kstat`, four `avatar xs`, and per-status tint counts of 1/2/1 matching the four cards. One card sliced at its
+foot proves the order (title and meta above, stage word and holder inside the foot, priority with no avatar above it),
+and that card then walked through all five statuses proves word and tint together at every one. `/app/assigned-tasks`
+— read as the manager of a card assigned to them, since the board is personal since Stage 53 — keeps five
+`class="kcol" data-status`, its `tcode` chip, no `kstat` and no `kfoot`, with its holder back on the meta line. The
+served stylesheet was fetched over HTTP and read: `.kstat::before { content:` present, five `.kstat.s-` dot rules,
+zero pill backgrounds. Screenshots of both pages (CSS inlined into the **whole** saved page, headless Chrome at
+1440px, fresh profile per call) match the picture's card: amber *In progress*, orange *On hold*, red *Blocked*, green
+*Completed*, grey-edged *Not started*, no code, one foot line.
+
+**Deploy note.** No migration; schema stays **v16** (the live log reads `Current version of schema "main": 16 … No
+migration necessary`). The live JVM (PID **13304**) was stopped, `data/pts.db` + `-wal` + `-shm` copied by script to
+`data/pts.pre-stage78-20261027-090930.db*`, then `installDist` — the dist jar is stamped **2026-10-27 08:59:04**, after
+both source files — and the instance was launched **detached** (`Start-Process cmd.exe '/c',deploy\run.bat
+-WindowStyle Hidden`, never from a backgrounded task). It answers on 8080 as PID **28296** with `/` → 200 and
+`GET /static/css/app.css` serving five `.kstat.s-` dot rules and no pill backgrounds. The renderer was proved off the
+packaged jar, not the source: `unzip -o -d <scratch>` of `mn/murray/pts/TaskBoardKt.class` from
+`build/install/murray-pts/lib/murray-pts-2.0.0.jar` then `javap -verbose` shows the concat recipes `kcard \u0001` and
+`kstat \u0001` in the constant pool and the literals `kmeta kfoot`, `kcard-top` and `tcode` — a concatenated class
+string leaves no standalone `ldc`, which is why `-v` and not `-c` is the read here. **A reader needs Ctrl+F5 once** —
+the card's lines are Kotlin-rendered and the dot's rules are `app.css`, both of which ship from the classpath inside
+the jar, and the markup carries no cache-buster.
+
+## Stage 79 — A project's buckets are its columns, and the page carries no list of them (2026-10-27, live, no migration, Kotlin + CSS)
+
+**The ask.** *"no need this part when clicking on the project"*, with a picture of the panel that sat above a
+project's board: caption *PROJECT BUCKETS*, the line "Tick the buckets a card on this project can be filed in…", three
+ticked boxes (Engineering, Procurement, Production), a `New bucket, e.g. QAQC` field with **+ Add bucket**, an unticked
+*Also make it a default bucket for Fabrication/Manufacturing*, and a **Save buckets** button
+(`C:\Users\user\OneDrive\Pictures\Screenshots\buckets1.png`). No question was asked, because the same user's
+`project.png` mock already draws a `⋯` on every column head and a dashed `+ Add bucket` box at the end of the board —
+so the ask was to delete the *duplicate*, not the right. A tick-list of a board's columns, standing above that board,
+asked the reader to hold two pictures of one thing in mind; the picture they sent says the board is the picture.
+
+**What changed.** Only the project page, and only by subtraction:
+
+- `projectBucketPanel` — the `<details>`-style block, its `id="projectBuckets"` caption, its run of
+  `label.bucket-opt` boxes and its **Save buckets** form — is **deleted** from `Projects.kt`. `projectDetailContent`
+  lost the `bucketForType` plumbing that panel alone consumed, and what it prints below the header is now the board,
+  the board's popups, and the card popup. Nothing else.
+- `bucketOption(name, ticked, off)` is down to **two** states. Stage 73 gave it a third — *ticked and locked*, a
+  checked box wrapped in `disabled` with a hidden `<input type=hidden name="bucket">` twin behind it, because a
+  disabled box posts nothing and a bucket that holds cards must survive the save that cannot untick it. That state
+  existed **only** for the panel, so it and its twin are gone; the create popup's picker keeps the surviving two.
+- `openingLaneForm` answers with `LaneEntry(form, noteOnBoard)` where `noteOnBoard = !inPopup`, and
+  `inPopup = refused && bucketsrc == "board" && (add || laneId != 0)`. The consequence is the sentence a bucket write
+  leaves behind: a name refused at the field prints inside the popup under the box that typed it (`field-err`), and
+  every other answer — *Saved: 3 buckets on this project.*, a `HAS_CARDS` refusal, the last-column refusal from a
+  delete — prints over the board as `p("bucket-said ok|err")` (Projects.kt:1203). Before this stage the panel was a
+  second home for that line and it needed both.
+- `app.css` lost the panel's own rules and gained the button's: `.bucket-panel .panel-caption` and
+  `.bucket-panel form` are deleted (`.bucket-panel` matches nothing under `src/` any more), while the picker classes the
+  **create popup** still uses — `.bucket-pick`, `.bucket-set`, `.bucket-opt`, `.bucket-new`, `label.bucket-widen` —
+  stay untouched, and `.bucket-said` keeps its `flex: 1 1 100%` because that line is still a flex item inside the
+  popup's picker. In their place came `.submit.danger-btn`, its `:hover:not(:disabled)` arm, and a **`:disabled`** arm
+  drawn as a shut control (`--input-border` / `--muted` / `--input-bg`, `cursor: not-allowed`). See the specificity
+  note below.
+
+**What did not change.** All three routes (`/app/projects/{id}/buckets` with its `rename` and `delete` twins, plus the
+whole-set `/buckets/save`) stay wired and stay `mayEditLanes` = `mayAddTasks` — management **or** the account this
+project names as its manager. `TaskService.saveLanes` is untouched, so the whole-set write still folds
+`posted + newBucket` into one case-insensitive set and still refuses `HAS_CARDS` / `LAST_LANE` / `BAD_NAME` /
+`CATALOGUE_DENIED` at the service. The column popup's three forms, the dashed `+ Add bucket` box, the create popup's
+bucket picker and Stage 77's `also_type` tick all still stand. **No migration**: schema stays **v16**.
+
+**Why the removal cost no capability.** The panel was the page's visible copy of a list the board already *is*. The
+whole-set write survives without a tick-list because the popup's add form posts a hidden `bucket` twin for **every**
+lane the board currently holds alongside its `new_bucket` — that is how one column is added without losing the others.
+The locked box was the panel's way of saying "this column has work in it"; the popup says the same thing where the
+column is, from the same source the service consults (`ProjectBucketRepository.cardCounts`): `p.modal-scope` prints
+*"This column has 1 card filed in it. Move them to another bucket first…"*, or for the last column *"A board keeps at
+least one bucket, so this one cannot go. Add another column before removing this one."*, and **Remove bucket** carries
+`disabled = !(held == 0 && !lastLane)`. Both rules remain service-side, so a hand-built POST that bypasses the button
+is refused with the same sentence — the button merely stops a click that could not work.
+
+**The one CSS finding.** The selector is `.submit.danger-btn`, **not** `.danger-btn`. `base.css` styles
+`button.submit` — a class *and* a type — which beats a lone class selector on the specificity tie, whatever the source
+order, so a bare `.danger-btn` red never landed and the button kept the green of a save. The `:hover` arm needs
+`:not(:disabled)` for the same reason it needs the doubled class: a hover that repaints a shut button tells the wrong
+story.
+
+**Tests.** Suite **599 → 597** / 39 classes, 0 failures, 0 ignored (`build/reports/tests/test/index.html`, confirmed
+against the 39 result XMLs). The panel's own cases went with the panel; two `ProjectsPageRenderTest` cases now hold
+the shape: `the project page prints no bucket panel and its board holds the only bucket forms` denies
+`id="projectBuckets"`, *Save buckets*, *Project buckets* and `class="bucket-opt"` on the project page and requires the
+save route **exactly once**, inside the block after `id="projectLaneModal"`; and `the bucket controls are the project
+manager's too, and nobody else's` gives that manager the add box, one `kcol-menu` per column and the bucket form, and
+gives a Viewer neither the opener nor a form the route would refuse. `TaskBoardRenderTest`'s
+`a project page is cut by its buckets and carries no manager panel` pins the same absence plus the live swap —
+`data-live-target="#projectBoard"` and `data-live-extra="#taskLane,#projectLaneModal"` on that single form.
+`the column popup's add asks management, and asks nobody else, about the category` is where Stage 77's
+rights pin moved to, off the deleted panel case.
+
+**Verified over real HTTP, on a throwaway first.** **101 checks, 0 failures**, on a fresh `%TEMP%` database on **8097**
+(seed off, own `PTS_DB_PATH`, booted off `build/classes` + `build/resources` with `murray-pts-2.0.0.jar` excluded from
+the dist `lib/*` so Flyway cannot see V16 twice), across twelve sections: the panel's absence on a project page;
+**QAQC** added through the column popup's dashed box and appearing as a fourth `class="kcol" data-lane`; a name the
+board already holds landing with *nothing* added (`saveLanes` dedupes case-insensitively — this is not a refusal,
+whereas the older `addLane` route does refuse a duplicate); a 49-character name refused **at the field** with the
+popup still open and `bucket-said` at zero; a rename; the delete of an empty column; a delete refused on an occupied
+one, with the popup's count line and the unpressable button read off the served markup; the create popup's picker still
+offering the category's set; a non-management account that **is** this project's manager getting the controls and using
+them; a plain Viewer getting none of them and three hand-built posts landing on `/app/projects` having written
+nothing; and the **served** stylesheet, fetched over HTTP and counted — four `submit.danger-btn` hits (the rule, the
+comment, the hover arm, the `:disabled` arm), three `bucket-said`, **zero** `bucket-panel`, **zero** `projectBuckets`.
+Screenshots at `%TEMP%\pts79shot\project_board.png`,
+`column_popup.png` and `empty_column_popup.png` (CSS inlined into the **whole** saved page, headless Chrome, one fresh
+profile per call) show a page whose only bucket furniture is the board's own.
+
+**Deploy note.** No migration; schema stays **v16**. The live JVM (PID **28296**) was stopped first, then
+`data/pts.db` + `-wal` + `-shm` were copied by script to `data/pts.pre-stage79-20261027-102457.db*`, then
+`installDist` — the dist jar is stamped **2026-10-27 10:25**, after every source edit — and the instance was launched
+**detached** (`Start-Process cmd.exe '/c',deploy\run.bat -WindowStyle Hidden`, never from a backgrounded task). It
+answers on 8080 as PID **4324** (started 10:25:35) with `/` → 200, and `GET /static/css/app.css` over HTTP carries the
+four `.submit.danger-btn` hits. The renderer was proved off the packaged jar rather than from disk: `jar.exe xf` of
+`mn/murray/pts/ProjectsKt.class` into a scratch directory (the extraction lands in the **current** directory — a
+`Push-Location` mistake here writes `mn/murray/pts/…` into the repo root and then reports zero hits) and `javap` shows
+no `projectBuckets` / *Save buckets* literal left. **A reader needs Ctrl+F5 once** — the panel is Kotlin-rendered and
+the button's rules are `app.css`, and both ship from the classpath inside the jar.
+
+**If this is restated.** Never re-propose: a tick-list of buckets above a project's board (this stage deleted the
+second picture of one thing — the columns *are* the list); a locked/greyed tick box as the "this column holds work"
+signal, which is now the popup's count line over an unpressable **Remove bucket**; a page-top banner or a `flash` for a
+bucket refusal (the field's `field-err`, or one `bucket-said` line over the board — errors live at the thing they
+constrain); deleting `also_type` from the **create** popup's typed line, which is where a name is offered to the
+category and the only place that tick survives; an unscoped `.danger-btn` selector; or a second `/buckets/save` form
+anywhere on the project page. Deliberately untouched: `saveLanes` and its refusal set, the hidden twins the add form
+posts, `BucketDefaultsService` and the category catalogue, `#taskLane`'s live-swap scope, and Stage 78's card.
+
+## Stage 80 — A bucket wears a colour somebody chose, and a column's finished work folds away (2026-10-27, live, V17, Kotlin + CSS + JS)
+
+**The ask.** *"can you copy bucket and project related architecture and interface from this project to ours"*, with
+the standalone prototype `C:\Users\user\Downloads\murray_pts.html` attached. One AskUserQuestion settled the two
+things that could not be read off the picture: the **direction** (prototype → the Kotlin app, not the other way
+round) and the **scope**, answered as a multi-select of four and returned as two — *Bucket / board interface* and
+*Bucket data model + rules*. *Project fields* and *Rights model* were left out, so the prototype's project form and
+its role rules were not copied at all. Everything after that was worked out without asking: the resume instruction
+barred further questions, so the four conflicts listed below are **decisions made in the user's name, not answers
+received from them**, and each is restated here with the reason.
+
+**What the prototype actually holds** (read off its own source, since it is the design being copied): a bucket is
+`{id, name, color, tasks[]}`; a project is `buckets[]` plus `ARCHIVE`; deleting a bucket pushes its tasks into a
+project-wide `ARCHIVE` array (`ARCHIVE.push({task, projectId, bucket.id, bucketName})`) rather than refusing;
+`pickBucketColor()` returns `palette[Math.floor(Math.random()*palette.length)]` from **five** hexes
+(`#7c5cd6 #e0578f #2e9e5b #c9781f #1c5a91`) — **there is no colour picker anywhere in it**, a bucket's hue is a
+lottery; the rename is a `contenteditable` heading and the add is a `prompt()`; and the completed fold is
+`state.completedCollapsedByType` — a `▸/▾ Completed N` line per group, kept in browser memory.
+
+**What was ported.** Two things, both of which the app now does its own way:
+
+- **A bucket's own colour.** `V17__bucket_colour.sql` adds a nullable `colour_slot INTEGER` to `project_buckets`
+  and to `type_default_buckets`; `Tables.kt:105` and `:128` mirror it, and `domain/Task.kt:173` carries it on
+  `ProjectBucket`. **A slot, never a hex** (conflict 1, decided here): `BUCKET_DOT_COLOURS = 6` (Task.kt:237) is
+  the count Kotlin agrees with app.css's `.dot-0 … .dot-5` on, `BUCKET_COLOUR_NAMES` names them
+  (`blue amber teal violet rose slate`), `effectiveColourSlot(index, colourSlot) = (colourSlot ?: index).coerceAtLeast(0) % 6`
+  (:243) is the whole rule — *wear your own colour, else the shade of your position* — and
+  `colourSlotOf(raw)` (:256) reads a posted value back as **no answer at all** unless it is an integer in
+  `[0, 6)`. NULL is what every existing row has, so **no column on the live board changed shade when this shipped**.
+- **The completed fold.** `laneKanban` (TaskBoard.kt:542) splits each lane's cards into live and
+  `STATUS_COMPLETED`, prints the live ones, then `laneDoneToggle` (:677), then the finished ones inside
+  `div("kcol-done")` which carries `hidden` unless the column is named. A column with nothing finished in it prints
+  no line; the head's `kcol-count` still counts **every** card.
+
+**How each is wired server-side** (conflict 2: the prototype keeps both in the browser session, which would be a
+second source of truth on a page whose rule is *the server renders the board*):
+
+- The fold lives in the **URL**. `openDoneLanesOf(params)` (TaskBoard.kt:360) reads the repeated
+  `?showdone=<lane id>` keys; the route passes the set into the renderer (Application.kt:505), and each toggle is a
+  **GET form onto the project page** carrying *the set as it will be after the press* — this column in it when shut,
+  out of it when open, every other open column carried along. `app.js` already routes any form with
+  `data-live-target` through `sendToBlock`, which builds the URL with `new URLSearchParams(new FormData(form))`
+  (repeated names survive) and swaps `#projectBoard`. Scripts off, the same press loads the same page and the same
+  block comes back open, and the opened URL is bookmarkable.
+- The colour lives in the **form**. `bucketColourPicker(current, fieldName = "colour")` (TaskBoard.kt:718) is one
+  row of six `label.colour-opt` radio dots with a `colour-caption`, and it had exactly three callers:
+  `laneAddBody` (Projects.kt:728), `laneManageBody` (:828) and Settings' catalogue add line
+  (`bucketDefaultsPanel`, Settings.kt:929). The routes read `fields["colour"]` through `colourSlotOf` at
+  Application.kt:968 (Settings add), :1184 (board `/buckets/save`) and :1250 (`/buckets/rename`).
+  **Stage 83 took the row off both creation forms at the user's request**, leaving `laneManageBody` as its only
+  caller and `/buckets/rename` as its only reader; see the Stage 83 section.
+- **Every row is pre-checked at the colour the column already wears** — `laneCount % 6` on the add half,
+  `effectiveColourSlot(boardIndex, lane.colourSlot)` on the rename half,
+  `(DEFAULT_PROJECT_BUCKETS.size + extras.size) % 6` on the catalogue line. An untouched form therefore posts the
+  shade that is already painted, so a plain rename cannot recolour a column by accident, and a colour-only post is
+  still a legitimate write: `TaskService.renameLane` (:596) computes `recolour = slot != null && slot != lane.colourSlot`
+  and calls `ProjectBucketRepository.setColour` (:405) even when the name is unchanged. (Since **Stage 83** only the
+  rename half is left; creation has no swatch row to pre-check.)
+- A **refusal carries the swatch back**: `lanecolour=<slot>` on the project redirect (Application.kt:241, read at
+  :300) and `bucketcolour=<slot>` on the Settings one (:764), for the same reason `lanetyped=` carries the name
+  back — a reader should not answer the same question twice. A save that *landed* adds no such key. (**Stage 83**
+  removed `bucketcolour` with the Settings swatch; `lanecolour` still carries a recolour back.)
+- **One known limit, stated rather than papered over:** the fold does not survive a *bucket* write. The column
+  popup's save form names `#projectBoard` as its live target and its redirect carries `?buckets=ok…` with no
+  `showdone`, so adding or removing a column redraws the board fully folded. That was accepted because the moment it
+  happens is the moment the reader has just re-shaped the columns and is looking at the new head, not at a folded
+  block — and because carrying the set through would mean threading the open lanes into `projectRedirect`, which
+  answers six other writes that have no fold to lose. A *card* write never touches it: `/app/tasks/status` redirects
+  to its Referer, which is the URL that already names the open columns.
+
+**What was deliberately NOT ported** (conflict 3, the data-safety one). The prototype's
+**delete-a-bucket-moves-its-tasks-to-`ARCHIVE`** rule was refused, on a live production database with real cards on
+it: at the time PTS kept Stage 31's `HAS_CARDS` refusal, so a column with work in it could not go until the work
+moved. **Stage 81 superseded this at the user's later request** — a column now leaves with its cards, and they land
+in a project Archive panel that is on the page and shows them (see the Stage 81 section below). There is still no
+hidden archive *table*: the flag is on the card's own row. Also left behind: `contenteditable` rename and
+`prompt()` add (both are client-side writes with nowhere to print a refusal, and this app's four name rules —
+blank, `PROJECT_BUCKET_MAX`, duplicate, `CATALOGUE_DENIED` — are service-side), the prototype's **five** hues
+(the stylesheet already had six, and matching them would have meant repainting the calendar's and the Settings'
+dots for nothing), and its absence of `LAST_LANE` / duplicate / length rules. The prototype's project fields and
+rights model were out of the chosen scope and untouched.
+
+**The improvement over the source**, stated plainly because it is not a copy: the prototype has **no colour UI at
+all** — `pickBucketColor()` assigns a hue at random, so two buckets can collide and a reader cannot choose. The
+swatch row is what that design was missing, and it is the reason the stored value is a slot: a random hex could
+paint a column unreadable against either theme, whereas a slot can only be one of the six the stylesheet already
+carries. **Stage 83 kept the slot and the rule but moved the choosing**: a new bucket (catalogue or board) is painted
+by its place in the run, and the six swatches are offered when an existing column is recoloured from its `⋯`.
+
+**CSS.** Two blocks in `app.css`: `.colour-row / .colour-caption / label.colour-opt / .colour-opt input[type=radio]
+/ .colour-opt .bucket-dot` and its `:checked` ring and `:focus-visible` outline (around :770), and `.kdone-btn`
+with `.kcol-done[hidden] { display: none }` plus
+`.kcol .kcol-done + .kcol-empty, .kcol .kcol-done .kcard + .kcol-empty { display: none }` (around :1148). The radio
+is **faded to `opacity: .01`, not removed**, so the accessibility target and its focus ring survive; the fold's
+empty-column line steps out for a folded block, because a column holding only finished cards is not a column with
+nothing in it. `.colour-row` is `flex: 1 1 100%` with `margin: 2px 0 8px` so it takes a line of its own under the
+name box and whatever follows reads as the next question.
+
+**JS.** `kanban.js` changed in one place, and only because the fold moved the DOM: a card's column is no longer its
+parent, so `file()` asks `card.closest('.kcol')` instead of `parentNode`, and a drop lands **above** the fold line
+(`col.querySelector('.kdone-btn') || col.querySelector('.kcol-empty')`) so a card dragged out of Completed does not
+disappear under it. `count()` was already asking for every `.kcard` under the column, so the head's total is right
+either way.
+
+**Tests.** Suite **597 → 606**, in **39 → 40 classes**, 0 failures (`build/reports/tests/test/index.html`,
+recounted off the 40 result XMLs). The new class is `db/BucketColourMigrationTest`:
+*V17 adds one nullable slot to each bucket table and writes no colours* and
+*the slot is nullable, holds an integer, and a second boot changes nothing*. `TypeDefaultBucketMigrationTest` moved
+onto *the catalogue carries V12's four columns plus the colour V17 added*. The markup is pinned by
+`ProjectsPageRenderTest`'s *an empty board colours each bucket the way Settings colours it*,
+*a column that was given a colour wears it and one that was not wears its position* and
+*the colour a reader chose on the popup is the swatch checked when it comes back*; by
+`SettingsRenderTest`'s *a default that was given a colour wears it on the catalogue row*; and by four
+`TaskBoardRenderTest` cases — *a lane head is its colour, its name and its count*,
+*a column with a finished card folds it behind a count, and a column without prints no line*,
+*opening one column leaves the others folded and its own press closes it again*, and
+*an unfiled column keeps no fold and the status board keeps none at all*. The last of those is the scope rule
+written as a test: the fold is a **lane board** feature, so `#projectBoard`'s unfiled column, both status boards and
+the backlog print no line.
+
+**Verified over real HTTP, on a throwaway first.** **76 checks, 0 failures**, on a fresh `%TEMP%` database on
+**8097** (seed off, own `PTS_DB_PATH`, booted off `build/classes` + `build/resources` with `murray-pts-2.0.0.jar`
+excluded from the dist `lib/*` so Flyway cannot see the migrations twice). The sections cover: V17 on a real boot;
+the add half of the popup drawing six swatches pre-checked at the next position; **QAQC** added at `colour=5` and
+arriving as a slate dot on the fourth head; a rename to `colour=4` repainting the head with its name unchanged;
+`colour=9` and `colour=-1` reading as *no answer* so the column keeps its positional shade; a plain rename not
+touching the colour; a 49-character name refused **at the field** with the chosen swatch still checked and the word
+still in the box; the fold line drawn only where finished work exists, its `▸`/`▾` glyph, its `method="get"`, its
+`data-live-target="#projectBoard"` and its `showdone` hidden twins; `?showdone=<one>` opening exactly one of two
+folded columns and `?showdone=abc` folding everything; a Viewer's own board and the backlog carrying no fold at all;
+the Settings add line's colour, its refusal keeping the swatch and its panel coming back to the same category; a new
+project inheriting the named defaults **in their colours**; and the served stylesheet and `app.js` counted over HTTP.
+Screenshots at `%TEMP%\pts80shot\`: `board_folded.png`, `board_open.png`, `column_popup.png`,
+`settings_catalogue.png` (CSS inlined into the **whole** saved page, headless Chrome, one fresh profile per call).
+Two defects surfaced only in the pictures, and both were fixed before deploy: the add popup's caption under
+*Also make it a default bucket…* was written `p("modal-scope")`, whose `margin: -10px` pulls it up under a heading —
+on this line it landed **on top of** the bold label, so it now uses `bucket-widen-why`, the class that knows it
+follows a row of its own; and `.colour-row` needed a bottom margin so the category tick reads as the next question.
+
+**Deploy note.** **V17 is live.** The live JVM (PID **4324**) was stopped first, then `data/pts.db` + `-wal` + `-shm`
+were copied by script to `data/pts.pre-stage80-20261027-123125.db*`, then `installDist` (the dist jar is stamped
+**2026-10-27 12:31**, after every source edit), and the instance was launched **detached**
+(`Start-Process cmd.exe '/c',deploy\run.bat -WindowStyle Hidden`, never from a backgrounded task). It answers on 8080
+as PID **6708** with `/` → 200, and `logs/pts.log` records `Current version of schema "main": 16` →
+`Migrating schema "main" to version "17 - bucket colour"` → `Successfully applied 1 migration … now at version v17`.
+`GET /static/css/app.css` over HTTP carries the five `.colour-row` / `.kdone-btn` hits. **A reader needs Ctrl+F5
+once** — the swatches and the fold line are Kotlin-rendered and their rules are `app.css`, both of which ship from
+the classpath inside the jar, and the markup carries no cache-buster.
+
+**If this is restated.** Never re-propose: a **hex** in `colour_slot` or a `<input type=color>` (the hues are the
+stylesheet's, and a slot is the only value that cannot paint an unreadable column); storing the fold in
+`localStorage` or a script variable (the URL is the state — that is what makes it work with scripts off and be
+shareable); `contenteditable` or `prompt()` for a name
+(a write with nowhere to print its refusal); folding on a **status** board or the backlog (a status column *is*
+Completed, so its fold would hide the point of the page); or five hues to match the prototype. Deliberately
+untouched: `saveLanes` and its refusal set, `BucketDefaultsService`'s catalogue rules, Stage 77's `also_type` tick,
+Stage 78's card, `kcol-count`'s meaning, and the create popup's picker. **Archiving on delete has since left this
+list**: Stage 81 built it, with a panel that shows the cards rather than a bucket that hides them.
+
+## Stage 81 — A bucket leaves with its work, and the work waits in the project's Archive (2026-10-27, live, V18, Kotlin + SQL + CSS + JS)
+
+**The ask.** *"make buckets work same as murray_pts.html's buckets"*, with the standalone prototype attached — the
+same request Stage 80 answered in part. Stage 80 took two of the four things that sentence covers (a bucket's colour,
+the completed fold) and **named the rest as deliberately refused**: the prototype's *delete a bucket and push its
+cards into a project-wide `ARCHIVE`* was called a data-safety risk on a live database, and PTS kept Stage 31's
+`HAS_CARDS` refusal. Stage 81 is that sentence finished, at the user's later instruction: the prototype's archive is
+now the app's behaviour, built on PTS's terms rather than copied.
+
+**What the prototype does, and what is different here.** In `murray_pts.html`, removing a bucket filters it out of
+the project and pushes each of its tasks, with the bucket's id and name, onto one project-wide `ARCHIVE` array; an
+Archive sheet lists every row as *was in "…"* with **Restore** and **Delete**, restore files the card back into the
+bucket it remembers or the project's first bucket when that one has gone, and delete drops the entry for good. The
+shape of that behaviour is what shipped. What could not ship as written is the prototype's *storage*: its archive is
+a second array in browser memory, which on this app would be a second source of truth beside a server-rendered board.
+PTS keeps the card's own row instead (below), and every answer a reader gets is still the server's.
+
+**The model: a flag on the card, never a second table** (`V18__task_archive.sql`). Four columns on `tasks`:
+`archived BOOLEAN NOT NULL DEFAULT 0`, `archived_lane_id INTEGER` nullable, `archived_lane TEXT` nullable and
+`archived_on TEXT` nullable; `Tables.kt:177` mirrors them and `domain/Task.kt:94` carries them on `TaskItem`. The
+reason is the card's children. A PTS card owns its plan (`task_checklist_items`, V5), its log (`task_notes`, V6) and
+its lesson rows by foreign key; moving a card into an archive table would mean deleting and re-inserting it — which
+cascades those children away and hands them new ids — or duplicating three child tables behind an indirection.
+Flagging the row leaves every child exactly where it was, so *restored as it left* is not a promise the code has to
+keep: it is what the schema cannot avoid. A card that left with three of four steps ticked comes back with three of
+four steps ticked, the same notes by the same authors, and the same id — so Lessons, alerts and the forecast ledger
+never have to learn that a card was ever away.
+
+`archived` is the only thing a read has to know. `archived_lane_id` is the column, stored as a **bare integer with no
+foreign key**, and that is deliberate: the path that matters most deletes the lane row in the same breath, and a
+referencing column would be `SET NULL` by the very statement that archives the card — erasing the memory it exists to
+keep. It is therefore a **snapshot read as a hint**: restore goes back to that lane while the lane is still on this
+project, and otherwise to the project's first lane. `archived_lane` is the lane's *name*, for the panel's *was in "…"*
+line after the row is gone; a name can go stale, but it is only ever used to tell a story about the past, never to
+file anything. `archived_on` is the day, in the `yyyy-MM-dd` the rest of the app prints (`TaskService.archiveDay`,
+UTC), and it is the sort key that makes the panel newest-first. No index: the archived set is small by construction —
+work somebody took off a board — and a board reads its cards through `kind`, not through the archive. The card's
+`project_id` and `status` are deliberately untouched: an archived card still belongs to its project (that is what the
+per-project panel lists) and comes back where it got to, because *how far the work went* is not what archiving hides.
+
+**Every read that shows work hides an archived card, and every read that tells a story does not.** The board's own
+query (`TaskRepository.findByKind`, ProjectRepositories.kt:585) filters `archived eq false`, so an archived card is on
+no board — including the assigned board, which is the same query. `ProjectBucketRepository.cardCounts` (:334) filters
+it too, and in both of its two uses that is now the truthful answer: the head's count is live work, and the removal
+confirm's *"Its N card(s) will be moved to Archive"* is what the press will actually move. `AlertRepository.openTasks`
+(AlertRepository.kt:106) drops them so a due-date mail is not sent for work nobody is looking at, and
+`LessonRepository.taskChoices` (LessonRepositories.kt:120) drops them from the lesson task picker. The lesson *context*
+read is left alone: a lesson already written about a card is history, and history does not lose its subject.
+
+**The writers.** `removeLane` (TaskService.kt:577) is the prototype's delete: `mayEditLanes`, project/lane checks,
+`LAST_LANE` refusal when it is the board's only column, then `TaskRepository.archiveLane(laneId, lane.name, archiveDay())`
+**before** `ProjectBucketRepository.delete(laneId)` — the only order that works, since the delete fires
+`ON DELETE SET NULL` on `tasks.project_bucket_id`, and a card nulled first has already lost the column the snapshot is
+supposed to remember. It answers `LaneRemoval(archived, error)` (TaskService.kt:1404), and **`LaneError.HAS_CARDS` is
+gone**: an occupied column is no longer a refusal anywhere, so the route (`Application.kt:1515`) no longer re-counts
+after the page was drawn and the Stage 74 stale-page guard has retired with the error it protected. The board's
+answer names the work: *"That bucket is off the board, and its 3 cards went to Archive."* `saveLanes` (:860) is the
+same rule through the tick-box path: an unticked occupied lane has its cards archived before its row is dropped, and
+the closing sentence appends *"— 1 card went to Archive"* (`LaneSaveResult.message`, asserted in `TaskServiceTest`), so
+a reader who just took three cards off the board is told where they went rather than left to find the column empty.
+`LAST_LANE` is the one refusal left on that path: *"A board keeps at least one bucket — tick one to leave standing."*
+
+`archiveCard` (:600) is the second door in — one card, from its own popup. It refuses a backlog card (the Other tasks
+board is cut by status and has no lanes to come back into, and its cards keep management's hard **Delete task**), a
+card already archived (a second write would move the snapshot) and a card with no project; then it applies the same
+`mayEditLanes` line. `restoreCard` (:625) clears the flag and names a lane, returning the lane's **name** so the page
+can say where the card actually landed: the remembered lane while that row still belongs to this project, otherwise
+the board's first column (`ProjectBucketRepository.ofProject(projectId).firstOrNull()`), and null when there is
+nothing to restore into. `deleteArchived` (:653) is the panel's permanent delete, gated on the card *actually being
+archived and on this project*, so a hand-built POST naming a live card destroys nothing; the children need no
+cleanup because the FK cascade and `PRAGMA foreign_keys` do what `deleteAssigned` has always relied on.
+
+**The right is the board's, not the card's.** All five writes go through `mayEditLanes` (TaskService.kt:502, which is
+`mayAddTasks`) — management, or the account this project names as its manager. That is deliberately **not**
+`openableBy` (renamed from `editableBy` in Stage 86, when every reader could open a project card): an assignee may
+book time on a card, tick its steps and write its log, while taking the card off
+somebody else's board, putting it back, or destroying it for good is the project's call — the same line
+`deleteAssigned` has drawn since Stage 17 — the right Stage 81's archive button was drawn for, before Stage 84 took
+that button off the popup.
+
+**An archived card is not a card on any board, and Stage 81 had to say so three more times.** HTTP verification
+found it: archiving a card and then hand-typing `?edit=<id>` still opened the card's popup, courtesy of a page that
+had already decided the reader may write it. `openableBy` (:303, formerly `editableBy`) returns null for an archived card — still the first guard after Stage 86 widened the read — so the URL
+lands on the ordinary page; `updateAssigned` (:339) refuses a hand-built save with a `TaskField.PERMISSION` message
+naming the Archive (*"That task is in this project's Archive. Restore it before changing it."*); and `deleteAssigned`
+(:477) refuses an archived id even for management, because the panel's *Delete permanently* is the only permanent
+delete a project card has now. **Restore is the only way back**, from the panel, deliberately.
+
+**The UI: 🗄 in the project header, and `?archive=1` in the URL.** `archiveOpener` (Projects.kt:905) is drawn in
+**both** of the page's headers — management edits the strip above, a project manager who is not management reads it —
+and on `mayWriteLanes` alone: a Viewer gets no button, and a Viewer who bookmarks `?archive=1` gets the page with the
+panel shut (Application.kt:519 asks the role before it reads the key), which is Stage 74's rule that a control nobody
+may use is not drawn at all. The opener is a **GET form onto the project page** carrying a hidden `archive=1` when
+closed and none when open, so one press opens and the next closes, `data-live-target="#projectArchive"` swaps the
+panel alone, and with scripts off the same press loads the same page with the panel open. `projectArchivePanel`
+(Projects.kt:938) is that block: `#projectArchive.modal` with `style="display:block"` only when open, a head naming
+*Archived tasks (N)* and a ✕ that is the same GET form without the key, an `.archive-empty` line when there is
+nothing, and one `.archive-item` per card carrying its title, `"S-01 · was in \"Production\""` (the project code and
+the remembered name; *no bucket* when the snapshot is blank) and the two buttons. **Restore** and **Delete
+permanently** are POSTs to `/app/projects/{id}/archive/restore` and `…/archive/delete`, each with a hidden `taskId`,
+`data-live-target="#projectArchive"` plus `data-live-extra="#projectBoard"` so one press redraws both the list and
+the board, and the delete's `data-confirm` spells out that the steps and notes go with it and that it cannot be
+undone. Both redirects carry `?archive=1` (`laneRedirect`'s `archive` flag, Application.kt:236-243, set at :1597 and
+:1627), which is what makes the panel feel like a panel instead of a form that throws the reader out of the page on
+every press; a restore that had to land in the first column says so in its sentence rather than silently filing the
+card somewhere the reader did not ask for.
+
+**The card popup's foot now speaks by world, not by viewer** (TaskBoard.kt:1630-1670). A card filed under a project
+puts **Archive task** where **Delete task** used to be — a POST to `/app/tasks/archive` with `taskId`, `back`,
+`projectId` and `allbuckets` when the wide view is in use, no `edit` because there is no card to reopen, a confirm
+that says it leaves the board and waits in the project's Archived tasks, and the `.task-del` class Stage 72 solved so
+the two buttons share the note box's foot line. A **backlog** card keeps management's **Delete task**: the Other
+tasks board has no project page to come back from. `TaskForm.mayArchive` (:127) is the gate, and it is false for a
+non-edit, an archived card, a backlog card, a card with no project, an empty viewer, or a viewer short of
+`mayEditLanes` — so an assignee who opens their own card gets neither button, exactly as they never had the delete.
+**Stage 84 undid this split at the user's later request**: the popup offers management's **Delete task** on every card
+again, `TaskForm.mayArchive` and `taskArchiveForm` are gone, and a card reaches the Archive only by leaving with its
+bucket. The `/app/tasks/archive` route and `TaskService.archiveCard` survive, with no page printing a control for
+them; the bucket removal's own path is `TaskService.archiveLane` + `TaskRepository.archiveLane`, untouched.
+
+**CSS and JS.** `app.css` around :1342-1381 carries `.archive-panel` (max-width 560px), `.archive-head` /
+`.archive-title` with a dark-theme border, `.archive-item` / `.at-title` / `.at-meta` / `.at-actions` (plus the delete's
+metric override so the two small buttons sit level) and `.icon-btn.archive-btn.on`. `archive-modal.js` is the only
+script: it closes the panel on a backdrop press or Escape, finds `#projectArchive` afresh on every event because live
+swaps replace the node, and on close strips **only** the `archive` key from the address bar with `history.replaceState`
+— leaving `buckets`, `bucketnote` and `bucketsrc` untouched — so that shut really stays shut on reload and on Back,
+which is the one thing a close must guarantee. `app.js` needed no change: `data-live-target` + `data-live-extra`
+already fetch the page and swap both blocks.
+
+**Tests.** Suite **606 → 615**, in **40 → 41 classes**, 0 failures (`build/reports/tests/test/index.html`, recounted
+off the 41 result XMLs: 615 `<testcase>`). The new class is `db/TaskArchiveMigrationTest`: *V18 flags no card that was
+already on the table and keeps every lane filing* and *the flag defaults to zero, the snapshot is nullable, and a
+second boot changes nothing*. `TaskServiceTest` gained or rewrote *removing a lane puts its cards in the archive with
+the lane they stood in*, *an archived card comes back to its own lane when the lane is still on the board*, *archiving
+a card is the board's right, not its assignee's*, *only an archived card of this project can be deleted for good, and
+only by the board's right*, *a card in the archive cannot be opened, saved or deleted from the board*, *a board keeps
+its last lane*, and the two `saveLanes` cases about unticked occupied lanes (*a bucket that still holds cards is
+unticked with them, and they go to the archive* / *an empty bucket unticked beside an occupied one takes the occupied
+one's work to the archive*). `ProjectsPageRenderTest` pins the panel: *the header offers the Archive to the board's
+writers and draws it shut*, *the archive panel prints a put-away card with where it came from and the two things it can
+do*, and *an archived card is off the board, its column's count and the page's own list*. `TaskBoardRenderTest` pins
+the popup's split in four: *a project card's popup carries an Archive task button beside the note box*, *nobody else is
+offered the Archive or Delete task button*, *the two buttons share the note box's own foot line*, and *a delete from
+the wide backlog view comes back on that view*. *(**Stage 84 rewrote the first, second and third**: a project card's
+popup now carries **Delete task**, nobody but management is offered any button, and the foot-line case reads
+`>Delete task<` in either world; the wide-backlog case is unchanged.)*
+
+**Verified over real HTTP, on a throwaway first** (own `PTS_DB_PATH`, seed off, booted off `build/classes` +
+`build/resources` so Flyway could not see the migrations twice). An occupied lane removed from the board archived its
+card with the lane's id and name remembered and the column's count dropping to zero; the card was gone from the board
+and from the assigned list while the panel still showed `was in "…"`; restoring it after the original column had been
+removed landed it in the board's first column; an archived card's hand-typed `?edit=` came back as the ordinary page,
+and a hand-built save of it changed nothing; *Delete permanently* removed the row and the panel came back at
+*Archived tasks (0)* / *No archived tasks.*; `/static/js/archive-modal.js` was served 200.
+
+**Deploy note.** **V18 is live.** The live JVM was stopped, `data/pts.db` + `-wal` + `-shm` were copied by script to
+`data/pts.pre-stage81-20261027-1616.db*` (368640 / 0 / 32768 bytes), then `installDist`, then the instance was
+launched **detached** (`Start-Process cmd.exe '/c',deploy\run.bat -WindowStyle Hidden`, never from a backgrounded
+task). It answers on 8080 as PID **13020** with `/` → 200, and `logs/pts.log` records (UTC timestamps) `Current
+version of schema "main": 17` → `Migrating schema "main" to version "18 - task archive"` → `Successfully applied 1
+migration … now at version v18`, with `GET /static/css/app.css` and `GET /static/js/archive-modal.js` both 200. **A
+reader needs Ctrl+F5 once** — the 🗄, the panel and its rules are served from inside the jar and the markup carries no
+cache-buster.
+
+**If this is restated.** Never re-propose: an **archive table** or copied rows (the flag is what keeps the steps, the
+notes and the id intact, and restoring is one field off); a **foreign key** on `archived_lane_id` (the lane's deletion
+is the moment the snapshot must survive); filing an archived card under nothing or deleting it rather than restoring
+into the board's first column; **editing or saving an archived card without restoring it** (that is the gap this stage
+closed); archiving a **backlog** card (no project page, no archive — it keeps management's delete); storing the panel's
+open state in `localStorage` (the URL is the state, which is what makes it survive a reload and work with scripts off).
+*(The Stage 81 clause that a live project card must not have a hard **Delete task** was **reversed by Stage 84** at the
+user's request: a live card's popup destroys it again, management-only, and the panel's **Delete permanently** is the
+answer for a card already in the Archive.)* Deliberately
+untouched: `saveLanes`'s name/catalogue rules, toasts, the card popup's field set, the Other tasks board's columns,
+and the Stage 80 colour and fold.
+
+## Stage 82 — The three opening phases stand at the top of the bucket list (2026-10-27, live, Kotlin + CSS)
+
+**The ask.** *"can you copy what this doing on settings project bucket settings oshi no"*, with `murray_pts.html`
+attached again — the same prototype, this time pointed at one panel. In the prototype, `renderSettings()` draws
+**Project bucket settings** as a category `<select>` and then **one list**: `TYPE_DEFAULT_BUCKETS[type]`, which is the
+three base names (*Engineering*, *Procurement*, *Production*) plus whatever has been added, every entry a coloured dot,
+its name and a 🗑, followed by a name input and **+ Add**. PTS printed the same three as a separate read-only chip row
+above a list that held only the extras, so the two pages disagreed about where the three belonged.
+
+**What copying it as written would have meant.** In the prototype the three are ordinary entries: deleting one takes it
+out of that type's array, and the next project's board then opens with only the rest. That removal is *cosmetic* there
+— `defaultBucketsForType` falls back to the base three whenever a type's list is empty — so a prototype user can bin
+*Engineering*, see the row go, and still get an Engineering column on the next project. PTS's three are Stage 75's
+**opening set**: every board is born with them, and renaming or removing one is a project page's job. Making them
+bin-able here would promise a change the app does not make, and hiding them would lose the answer to *what does a new
+board open with*. The question was put to the user as a choice; the answer was **"Show all three as fixed rows"**.
+So the three are now the **first three rows of the same list** — the prototype's layout without its misleading bin.
+
+**The change is markup and two CSS rules, nothing else.** `Settings.kt`'s `bucketDefaultsPanel` lost the
+`div("set-row")` carrying the `lane-floor` chips and the `DEFAULT_PROJECT_BUCKETS.forEach` inside it; in its place,
+inside the `board-results` live region and above the extras, come three rows of the same shape the catalogue uses:
+
+```
+div("set-row phase-row") {  span(bucketDotClass(index))     // dot-0, dot-1, dot-2
+                            span("lane-name") { +name }
+                            span("phase-fixed") { +"Always on every board" } }
+```
+
+They are fixed by construction: no form, no `buckets/delete`, no id to post. The extras keep `dot-(3+index)` unless
+their row carries a chosen `colourSlot` (Stage 80), so the first extra is still a new board's fourth column. The
+caption was rewritten to say it in the open — *"The three phases at the top are on every board and cannot be changed
+here — a project's own page is where one of them is renamed or removed. The rows beneath them are this category's
+catalogue…"* — and the empty-catalogue line now points at the rows rather than a chip strip: *"&lt;Category&gt; adds no
+buckets of its own — its new projects open with the three phases above."* `app.css` dropped `.lane-floor`,
+`.lane-floor .chip` and `.lane-floor .chip.lane-chip` and added `.set-row.phase-row` (one flex line, left-aligned) and
+`.set-row .phase-fixed` (`margin-left: auto`, muted, no wrap) so the note sits where the bin does on the rows below.
+`.lane-chip` itself is untouched and still dresses the create popup's `bucket-floor` line (`Projects.kt`): that is a
+different page making a different promise — which buckets this new board will open with — and Stage 82 did not move it.
+
+**No data change.** `type_default_buckets`, `project_types`, V18's archive columns and the seeded board are all as
+Stage 81 left them; the panel still adds and removes catalogue extras through `BucketDefaultsService` with the same
+rules and the same `?lanes=` round-trip. A category with no extras still seeds exactly the three on its next project.
+
+**Tests.** Suite green at **615 / 41 classes / 0 failures** — the same count as Stage 81, because one
+`SettingsRenderTest` case was rewritten rather than a new one added. It now asserts three `set-row phase-row` rows with
+`bucket-dot dot-0…dot-2`, the three names, three `phase-fixed` cells reading *"Always on every board"*, no
+`chip lane-chip` anywhere on the page, no `buckets/delete` inside `#bucketDefaults`, the new empty line naming *"the
+three phases above"*, the caption's *"three phases at the top are on every board"* and its Stage 77 sentence, and the
+category picker unchanged. The CSS half asserts `.set-row.phase-row` and `.set-row .phase-fixed` instead of the
+`.lane-floor` rules that are gone.
+
+**Verified.** A throwaway on port 8097 (`PTS_SEED_DEMO=true`, temp DB, schema v18) served the panel with Engineering
+dot-0, Procurement dot-1 and Production dot-2 each wearing *"Always on every board"*, then the empty line, then the add
+row with its six swatches pre-checked at position 3. Adding **QAQC** at colour slot 3 produced a fourth row
+(`dot-3`) with its confirmed bin; removing it returned the panel to the empty state. A full-page screenshot was read
+before the instance was stopped.
+
+**Deploy note.** No migration — the schema stays **v18**. `data/pts.db` + `-wal` + `-shm` were backed up as
+`data/pts.pre-stage82-20261027-1704.db*` (368640 / 0 / 32768 bytes), then the live JVM (PID 13020) was stopped,
+`installDist` run, and the instance launched **detached** on 8080 (PID **14504**). `/` answers 200, `logs/pts.log`
+records *"Current version of schema \"main\": 18 … Schema \"main\" is up to date. No migration necessary."*, and the
+served `app.css` carries `.set-row.phase-row` and `.set-row .phase-fixed`. **Ctrl+F5 once** — the markup and the rules
+ship inside the jar with no cache-buster.
+
+**Follow-up — "when add a new bucket for a different category it saves on that category" (2026-10-28).** The panel
+looked right and the server was right; the page was not. Settings renders **two** `[data-live-region]` blocks — the
+Team roster (`#team-board`) and the bucket list — and `app.js`'s single-region `liveRegion()` returned the first. The
+category picker's `data-autosubmit` therefore fetched `/app/settings?lanes=<chosen>` and swapped the **roster**, which
+is identical for both categories; the bucket rows, the add line's hidden `lanes` and its *"Adds to … only"* label went
+on naming the category the reader had left. **+ Add bucket** then posted that old category, so the row appeared under
+it. The same address had a second seam: the team toolbar's own filter wrote a query with no `lanes`, and choosing a
+category wrote one with none of the roster's keys, so either view could silently reset the other on the next refresh or
+reload.
+
+The fix is in `app.js` plus named hooks in the markup. `regionFor(form)` climbs from the form to the nearest ancestor
+that holds a live region and falls back to the page's first, so the team toolbar (which stands above its board) keeps
+its old target while the bucket picker (`#bucketDefaults`) finds its own. `showResults(html, region)` now takes that
+region and matches the response's copy **by id** when it has one, because a two-region response carries both. The
+bucket list names itself `id="bucketDefaultsResults"`; the add line is `id="bucketAdd"` and the toolbar's hidden
+category is `id="bucketCategoryKey"`, both listed in the picker's `data-live-extra` so the hidden category and the
+label move with the rows. The team toolbar carries `lanes` and names `#bucketDefaults` in its own `data-live-extra`,
+so filtering the roster hands the card fresh hidden view fields; the bucket category form carries `viewCarriage(filter)`,
+so changing category keeps the roster's search, pickers and order. Both views now describe one address, and neither
+send can re-point the other.
+
+**Tests, again.** Still **615 / 41 / 0** — no case added. `SettingsRenderTest` pins `#bucketDefaultsResults` and both
+companions, and the toolbar's field list grew `lanes` (expected `lanes, q, position, role[, sort]`, with the comment
+saying why it is a carried key rather than a fourth control); the toolbar's companion assertion reads
+`#team-counts,#bucketDefaults`.
+
+**Verified over HTTP, end to end.** On the same throwaway (8097, schema v18), with the demo account's forced-change
+flag cleared in that temp DB only: switching **Fabrication/Manufacturing → Repair/Maintenance/other services** updated
+the rows, the empty line, *"Adds to Repair/Maintenance/other services only"* and the hidden `lanes` together, and
+**+ Add bucket** (`RepairProbe1`, `RepairProbe2`) wrote both rows to `type_default_buckets` under Repair and none under
+Fabrication. With the Team **Position** picker on *CEO*, the address read
+`?position=CEO&lanes=Repair%2FMaintenance%2Fother+services`; switching to **Site projects** then clearing Position kept
+`lanes=Site+projects` and the card on Site, and `SiteProbe1` was written there. Turning the team filter back on kept
+the category too — the reverse direction of the same bug.
+
+**Deploy note (follow-up).** No migration; schema stays **v18**. `data/pts.db` + `-wal` + `-shm` were copied to
+`data/pts.pre-stage82-fix-20261028-0820.db*` (368640 / 32768 / 531512 bytes), the live JVM (PID 14504) stopped,
+`installDist` run, and the instance launched **detached** on 8080 (PID **9704**). `/` answers 200, `logs/pts.log` reads
+*"Current version of schema \"main\": 18"*, and the served `app.js` carries `regionFor`. **Ctrl+F5 once** — the JS and
+the new ids ship inside the jar.
+
+**If this is restated, again.** Never re-propose: one global "first live region" lookup on a page that draws two;
+swapping only the rows while the add line (or the toolbar's hidden `lanes`) keeps the old category; letting the team
+filter write an address without `lanes`; or letting the category picker write away the roster's `q/position/role/sort`.
+The two views share one address deliberately — that is what makes a reload land on the pair the reader was looking at.
+
+**If this is restated.** Never re-propose: making the three **bin-able from Settings** (the prototype only appears to
+do so and its own fallback puts them back; PTS's three are a board's opening set, and a project page is where one is
+renamed or removed); **hiding** them to match the old extras-only list; restoring the **chip row** above the catalogue;
+renumbering the extras' dots from 0 now that the three are rows (the first extra is still a new board's fourth column);
+or copy the prototype's **random** `pickBucketColor()` (Stage 80's chosen-slot rule is the shipped answer). Deliberately
+untouched: the add line's six swatches and *"Adds to &lt;Category&gt; only"*, `BucketDefaultsService`'s refusal set,
+the create popup's `bucket-floor` chips, and every page that reads a catalogue row. (Stage 83 later took those six
+swatches off creation; the label, the refusal set and the chips stand.)
+
+## Stage 83 — Creating a bucket asks for a name, and the app paints the colour (2026-10-28, live, Kotlin)
+
+**The ask.** *"when creating a new bucket dont need to choose color system chooses it automatically"* — said right
+after Stage 82's fixed rows and the category-scoping fix, looking at Settings' **Project bucket settings** add line.
+
+**What it replaces.** Stage 80 put a six-swatch row beside every place a bucket was *named*: the catalogue's add line
+and the project page's **+ Add bucket** popup. The swatch was a slot into the stylesheet's six hues, pre-checked at
+the position the new row would take — so a reader who did not care could leave it alone and store nothing. It worked,
+but it asked a question the app can answer itself, on the one screen where the reader is doing something else
+(naming the category's offer). The colour exists to tell columns apart; it is not a decision that belongs in the
+act of naming one.
+
+**The change is deletion, not a new rule.** New buckets have always been allowed to carry **no slot**, and a null
+slot has always meant *wear the colour of my place in the run*
+([`mn.murray.pts.domain.effectiveColourSlot`](src/main/kotlin/mn/murray/pts/domain/Task.kt)). Stage 83 simply stops
+filling the slot in on creation:
+
+- `Settings.kt`: `bucketDefaultsPanel` lost its `chosenColour` parameter and the `bucketColourPicker(...)` call at
+  the end of the add form; `settingsContent` lost `bucketDefaultColour` and stops passing it down. The panel's
+  caption now says the dot is the colour of the row's place and that the app picks it. The add form is a name, a
+  hidden `lanes`, and the button.
+- `Application.kt`: `GET /app/settings` no longer reads `?bucketcolour=`, `respondSettings` lost the parameter, and
+  `POST /app/settings/buckets/add` no longer reads `colour` — the redirect is the same `?lane=…&lanes=…` it always
+  was, minus the swatch carry-back.
+- `BucketDefaultsService.add` lost `colourSlot` and calls `TypeDefaultBucketRepository.insert(category, name)`.
+  New catalogue rows are written `colour_slot = NULL`.
+- `Projects.kt`: `laneAddBody` lost the picker and its now-unused `laneCount` argument; the create half is the name,
+  the board's hidden `bucket` fields, the management tick and the buttons.
+- `TaskService.saveLanes` lost `newColourSlot` (and the `hue` it fed). Every lane this save creates — typed or
+  ticked from the catalogue — is written with no slot, so the board paints it by position. `POST
+  /buckets/save` no longer reads `colour`.
+- **Unchanged on purpose:** the rename half of the column popup ([`laneManageBody`](src/main/kotlin/mn/murray/pts/Projects.kt))
+  still draws `bucketColourPicker`, and `TaskService.renameLane` still writes the slot. Recolouring a column that
+  is already on the board is a decision about a thing the reader can see, and it is now the picker's only home.
+  Stage 80's storage, the six hues in `app.css`, and every existing shaded row are untouched — a catalogue row or
+  lane that already carries a slot keeps wearing it.
+
+**Why null rather than a stored "next slot".** A null slot is the app's existing answer for *no choice*, and it is
+the one that stays right if the row's place changes (a catalogue grows above it, a column is removed and re-added):
+the dot follows the run. Writing an explicit slot at creation would freeze the shade to a number that only happened
+to be next that day, and would make two players — position and stored slot — disagree later. The six hues stay the
+stylesheet's, and a new bucket cannot invent a seventh.
+
+**No data change.** No migration: `type_default_buckets.colour_slot` and `project_buckets.colour_slot` still exist,
+still nullable, and are still read by the same `bucketDotClass(index, slot)` call. Schema stays **v18**.
+
+**Tests.** **615 / 41 classes / 0 failures/errors/skipped** — no case added, three rewritten. `SettingsRenderTest`'s
+add-line test now asserts **no** `type="radio" name="colour"` and **no** `.colour-row` inside
+`/app/settings/buckets/add` (the Stage 80 assertions about six swatches and a pre-checked one are gone), while its
+dot assertions and the labelled-category assertion stand. `ProjectsPageRenderTest`'s empty-board dot count drops from
+three heads plus six swatches to **three dots only**, because the closed add half no longer draws a colour row; its
+swatch test opens a column's `⋯` (`LaneForm(laneId = …)`) instead of the creation half, and still proves six radios
+with the chosen one checked. `BucketDefaultsServiceTest` never passed a colour, so its add rules are unchanged.
+
+**Verified over HTTP, end to end.** Throwaway on 8097 (temp DB, schema v18, demo account). Settings at
+`?lanes=Fabrication/Manufacturing` served no `.colour-row` on the page and an add form of name + hidden `lanes` +
+button; posting `ColourProbe1` returned `?lane=LANE_ADDED&lanes=Fabrication%2FManufacturing`, printed the row as
+`bucket-dot dot-3`, and `type_default_buckets` held `colour_slot = NULL`. Project **3** (M-01, Fabrication) served
+no colour row with its popup on the create half; posting `ColourProbeLane` through `/buckets/save` put it on the board
+as head `dot-3` with `project_buckets.colour_slot = NULL`. The same column's `⋯` still drew **six** swatches with
+`value="3"` pre-checked, and posting `colour=5` with the unchanged name stored **5** and repainted the head `dot-5` —
+the recolour half is intact.
+
+**Deploy note.** No migration; schema stays **v18**. `data/pts.db` was backed up as
+`data/pts.pre-stage83-20261028-0852.db` (389120 bytes; the live database had no `-wal`/`-shm` sidecars at copy
+time), the live JVM (PID 9704) was stopped (force-stopped by `stop.bat` after the polite close was refused),
+`installDist` run, and the instance launched **detached** on 8080 from `deploy/run.bat` (PID **15560**). `/` answers
+200, `logs/pts.log` records *"Current version of schema \"main\": 18"*, and the shipped jar carries no
+`bucketcolour` string in `ApplicationKt` and `colour-row` only in `TaskBoardKt` (the picker the manage half still
+calls). **No Ctrl+F5 needed** — the change is server-rendered markup and pages are served `no-store`; no static file
+changed.
+
+**If this is restated.** Never re-propose: a swatch row on either creation form (Settings' add line or the project
+page's **+ Add bucket**); the `?bucketcolour=` carry-back on a refusal; storing a computed "next slot" at creation;
+removing the picker from the **rename** half as well (recolouring an existing column is where the choice belongs);
+or a random colour. The rule is one sentence: *creation names it, the run paints it, the column's `⋯` repaints it.*
+
+## Stage 84 — A card's popup deletes again, and the Archive belongs to the bucket (2026-10-28, live, Kotlin)
+
+**The ask.** *"when clicking on a bucket card add delete task button instead of archive task"* — said about a card
+standing on a project's bucket board, looking at the popup Stage 81 had given an **Archive task** button.
+
+**What it replaces.** Stage 81 split the card popup's foot by world: a project card posted to `/app/tasks/archive`, a
+backlog card kept management's **Delete task**. Stage 84 reverses the project half at the user's request. The Archive
+itself is untouched — it is still where a removed bucket's cards wait, restorable and destroyable from the panel — but
+its trigger is now only the **bucket's removal**, never a button on a live card.
+
+**The change is deletion, not a new rule.**
+- `TaskBoard.kt`: `TaskForm.mayArchive` is deleted, `taskArchiveForm` with it, and `modalNotes` ends in
+  `if (state.canEditAll) taskDeleteForm(task, back, projectId, showAllBuckets)` — one line for either world. The delete
+  form itself did not change: `taskId`, `back`, `projectId` (plus `allbuckets` on the wide backlog), no `edit`, no
+  `data-live-target`, `class="opener-form task-del"` beside the note form inside `.note-foot`, the confirmation naming
+  the card and saying its steps and notes go with it. Its KDoc now records that Stage 84 made it every card's button
+  again.
+- `Application.kt`: `POST /app/tasks/archive` and `TaskService.archiveCard` **stay** — a hand-built POST still archives
+  a card for the board's right — but the route's KDoc says plainly that *no page prints a control for it since Stage
+  84*, and `deleteAssigned` still refuses an archived row, so the two paths cannot be confused. The bucket-removal
+  path is a different call (`TaskService.archiveLane` + `TaskRepository.archiveLane`) and was not touched.
+- `TaskService.deleteAssigned` needed no change: `!canManage` refuses, `archived` refuses, otherwise the row goes with
+  its plan and log by the same `ON DELETE CASCADE`.
+- `Projects.kt`: `projectArchivePanel`'s KDoc re-tells the story — the panel still destroys an archived card, and the
+  live card's popup now carries the delete again.
+
+**Who is offered what.** The delete renders on `TaskForm.canEditAll`, which is management's flag and the same line
+`deleteAssigned` checks. A project's own manager — who may write the board and open the 🗄 — is **not** management and
+sees no delete; neither does the card's holder or a reader with no part in it. A card being created has nothing to
+destroy and prints no foot button. Nothing about the Archive panel's audience changed (management or the project's
+manager).
+
+**Why keep the archive machinery.** Removing a column has to put its cards somewhere they can come back from without
+losing their steps and log; destroying them in that motion would be a silent cascade on a control that says nothing
+about deletion. The flag, the lane snapshot, restore and permanent delete all stay exactly as Stage 81 left them —
+what went is only the second button on a live card.
+
+**No data change.** No migration, no new column, no change to `archived` / `archived_lane_id` / `archived_lane` /
+`archived_on`. Schema stays **v18**.
+
+**Tests.** **615 / 41 classes / 0 failures/errors/skipped** — no case added; three rewritten under a new Stage 84
+header in `TaskBoardRenderTest`, with the wide-backlog delete case moved under it unchanged: *a project card's popup
+carries management's Delete task beside the note box* (asserts
+`formPosting(html, "/app/assigned-tasks/delete")`, `>Delete task<`, the fields, no `edit`, no `data-live-target`, no
+`/app/tasks/archive`, `ghost-btn btn-sm danger`, `data-confirm="Delete <title>?"`, *This cannot be undone*); *nobody
+but management is offered the Delete task button* (the card's holder, a reader with no part in it, **and a project's
+own manager** opening a project card, plus a card being created); *the delete button shares the note box's own foot
+line* (`.note-foot`'s three declarations, the delete's metric block, `>Delete task<` after *Add note*); and the wide
+backlog delete case, unchanged. The Stage 81 Archive cases in `TaskServiceTest`, `ProjectsPageRenderTest` and
+`db/TaskArchiveMigrationTest` still pass as they stood.
+
+**Verified over real HTTP, on a throwaway** (port 8097, temp DB at v18, booted off `build/classes` + resources).
+Management opened `/app/projects/3?edit=5`: the popup carried exactly one destructive form,
+`action="/app/assigned-tasks/delete"`, `taskId=5`, `back=project`, `projectId=3`, no `edit`, no `data-live-target`, and
+the button text and confirmation above; neither that popup nor the backlog's carried `/app/tasks/archive`. Posting the
+delete answered **302 → `/app/projects/3`** and the row was gone. A `Viewer` account opening a project card got no
+popup and neither form. The backlog card kept its delete. The Archive still worked end to end: a probe bucket was
+added, a card filed in it, the set posted without it → *"… 1 card went to Archive"* with the row flagged and its lane
+snapshot written; `?archive=1` showed **Archived tasks (1)**, *"was in \"Probe84\""* and both buttons; **Restore**
+answered 302 with `archive=1` and *"That card is back on the board, in …"*, the card unflagged in the first column;
+re-archived and **Delete permanently**, the row and its snapshot were gone.
+
+**Deploy note.** No migration; schema stays **v18**. `data/pts.db` + `-wal` + `-shm` were copied while live to
+`data/pts.pre-stage84-20261028-0918.db*` (389120 / 41232 / 32768 bytes), the live JVM (PID 15560) was stopped
+(force-stopped by `stop.bat` after the polite close was refused), `installDist` run, and the instance launched
+**detached** on 8080 from `deploy/run.bat` (PID **9692**). `/` answers 200, `logs/pts.log` records *"Current version
+of schema \"main\": 18"*, and the shipped jar has **no** `Archive task` string in `TaskBoardKt` while `Delete task`
+is there and `static/js/archive-modal.js` still ships. **No Ctrl+F5 needed** — the change is server-rendered markup
+and pages are served `no-store`; no static file changed.
+
+**If this is restated.** Never re-propose: an **Archive task** button on a live card (the popup deletes); an archive
+button on *either* world; making the live card's delete archive instead of destroying; letting an assignee or a
+project's manager delete a card; a delete without the confirmation naming the card; deleting a **backlog** card by
+archiving it; or removing the Archive panel/restore/permanent delete (a removed bucket's cards still have to live
+somewhere). The rule is one sentence: *a live card is deleted by management, and a card whose bucket took it away waits
+in the Archive until it is restored or destroyed there.*
+
+## Stage 85 — The navigation drawer is a little narrower (2026-10-28, live, CSS)
+
+**The ask.** *"make the navigation drawer at bit narrow"*, with a screenshot of the drawer at its full height — a
+width request, not a restyle.
+
+**What changed.** `.sidebar`'s width and `flex-basis` drop from **264px to 240px** in
+[`app.css`](src/main/resources/static/css/app.css); nothing else about the shell moved. The caption under the logo,
+*PROJECT TRACKING SYSTEM (PTS)*, had been fitted to the old inner width with `letter-spacing: .14em` — at 240px the
+same line wrapped to two — so its tracking tightens to **.06em** at the same 10.5px/600. That is the only typographic
+change, and it is what keeps the drawer's head the same height. The comment beside the nine-cell read-only project
+header, whose arithmetic had named the 264px sidebar, now names 240px and a 1,138px panel.
+
+**Why 240 and not less.** The drawer scrolls (`overflow-y:auto`), so a Windows scrollbar takes 16px of the 240 before
+the content box is measured: 224px, less the 28px of side padding, leaves **196px** for a nav row. At that room every
+label is one line (rows measure 39px, the same as before), the `168px` logo still sits inside the padding, and the
+longest caption reads on one line with 0.63px tracking. Ten or twenty pixels less would start wrapping the caption or
+the badges, which is a restyle the ask did not make.
+
+**Verified on a throwaway** (port 8097, the Stage 84 build with the edited resource copied in): the sidebar measured
+**240px**, its client width **224**, `scrollWidth == clientWidth` (no sideways overflow), the caption's box **14px tall**
+(one line), all ten nav rows **39px**, and the logo's right edge at 182 against the drawer's 240.
+
+**Deploy note.** CSS only — no migration, no markup, no Kotlin, so no `data/pts.db` copy was taken. Live JVM 9692 was
+stopped (force-stopped after the polite close was refused), `installDist` run, and the instance launched **detached**
+from `deploy/run.bat` (PID **5280**); `/` answers 200 and `/static/css/app.css` carries `width: 240px`. **Readers need
+Ctrl+F5 once** — the stylesheet is a cached static file. The suite is unchanged at **615 / 41 / 0**: no test reads this
+width.
+
+**If this is restated.** Never re-propose: a width below 240 without reworking the caption (it wraps), letting the
+caption wrap, shrinking the nav type to fit, a collapsible/overlay drawer, or a restyle of the shell. The rule is one
+sentence: *the drawer shrank by 24px and the caption's tracking shrank with it; nothing else about the shell moved.*
+
+## Stage 86 — A card opens for every reader, and the write stays with its own (2026-10-28, live, Kotlin)
+
+**The ask.** *"when non management click on task card able to see the task but not modify"* — one sentence that can
+read two ways: open every card read-only, or keep the card shut to anybody but its holder and management. The user
+chose **Read any card, owner keeps their work**: every non-management account clicks any card on a board it can see
+and reads it — fields, plan, log — with no save, no tick and no note box; the card's own assignee keeps the writes
+Stage 23 gave them (start date, due date, priority, ticking steps, adding notes); management is unchanged. Nothing
+about *where* a card is listed moved.
+
+**The read gate widened; the write gates did not.** `TaskService.editableBy` is now **`openableBy`**
+([`TaskService.kt:303`](src/main/kotlin/mn/murray/pts/service/TaskService.kt)) and answers only "may this account open
+this card at all":
+
+```kotlin
+fun openableBy(id: Int, callerEmpNo: String, canManage: Boolean): TaskItem? {
+    val task = TaskRepository.findById(id) ?: return null
+    if (task.archived) return null
+    if (canManage) return task
+    if (task.isBacklog && task.assignee != callerEmpNo) return null
+    return task
+}
+```
+
+The archive guard stays first — a put-away card is on no board and Stage 81's `?edit=<id>` refusal still holds. A
+**project** card is on the project page, the one whole-project board every signed-in account may read since Stage 56,
+so any reader may now open it. A **backlog** card is on a board Stage 51 scoped to the reader's own cards, so a
+non-manager still opens only a backlog card they hold; management opens both. A typed `?edit=<somebody's backlog id>`
+renders the ordinary page (on Other tasks, the reader's own **New task** popup) and never the card. The KDoc says
+plainly that this is **only the read** — `updateAssigned`, `toggleChecklistItem` and `addNote` keep their own rules
+and refuse the stranger the popup now admits. `Application.kt` calls the rename in the popup load, the refusal
+re-render and its own KDoc.
+
+**The popup grows a third state.** `TaskForm` ([`TaskBoard.kt:222`](src/main/kotlin/mn/murray/pts/TaskBoard.kt)) adds
+flags beside the existing `mayWriteCard`:
+
+```kotlin
+val ownsCard: Boolean = task != null && task.assignee.isNotBlank() && task.assignee == viewerEmpNo
+val mayBookTime: Boolean = mayWriteCard || ownsCard
+val viewOnly: Boolean = isEdit && !mayBookTime
+val mayTick: Boolean = canEditAll || ownsCard
+val mayNote: Boolean = mayTick
+```
+
+`mayWriteCard` itself is unchanged, so the assignee's existing half is not re-derived. Presentation follows:
+
+- the heading is **`Task T-00008`**, not *Edit task …*, and a `p.modal-scope` sentence names the holder: *"This task
+  belongs to Batbayar Nyam. You can read its plan and its log; its fields belong to management and to the person it
+  is assigned to."* (`memberName()` resolves the number from the roster, falling back to the number; `noteAuthor()`
+  uses the same helper);
+- **every** field is disabled — title, project, assignee, status and lane through the existing `readOnly` branch,
+  start/due/priority through `!mayBookTime` — and each greyed picker still prints the stored value rather than the
+  roster;
+- there is **no Save button at all** (not a disabled one), and the button that closes the popup reads **Close**
+  rather than *Cancel*, because there is nothing to cancel. The element is still a `<form>`, so Enter posts nothing;
+- the plan is **readable and stopped**: `modalSteps` now runs for every edit, and `lockedReason` asks the *Completed*
+  rule first (the service's own order) and then `!mayTick`, giving *"This card belongs to somebody else, so its plan
+  is yours to read and not to work"*; each row is `stepRowLocked(item, reason)` — same `.chk-row`, same square, the
+  reason on its `title` — with no toggle form under it and no ×/*New step…* line (`canEditAll` still owns those);
+- the **log is visible** with each entry's author and day, but the × stays management's, and a stranger's popup has
+  **no `.note-foot` row at all** rather than an empty one: the box is drawn on `mayNote`, the delete on `canEditAll`.
+
+**Reading a card is not moving it.** Before this stage the click and the drag shared one `opens` flag, because only a
+writer could click. Splitting them is the whole safety of the widen: `taskCard` keeps `canMove = canManage || mine`
+and `draggable = mayDrag ?: canMove`, while `data-task-card`, `tabindex="0"` and `aria-label="Open …"` are now
+emitted for **every** card. A colleague's card on a project board therefore opens read-only but still prints no
+`draggable`, no `kmove-btn` and no **✓ Done / ↺ Reopen**; their own card opens, walks, ticks and takes notes exactly
+as before. On a project's lane board the drag remains `mayDrag` (Stage 49: management or that project's manager), so
+a plain viewer's own card there walks by the two arrows and not by a grab. *(**Stage 103** retired the arrows, so the
+lane board's own **✓ Done / ↺ Reopen** is what that reader has — which is what this page was always printing, the
+arrows belonging to the status boards.)*
+
+**The openers follow the read, not the card list's owner.** `taskKanban` prints its one hidden `#taskEditOpener`
+whenever the board is drawn with cards (`drawOpener && tasks.isNotEmpty()`), and `Projects.kt` draws the popup for
+`canManage || mayAdd || state != null || tasks.isNotEmpty()`, so a viewer's project page carries both. The Assigned
+page is still personal (Stage 53), so its opener appears only when the reader holds a card; a board with no card on
+it prints none — `AssignedTasksRenderTest` gained `a board with no card on it carries no opener` for exactly that
+edge, and its existing *the editor this page opens comes back to this page* now seeds a card of the reader's own.
+
+**Tests.** **618 / 41 classes / 0 failures/errors/skipped** — three added and several rewritten, no behaviour asserted
+from the old read gate left behind. `TaskServiceTest` replaces the old open test with `any reader opens a project
+card, and a typed id opens nothing` and adds `a backlog card opens only for management and its holder`; the archived
+case keeps its name and now reads `openableBy`. `TaskBoardRenderTest` rewrites `a card is clickable for everybody and
+moves only for its manager and owner`, `the boxes follow the right to tick, not the page the card is on`, `the drag
+is the mover's and the click is everybody's` and `nobody but management is offered the Delete task button`, and adds
+`a colleague's card opens to be read and not written` (heading without *Edit*, the holder's sentence, no Save, every
+control disabled, plan present with `chk-box locked`, log present, no `.note-foot`, `Close` not `Cancel`).
+`ProjectsPageRenderTest` rewrites `the bar measures the whole project while the board shows every card read-only to a
+viewer` and `a viewer's project page shows every card of the project but edits only their own` to count the cards'
+click targets and the single opener; `AssignedTasksRenderTest` gains the empty-board opener case above.
+
+**Verified on a throwaway** (8097, `PTS_SEED_DEMO=true`, the Stage 86 build): signed in as the viewer `EMP0016`
+(after changing the seeded first-login password through `/app/settings/password`). Project 8's board carried two
+cards, **both** with `data-task-card`/`tabindex` and one `#taskEditOpener`; the colleague's card 8 opened as
+`Task T-00008` with the holder sentence, **16** disabled controls, no *Save*, *Close* only, the log visible and the
+plan stopped — then a manager added a step and a note, and the viewer re-read them as `chk-box locked` (reason
+*"This card belongs to somebody else…"*) with **no** `chk-toggle`, no `name="done"`, no note box. Seven hand-built
+writes from the viewer were refused — the save came back as the open popup with *"Only management or the person this
+task is assigned to can change it."*, the other six redirected — and the card was untouched (title, `0 of 1`, one
+entry, no viewer step or scrawl). With the manager reassigning that card to `EMP0016`, the owner's popup read
+*Edit task*, printed **Save**, a live tick box and the note box, kept title/project/assignee/status/lane disabled,
+and only start/due/priority open; the owner ticked the step (`1 of 1 done`), appended a note (`2 entries`) and moved
+priority to High. The colleague's card 2 still opened read-only, and typed backlog ids 9/10 fell back to the *New
+task* popup. Management's popup was unchanged: Save, Delete task, step add/remove and both note controls.
+
+**Deploy note.** Kotlin only — no markup outside the route, no CSS, no JS, so **no Ctrl+F5**. Live `data/pts.db` was
+backed up as `data/pts.pre-stage86-20261028-101406.db*` (389120 / 0 / 32768 bytes), live JVM 5280 was stopped
+(force-stopped by `stop.bat` after the polite close was refused), `installDist` was run, and the instance was
+launched **detached** from `deploy/run.bat` (PID **18196**); `/` answers 200. Schema stays **v18** — no migration.
+
+**If this is restated.** Never re-propose: hiding a colleague's plan or log from the reader a card now opens for;
+showing a stranger a Save, a tick box, a note box or the delete; letting a non-manager open a backlog card they do
+not hold; taking the click back off a colleague's card on a shared board; narrowing management's popup; or treating
+"open" as "move" — the drag, the arrows and **✓ Done / ↺ Reopen** stay with the writers. The rule is one sentence:
+*a card every reader can see opens for every reader to read, and only management and the person it is assigned to
+may change what is inside it.*
+
+## Stage 87 — A card's editor no longer asks where the card already is (2026-10-28, live, Kotlin)
+
+**The ask.** A screenshot of the management popup *Edit task T-00012*, with the **PROJECT** row (*Project1*) and
+the **SUB-CATEGORY** row (*Fabrication/Manufacturing*) circled in red: *"when clicking on task card delete those
+two circled dropdown out."* The click, not the **+ New task** button, so a card's editor loses the pair while a
+creation keeps them.
+
+**Where a card sits is a fact of its row, and the board is what changes it.** On an edit of a card that is already
+on a project, the popup printed two selects whose answers it had *read* from the row moments earlier. They were a
+second, slower way to do what the board behind the popup does better: a drag along the columns. So
+[`TaskBoard.kt`](src/main/kotlin/mn/murray/pts/TaskBoard.kt) computes three flags before the modal and uses one for
+both blocks:
+
+```kotlin
+val projectIsTheRows: Boolean =
+    state.isEdit && !state.isBacklog && !state.task?.project.isNullOrBlank()
+val projectRefused: Boolean =
+    state.error(TaskField.PROJECT) != null || state.error(TaskField.LANE) != null
+val printProjectFields = printProject && (!projectIsTheRows || projectRefused)
+```
+
+`printProject` (the board-half logic of Stage 42) is untouched; Stage 87 only narrows it. Both the Project field and
+the Sub-category field now read `if (printProjectFields)`.
+
+**The project still has to be posted.** Management's save takes the draft as the answer (`allowed = posted` in
+`TaskService.updateAssigned`), and a save with a blank project is refused — *"Choose which project this card is
+on."* — so simply hiding the select would have made every management edit of a project card fail. The form therefore
+carries the row's own name in a hidden field, drawn exactly when the picker is not:
+
+```kotlin
+if (projectIsTheRows && !projectRefused) {
+    input(type = InputType.hidden, name = "project") { value = selectedProject }
+}
+```
+
+The lane needs nothing: `updateAssigned` treats an absent `lane` as "keep the stored one", which is the same
+semantics Stage 75's bucket moves already rely on. A **backlog** card keeps both pickers in its *where it lives* half,
+because crossing onto a project is a real question there; a **create** keeps them because there is no row to read an
+answer from; a legacy row with a blank project keeps them because that is the one card a picker still fixes.
+
+**A refusal brings the fields back.** The first cut of this stage hid the pickers unconditionally, and a hand-built
+POST without `project` came back as a silent refusal: 200, the popup re-drawn, no message — because `field-err` lives
+inside the block that had been skipped. `projectRefused` closes that: if the save returns an error on `PROJECT` or
+`LANE`, both pickers print again, populated, with their message under them, and the hidden field is suppressed so
+the corrected form posts what the reader chose. That is the only way a project card's save gets here, since the popup
+itself posts the row's project.
+
+**The owner's sentence moved with the fields.** The `modal-scope` line for an owner used to name *"the title, the
+project, the person it is assigned to and the status"*; the project is no longer printed above it, so an assigned
+card's line now reads *"The dates and the priority are yours to set. The title, the person it is assigned to and the
+status belong to management."* The backlog branch is unchanged — its pickers are still there.
+
+**Tests.** **619 / 41 classes / 0 failures/errors/skipped** — two added, one deleted, and two re-pointed.
+`TaskBoardRenderTest` adds `an edit of a card on a project prints neither the project nor the sub-category picker`
+(no `id="taskProject"`, no `id="taskLane"`, no `>Sub-category<`, the hidden `<input name="project">` carrying the
+row's name, the remaining fields still printed, while a create and a backlog card's editor both keep the pair) and
+`a refused project card's save comes back with the pickers its message belongs under` (a `TaskSaveResult` with a
+`TaskField.PROJECT` error draws both pickers, prints the message, and posts no hidden project). The old
+`the popup lists the three phases and opens on the lane the card is in` became `a create popup lists the three
+phases and opens on the lane it was called from` (it now builds a create form with `lanes()`); `a lane this project
+added itself…` likewise uses a create form; `a card filed in a lane the general board does not list still reads its
+own lane` was deleted with its concern folded into the create case; and the owner's and colleague's field lists drop
+`project`/`lane`. No test asserts the old pair on an edit.
+
+**Verified over real HTTP, on a throwaway** (8097, `PTS_SEED_DEMO=true`): the four popup shapes were read side by
+side — management edit (neither picker, hidden project), create (both), backlog edit (*where it lives* half keeps
+both), and a legacy row with no project (both). An ordinary management save kept the card's project and bucket; a
+hand-built POST without `project` came back with *"Choose which project this card is on."* under a drawn, populated
+picker and wrote nothing; a backlog card moved onto a project landed ASSIGNED on project 1 in *Engineering*; and a
+Viewer owner's popup showed neither picker, the new sentence, the hidden project, and the four fields they still
+own — a save through it kept the project and changed due date and priority.
+
+**Deploy note.** Kotlin only — no CSS, no JS, no markup outside this renderer — so **no Ctrl+F5**. Live
+`data/pts.db` was backed up as `data/pts.pre-stage87-20261028-110058.db*`, the live JVM (PID 18196) was stopped,
+`installDist` was run, and the instance was launched **detached** from `deploy/run.bat` (PID **17248**); `/` answers
+200. Schema stays **v18** — Flyway logs `No migration necessary`.
+
+**If this is restated.** Never re-propose: putting **Project** or **Sub-category** back on an edit of a card that is
+already on a project; a save that posts a blank or defaulted project because its picker was hidden; hiding the
+pickers on a create or on a backlog card's *where it lives* half; or hiding the pickers so completely that a refusal
+has no field to sit under. "Remove the lane from the save too" is wrong for the same reason it was wrong in Stage 52:
+the lane is set, it is just not a drop-down on this popup. Moving a card between a project's columns is the drag
+(Stage 75) — the popup's job is the fields inside the card.
+
+## Stage 88 — A card says which project it is for, and the reader can narrow their backlog by bucket (2026-10-28, live, Kotlin + CSS)
+
+**The ask, in the user's words.** *"On assigned tasks there are project task cards showing task id's should be showing
+project id, and on assigned tasks showing other tasks in progress that is right but user should see what bucket those
+tasks are in add bucket drop down."* Asked which control they meant, they answered: *"do you remember other tasks are in
+buckets such as user can add such as finance hr etc. you need to put those hr finance into dropdown when user choose hr
+tasks assigned choose hr from dropdown and task card should be displaying in progress kanban."* So: the **chip** on a
+card names its project (or, for an Other task, its bucket), and the Assigned page gains a **page-level Bucket dropdown**
+over the reader's own Other-task board — which stays a five-status kanban, not a set of bucket columns.
+
+**The chip.** `taskCard`'s top line (`TaskBoard.kt`) used to print `taskCode(task.id)` — `T-00012` — on every status
+board. On a run of cards from every project at once, that number tells two cards apart but answers no question anybody
+asks; *which project is this work for* does. Since a backlog card has no project, the same slot carries the one fact
+that matters for it:
+
+```kotlin
+if (!laneBoard) {
+    div("kcard-top") {
+        when {
+            task.projectCode.isNotBlank() -> span("tcode") { +task.projectCode }
+            task.isBacklog && task.bucket.isNotBlank() -> span("tcode bucket-chip") { +task.bucket }
+            else -> span("tcode") { +taskCode(task.id) }
+        }
+    }
+}
+```
+
+`projectCode` is new on `TaskItem` — appended **after** `archivedOn` with a `""` default, the same positional-safety
+rule `projectId` follows, because [`DemoData`](src/main/kotlin/mn/murray/pts/Data.kt)'s cards are built positionally.
+`TaskRepository.projectNames()` became `projectLabels(): Map<Int, ProjectLabel>` (a private `ProjectLabel(name, code)`)
+and `map()` fills both `project` and `projectCode` from the one read, so a board still costs one query for names. A
+legacy assigned row with no project keeps the `T-` number — that is the *else*, not a second design. A **lane board**
+still prints no chip at all (Stage 78's rule, unchanged). *(**Stage 104** made the first branch an `<a class="tcode">`
+pointing at `/app/projects/<id>`, so the chip that names a project is also the way to it, and gated it on
+`task.projectId > 0` as well as the code — an href without an id to fill it is not printed. The block above is Stage 88's
+shape, kept for the history; the current one is in the Stage 104 section.)*
+
+**The dropdown.** `assignedTasksContent` grew an `otherBucketId: Int = 0` and reads the board's columns once
+(`TaskService.bucketRows()`); the reader's own Other cards are filtered by that id while the five status columns stay
+exactly as they were:
+
+```kotlin
+val buckets = TaskService.bucketRows()
+val chosenBucket = buckets.firstOrNull { it.id == otherBucketId }
+val ownOther = chosenBucket?.let { chosen -> allOther.filter { it.bucketId == chosen.id } } ?: allOther
+```
+
+The picker itself (`otherBucketFilter`) is the projects board's `board-toolbar` idiom: a real GET form onto
+`/app/assigned-tasks` with `name="bucket"`, option **0** = *All buckets*, one option per column, `data-autosubmit` so a
+picked bucket answers in place, and a **Show** submit button as the scripts-off path. It is drawn only when there is
+something to filter **or** the reader arrived already filtered (a stale `?bucket=` must still offer the way back to
+*All buckets*). *(**Stage 90** widened that condition to *the board has columns*: the picker is now also the chooser for
+the `+ Add task` line under the board, so hiding it on an empty board would leave a reader nowhere to aim their first
+card.)* An id the board does not have answers *all buckets*, never an empty board under an empty picker; an
+empty chosen bucket says *"You don't have any other tasks in HR."* rather than the generic line. *(**Stage 93** gave
+the shared Other tasks page the same picker, keyed `?show=` — on that page `?bucket=` already names a column's
+popup — with the token `other:<id>` as this page's `assigned:<id>`.)*
+
+**The filter is a view, so it rides `back`.** Opening a card, saving it, ticking a step, writing a note, deleting it or
+answering a refusal are all trips off this page and back onto it, and none of them may quietly widen the board the
+reader was reading. The page therefore passes a `back` token that names the filter:
+`backForBucket(id)` renders `assigned` or `assigned:<bucket id>`, and every route already carries `back` through
+`taskRedirect`. Three small changes close the loop:
+
+- `taskRedirect` reads `bucketOfBack(back)` and appends `bucket=<id>` to `/app/assigned-tasks` (only that page; the
+  project page and the shared backlog are never sent one);
+- `backOf(form)` **normalises** the posted token through the same pair, so `assigned:7` survives while a hand-built or
+  unrecognised value lands on the unfiltered board instead of being echoed;
+- the GET route reads `?bucket=` as a view key and the save-refusal branch calls
+  `assignedTasksContent(..., otherBucketId = bucketOfBack(back))`.
+
+The popup's opener needed no change at all: it is `taskRedirect(back, projectId)`, so it now points at
+`/app/assigned-tasks?edit=N&bucket=<id>` for free.
+
+**CSS.** The chip may now carry a bucket name (up to `BUCKET_NAME_MAX`), so `.kcard-top .tcode` gains
+`max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap`, and `.tcode.bucket-chip` wears a
+neutral blue-grey tint (light and dark) so a bucket and a project code are not made to look the same. The picker row is
+`.other-bucket-filter { margin: 0 0 12px }` on top of `.board-toolbar`. *(**Stage 89** found that row was still a
+page-wide select — the select was a sibling of its label and fell through to `select { width: 100% }`; it now sits
+inside the label, sized to one card.)* The class name deliberately avoids the substring
+`d-bucket` — the Stage 47 absence test asserts `html.contains("d-bucket")` is false, and `assigned-bucket-filter` matched
+it mid-word. (That test now also asserts the bucket name is *not* a column heading, only a chip and an option.)
+
+**Tests.** **627 / 41 classes / 0 failures/errors/skipped** — eight added, two re-pointed.
+`AssignedTasksRenderTest` adds: a project card wears `S-01` and no `T-` number; an Other card wears its bucket with
+`bucket-chip`; the picker lists every column with *All buckets* selected; a chosen bucket narrows the cards and stays
+selected while all ten status columns remain; a stale id falls back to all; an empty bucket names itself; the chosen
+bucket survives the opener's `?bucket=` and the save form's `back=assigned:<id>`; and a unit case pins
+`backForBucket`/`bucketOfBack`/`taskRedirect`/`backOf` including a hand-built junk token normalising to `assigned`. Its
+Stage 55 case that asserted *"Site works"* absent was re-pointed: the name now appears as a chip and an option, so it
+asserts the absence of a `kcol-title` and the presence of the chip instead. `TaskBoardRenderTest`'s status-board case
+now asserts the chip reads `S-01` and that `T-0000` is absent from that render.
+
+**Verified over real HTTP, on a throwaway** (8097, `PTS_SEED_DEMO=true`, seeded; EMP0002's two Other cards moved into
+*Management* and a new *HR* column in the throwaway DB only): the unfiltered page printed ten status columns, chips
+`S-01` (project card), `T-00006` (legacy projectless row), `HR`, `Management`, and the picker with *All buckets*
+selected; `?bucket=2` printed only the *HR* card, the opener at `/app/assigned-tasks?bucket=2`, the save form's
+`back=assigned:2` and *HR* selected; a real save answered **302 → `/app/assigned-tasks?bucket=2`**; a refused save
+(empty title) re-rendered with *HR* still selected and `back=assigned:2`; `?bucket=9999` showed the whole board with
+*All buckets* selected; `/app/projects/1` and `/app/other-tasks` still answered 200.
+
+**Deploy note.** CSS changed, so **Ctrl+F5** is needed for the chip and the picker row. Live `data/pts.db` was backed up
+as `data/pts.pre-stage88-20261028-114059.db*`; the live JVM (PID 17248) was stopped, `installDist` run, and the
+instance launched **detached** from `deploy/run.bat` (PID **9972**); `/` and `/static/css/app.css` answer 200 and the
+served sheet carries the new rules. Schema stays **v18**.
+
+**If this is restated.** Never re-propose: putting the card's own `T-` number back on a status-board chip (a project
+card names its project, a backlog card names its bucket; only a row with neither falls back); turning the Assigned
+page's Other half into **bucket columns** (the user asked for the status kanban to stay — the picker only narrows it);
+a bucket filter that lives in a session or a cookie instead of the URL; a filter that is lost when a card is opened,
+saved or refused; or hiding the picker on a filtered empty board, which strands the reader on a bucket they cannot
+leave.
+
+## Stage 89 — An assignee plans their own card, and the bucket picker is one card wide (2026-10-28, live, Kotlin + CSS)
+
+**Stage 101 supersedes this section's Completed-card insert special case:** an assignee's newly added step is
+unticked in every status, not automatically done. The planning permission and management-only removal rule below
+are unchanged.
+
+**The ask, in the user's words.** *"make non management able to add checklist on own assigned task cards, and make other
+tasks dropdown small like length of card."* Two small changes with one line each: the assignee of a card gains the
+*New step…* line on it, and the Stage 88 **Bucket** picker stops stretching across the page.
+
+**The plan is the owner's to add to.** Since Stage 41 the popup has been the only place a plan is written, and it drew
+the add line on `TaskForm.canEditAll` alone — management writes any card's list, the assignee works it down
+(`mayTick`). The user's sentence makes the person doing the work a writer of it too, so the right now follows the
+person rather than the role:
+
+```kotlin
+fun addChecklistItem(taskId: Int, label: String, callerEmpNo: String, canManage: Boolean): Int? {
+    val task = TaskRepository.findById(taskId) ?: return null
+    if (!canManage && task.assignee != callerEmpNo) return null
+    …
+}
+```
+
+That is `addNote`'s shape exactly (`!canManage && task.assignee != callerEmpNo`), and the popup reads it back as
+`TaskForm.mayAddStep = canEditAll || ownsCard` (which is `mayTick`'s line — the plan is one right now: read, work,
+extend). `modalSteps` gates `stepAddForm` on it. **Taking a step off stays `canEditAll`**: the × is still management's,
+because knowing the work lets somebody add to the plan, but striking a line somebody else wrote off it is a decision
+about the plan. So an owner's rows carry the box, the words and the add line — and no ×. A stranger (`viewOnly`,
+Stage 86) is unchanged: the plan drawn stopped, no add line, no box; the service refuses their POST either way. A
+**Completed** card is unchanged for both readers: the rows stay stopped, the add line is drawn, and a step written into
+a settled plan lands ticked (`syncPlanWithStatus`'s measure).
+
+**The picker was a select across the page.** The Stage 88 picker put the `<select>` *beside* the `label.board-key`.
+`.board-toolbar .board-key select` (the projects board's 140px sort pickers) therefore never matched, and the select
+fell through to the bare `select { width: 100% }` in `app.css` — a one-dropdown filter that stretched the form to the
+toolbar's full width and pushed **Show** onto a second line. Two edits, no route and no JS:
+
+- the select moved **inside** its label, exactly as the projects board's pickers are written, so the field styling
+  applies to the pair;
+- `form.other-bucket-filter .board-key select { width: 200px; min-width: 0; max-width: 100% }` — one card's length on
+  the board underneath (a fifth of the board, less its gaps and the column's padding). The `form.` in the selector
+  outranks the toolbar's own picker rule further down the file, and `min-width: 0` on the label and the select is what
+  lets the pair shrink below 200px on a narrow window instead of overflowing. The form's `align-items: center` keeps
+  the field and **Show** on one line.
+
+**Tests.** **628 / 41 classes / 0 failures/errors/skipped** — one added, three re-pointed. `AssignedTasksRenderTest`
+adds `the bucket picker is one labelled field, not a toolbar across the page`: the select is inside
+`label.board-key`, the label's own word is *Bucket*, and no stale `for="otherBucket"` points out of it.
+`TaskServiceTest`'s management-only case became `the assignee adds to their own plan, a stranger does not, and neither
+takes a step off` — the owner's add is written and appended, a colleague's is refused, the owner's × is refused, and
+the owner still ticks. `TaskBoardRenderTest`'s owner-popup case now asserts one `checklist/add` and `stepAdd-<id>` with
+the popup's `edit`, and **no** `checklist/remove`; its completed-card case asserts the same for the owner of a finished
+card. `ProjectsPageRenderTest`'s owner popup flipped from *no add line* to *add line, no ×*.
+
+**Verified over real HTTP, on a throwaway** (8097, `PTS_SEED_DEMO=true`, a card inserted for a **Viewer** account,
+EMP0016): that account's card popup carried `stepAdd-11` and one `checklist/add`; `POST /app/tasks/checklist/add` wrote
+the row (`Viewer written step`, unticked), the reopened popup printed it with `0 of 1 done`, one `checklist/toggle` and
+no `checklist/remove`; `POST /app/tasks/checklist/remove` from the same session left the row in place; a POST adding a
+step to another person's card (EMP0002's, task 1) wrote nothing; the same card opened by EMP0016 printed no add line
+and `Close`. The picker measured in the in-app browser as a select **inside** the label, 200px where the form has room
+and 167px in that narrow window, with no horizontal overflow — before the fix the same measurement read 219px (the
+form's whole width) with **Show** below it.
+
+**Deploy note.** CSS changed, so **Ctrl+F5** is needed for the picker. Live `data/pts.db` was backed up as
+`data/pts.pre-stage89-20261028-120806.db*`; the live JVM (PID 9972) and the throwaway were stopped, `installDist` run,
+and the instance launched **detached** from `deploy/run.bat` (PID **21456**); `/` and `/static/css/app.css` answer 200
+and the served sheet carries the new rules. Schema stays **v18**.
+
+**If this is restated.** Never re-propose: the × on an assignee's own plan (management shortens a list, the owner only
+adds); a "management only" add line that a hand-built POST still honours for the assignee's own card; or a bucket
+picker that stretches to the toolbar (it is one card wide, and the select belongs inside its label — that nesting is
+what keeps it off the bare `select { width: 100% }`).
+
+## Stage 90 — An empty Other-tasks board still shows its picker, and the reader can write the first card (2026-10-28, live, Kotlin)
+
+**The ask, in the user's words.** *"if user dont have other tasks assigned the user still able to see bucket dropdown and
+add themself tasks"*. Two halves in one sentence, and the second is a right, not a layout fix: a reader holding **no**
+Other-task cards must still see the **Bucket** picker, and must be able to **add an Other task assigned to themselves**
+in the bucket it shows.
+
+**Where the right already lived.** [`TaskService.createBacklog(draft, callerEmpNo, canManage)`](src/main/kotlin/mn/murray/pts/service/TaskService.kt)
+has always rebuilt a non-manager's draft as `assigneeEmpNo = callerEmpNo`, `status = "Not started"` and no project — its
+KDoc says *"Every signed-in account may do this"* — because the Team panel (Stage 50) and Stage 42's universal box called
+it with the reader's own identity. Stage 51 then removed the **ways in** on the boards and left the service permissive;
+the Assigned page (Stage 55) had no create line at all, and its picker was drawn only when the reader had cards to filter
+(Stage 88). So the Ask is not a new service rule: it is a route and one line of markup, after which a hand-built create
+lands as the caller's own card exactly as `createBacklog` has always promised.
+
+**The picker stays on an empty board.** `assignedTasksContent` now draws `otherBucketFilter` whenever the board has
+**columns at all** — not when the reader has cards — because it has become the chooser for the create line beneath it. The
+empty sentence is unchanged (and still names a filtered bucket: *"You don't have any other tasks in HR."*). A stale
+`?bucket=` therefore also keeps a picker with a way back to *All buckets*, which is the Stage 88 rule surviving intact.
+
+**One `+ Add task` line under the board.** `otherAddTaskForm` is `bucketAddTaskForm`'s mechanism from the Other-tasks page
+— a GET carrying `new=1` and the `column` to open on — aimed at `/app/assigned-tasks`, with
+`data-live-target="#taskModal"` so `app.js` swaps the popup in without reloading the board:
+
+```kotlin
+form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "kcol-add") {
+    attributes["data-live-target"] = "#taskModal"
+    input(type = InputType.hidden, name = "new") { value = "1" }
+    input(type = InputType.hidden, name = "column") { value = "${aim.id}" }
+    if (chosen != null) input(type = InputType.hidden, name = "bucket") { value = "${chosen.id}" }
+    button(type = ButtonType.submit, classes = "kcol-add-btn") { +"+ Add task" }
+}
+```
+
+`aim` is the chosen bucket, else the board's **first** column: a non-manager's popup pins its column (Stage 49), so the
+line has to name one even under *All buckets*. It wears the existing `.kcol-add` / `.kcol-add-btn` vocabulary, so there is
+**no CSS change**. `bucket` rides only while a filter is on, which is what brings the save back to the same narrow board.
+
+**The popup is the one the page already had, and management gets the full one.** `openingTaskForm` gained
+`allowSelfBacklogCreate: Boolean = false`; only `/app/assigned-tasks` passes `true`, so the backlog branch of the GET
+opens the blank create form when the column is real and — new — either the caller is management **or** this page asked for
+the self-service line:
+
+```kotlin
+if (into != null && (canManage || allowSelfBacklogCreate)) {
+    return backlogFormOf(canManage, session.employeeNumber, columns, into = into)
+}
+```
+
+`backlogFormOf` already pins a non-manager's writer and status, so the reader sees *their own name* and *Not started* as
+facts while management sees the roster and the status picker. The save route's Stage 51 discard became conditional: a
+column-carrying create from a non-manager is still bounced **when `back == BACK_OTHER`** (the shared board, still
+management's), and otherwise goes through to `createBacklog`, which pins it to the caller. `/app/other-tasks` keeps its
+Stage 51 shape exactly: its board's add line, its popup and its save branch are still `canManage`'s.
+
+**What did not change.** The **projects** half of this page still grants no create to a non-manager (`canAdd = canManage`):
+`mayAddTasks` takes a project, and no one project is this page's to grant on. The shared Other-tasks board, its `⋮` and
+*Add bucket*, the Team assign panel, and the sidebar link are untouched. Nothing here lets a reader write a card for a
+colleague — the service's rebuild makes the draft theirs whatever the POST names.
+
+**Tests.** **631 / 41 classes / 0 failures/errors/skipped** — three added, all in `AssignedTasksRenderTest`:
+`a reader with no other tasks still gets the picker and a line to add their own` (picker, `.kcol-add`, action
+`/app/assigned-tasks`, `new=1`, `column=<first>`, `data-live-target`, and the empty line still printed);
+`the add line follows the bucket the picker shows, and brings the save back to it` (`column=site` and `bucket=site`, not
+HR); and `the add line opens a create form pinned to the reader` (`backlogFormOf(false, "EMP0002", …, into = site)`:
+`back=assigned:<site>`, assignee select holds EMP0002 and not EMP0001, status `disabled` with *Not started* selected,
+the column present, and the button reading *Create task*).
+
+**Verified over real HTTP, on a throwaway** (8097, `PTS_SEED_DEMO=true`; **Viewer** EMP0016, who held no Other cards): the
+page printed the picker and the add line with `column=1`; `?new=1&column=1` opened the popup with assignee EMP0016,
+column and status **disabled** at *Not started*, and `back=assigned`; a hand-built POST naming **EMP0002** and
+**Completed** created row 11 as **EMP0016 / Not started / OTHER / project NULL / bucket 1** — the service's pin, not the
+POST's words; a filtered page carried `bucket=1` and its save redirected to `?bucket=1`; a create posted with
+`back=other` wrote **no row** (0) and `/app/other-tasks?new=1&column=1` left the popup shut; management EMP0002's popup
+stayed fully editable; and a Viewer's bare `?new=1` or `?new=1&column=9999` opened nothing. Throwaway stopped.
+
+**Deploy note.** Kotlin only — **no Ctrl+F5**. Live `data/pts.db` was backed up as
+`data/pts.pre-stage90-20261028-132744.db{,-wal,-shm}`; the live JVM (PID 21456) was stopped, `installDist` run, and the
+instance launched **detached** from `deploy/run.bat` (PID **24956**, started 13:28:24); `/` and `/static/css/app.css`
+answer 200, port 8080 is owned by 24956, Flyway validates **V18** with *"No migration necessary"*. Schema stays **v18**.
+
+**If this is restated.** Never re-propose: a picker hidden on an empty board (it is the chooser for the create line — and
+a hidden empty-board control was the bug); a create line that is management's on this page while the service pins a
+non-manager's draft anyway (the right is the reader's; only the *shared* board's line is management's); a per-status add
+line on the Other board (one line at the foot, aimed at a bucket, exactly as the shared board does it); a reader-visible
+writer or status picker on a self-service create (they are facts, and `createBacklog` re-pins them regardless); or a
+non-manager create on the projects half of this page.
+
+## Stage 91 — The new-project number opens empty, for the reader to type (2026-10-28, live, Kotlin + JS)
+
+**The ask, in the user's words.** *"when creating a new project project name takes type code first but i need to put the
+type code initial"*. Asked which behaviour they meant, they chose **"Start it blank"**: on the New project popup the
+**Project number** box opens empty, with the category's next free code kept only as a placeholder/hint, so the reader
+types the whole number — its category initial included — instead of deleting one the app wrote.
+
+*Superseded the same day by **Stage 92**: asked again with the category's letter spelled out, the user wants the initial
+written for them and only the number left to type, so the box now opens on `G-`. The placeholder half of this stage
+(the next free number is grey, never the value) and the "a refused code comes back as typed" rule still stand; read
+Stage 92 for the live behaviour.*
+
+**What the box did.** `projectCreateModal` had `val codeValue = v.code.ifBlank { suggested }` and put that in the input's
+`value`, marking it `data-autofilled`; `project-modal.js` then wrote the suggestion in on `DOMContentLoaded` and on
+every category change while the box was still "autofilled" or empty. So a reader who wanted their own number had to
+clear ours, and a reader who switched category got a different number pushed in. The offer was helpful, but it was in
+the wrong place: **the value is the reader's, the offer is a hint.**
+
+**The change.** The input's value is now only what came back on a rejected submit:
+
+```kotlin
+input(type = InputType.text, name = "code") {
+    id = "projectCode"
+    if (v.code.isNotBlank()) value = v.code
+    placeholder = suggested.ifEmpty { "$letter-01" }
+    required = true
+    maxLength = "32"
+}
+```
+
+The placeholder and the hint still follow the chosen category (`M-03` when Fabrication/Manufacturing runs to `M-02`;
+`S-… — type the number yourself, starting with the category letter.`). In `project-modal.js`, `refreshCode` became
+`refreshCodeHints`: it writes the placeholder and the hint text from the option's `data-suggest`/`data-letter` and
+**never** assigns `code.value`. The `input` listener that dropped `data-autofilled` went with the marker.
+
+**What did not change.** The category still decides which initial is legal (`codeMatchesType`, message *"Start the
+number with S- for site projects."*), the format (`S-01`, `M-2026-A`) and uniqueness are still checked on submit, and a
+rejected create still re-renders the popup with the number exactly as typed. The next free number is still computed
+and still offered — in grey. No route, no schema, no CSS.
+
+**Tests.** **632 / 41 classes / 0 failures/errors/skipped** — one added,
+`the create popup leaves the project number for the reader to type` in `ProjectsPageRenderTest`: the `#projectCode`
+input carries **no** `value` attribute, its placeholder is the selected category's next free code, and the hint no
+longer calls the number an offer. The existing rejected-create case still pins that a typed number comes back as typed.
+
+**Verified over real HTTP, on a throwaway** (8098, demo seed; EMP0002): `/app/projects` rendered
+`<input … id="projectCode" placeholder="M-03" required maxlength="32">` — no value, hint *"M-… — type the number
+yourself, starting with the category letter."*; a blank submit re-rendered with the popup open, *Enter a project
+number.* under the field, still blank, and the placeholder moved to *S-10* after posting Site projects; a typed `S-30`
+created project 20. The served `project-modal.js` has `refreshCodeHints` and no `data-autofilled`; no other script
+writes the field. (The in-app browser's login still does not stick, so the popup was read over curl as in Stages 88–90;
+the script's only DOM writes are `placeholder` and `textContent`, so it cannot refill the box.)
+
+**Deploy note.** JS changed, so **Ctrl+F5** is needed for the popup. Live `data/pts.db` was backed up as
+`data/pts.pre-stage91-20261028-135518.db{,-wal,-shm}`; the live JVM (PID 24956) was stopped, `installDist` run, and the
+instance launched **detached** from `deploy/run.bat` (PID **18640**, started 13:55:49); `/` 200, the served
+`project-modal.js` carries the new function, and Flyway validates **V18** with *"No migration necessary"*.
+
+**If this is restated.** Never re-propose: writing the next free number into the box as a value (it stays the
+placeholder, and the reader types the code); a fixed non-editable initial segment before the box (the initial is the
+first character the reader types); relaxing the category-letter rule — that was the other offered option and was **not**
+chosen, so `codeMatchesType` stands; or auto-inserting the initial on focus/blur, which is the same thing the value
+offer was.
+
+## Stage 92 — The number opens with the category's letter, and a new project no longer chooses its buckets (2026-10-28, live, Kotlin + JS + CSS)
+
+**The ask, in the user's words.** *"when the user create a new project user is choosing project type for example Good
+sales so its code is G. So system puts G automatically so user dont have to write. And it changes for every type. Also
+when creating a new project dont have to ask new project's buckets as we have already 3 default buckets"*. Two changes,
+one form: the **Project number** box carries the chosen category's lead (`G-`) so the reader types only the number, and
+the bucket picker of Stages 73–77 is taken off the popup.
+
+**The number: a lead the app writes, a tail the reader owns.** `projectCreateModal` already had `letter` for the
+placeholder; it now also seeds the value and marks the lead:
+
+```kotlin
+value = v.code.ifBlank { if (letter.isEmpty()) "" else "$letter-" }
+placeholder = suggested.ifEmpty { "$letter-01" }
+attributes["data-prefix"] = "$letter-"
+```
+
+The placeholder is still the next free code, so the lead says what the number *starts with* and the grey text says what it
+might be — two different facts, and neither is a promise. `project-modal.js`'s `refreshCodeHints` now does three things on
+a category change, in this order: an empty box (or one holding nothing but its lead) gets the new lead; a box holding a
+code whose lead is the **old** category's has that lead swapped and **the number after the dash carried across**
+(`M-07` → `G-07`); a box whose lead already matches is left alone. The third case is what keeps a refused submit honest:
+the server re-renders `v.code` exactly as typed and `data-prefix` as the *chosen* category's lead, so when the two agree
+but the code begins with another letter, that letter is the reader's own and the error under the field may be about it —
+rewriting it would erase the thing being complained about. The hint reads *"M-… — type the number after the dash; the
+letter follows the category."*
+
+**The buckets: the popup says what the board will hold, and posts nothing about it.** Every project is created with the
+three phases seeded by `ProjectService.create` (`seedDefaults`), so choosing extras before the board exists meant
+answering a question about a board nobody could see, and the category's catalogue offer had already been reduced to an
+opt-in tick (Stage 77). The picker is replaced by one line:
+
+```kotlin
+div("field full bucket-pick") {
+    label { +"Buckets" }
+    p("bucket-floor") {
+        +"Every new board starts with: "
+        DEFAULT_PROJECT_BUCKETS.forEach { lane -> span("chip lane-chip") { +lane } }
+    }
+    p("field-hint") { +"Add more on the project page after it is created." }
+}
+```
+
+It is a statement, not a control: the three names are chips, there is no tick, no typed box, no `also_type`, and no
+per-category set. `POST /app/projects` stops reading `bucket`/`new_bucket`/`also_type` entirely, so a hand-built POST
+naming them creates the same three-phase board as the form — the create has one shape of board, and the board's own column
+popup (`laneAddBody`, unchanged) is where it grows.
+
+**What was deleted, and what was kept.** In `Projects.kt`, `bucketSet`, `bucketOption` and `bucketNewLine` (once the create
+picker's only callers) are gone, along with the `BucketDefaultsService` import. In `project-modal.js`, `refreshBuckets`
+and the `.bucket-set` contract in its header doc are gone. In `app.js`, the whole `[data-bucket-add]` block — `bucketSetOf`,
+`addBucketFrom`, its click listener and its Enter listener — is gone, because no page prints that marker any more. In
+`app.css`, `.bucket-set`, `.bucket-set-off`, `.bucket-opt`, `.bucket-none` and `.bucket-new` are gone; `.bucket-pick` /
+`.bucket-floor` stay for the new line and `.bucket-widen` / `.bucket-widen-why` stay for the column popup. Kept on purpose:
+`ProjectDraft.buckets` / `newBucket` / `bucketForType`, `BucketDefaultsService.chosenFor`, `TypeDefaultBucketRepository`
+and `ProjectService.create`'s seeding — the service still accepts a bucket list (its own tests and the board's save use
+that path), the popup is simply no longer one of its callers. *(**Stage 98** finished the deletion this paragraph left
+half-done: the draft's three bucket fields and `ProjectField.BUCKETS` are gone, and `create` seeds the category's whole
+catalogue with `seedExtras(id, type, namesOf(type))`. `chosenFor` and the seeding survive because a project page's popup
+is their remaining caller. Read 98.)*
+
+**Why not just hide it.** Hiding the picker would have left the form posting ticks from a category set nobody could see —
+the exact failure Stage 73's `disabled`-not-hidden rule existed to prevent. The question is withdrawn, not covered up: the
+route does not read the fields, and the markup does not print them.
+
+**Tests.** Suite **632 → 630 / 41 classes / 0 failures**. Two cases deleted with the behaviour —
+`a rejected create brings the buckets back as they were ticked` and `the create popup asks whether a typed bucket is for
+the category as well` (the column popup's version of the latter stays, and is now the tick's only pin). One re-pointed:
+`the create popup offers this category's buckets above the three every board opens with` now asserts the bucket line
+names the three chips and the "add more on the project page" sentence, and that the page prints **no** `name="bucket"`,
+`new_bucket`, `also_type`, `data-bucket-type` or `data-bucket-add`. *(**Stage 104** brought two of those five back —
+`new_bucket` and `data-bucket-add` — as the line that adds a column to this one board. `also_type`, `data-bucket-type`
+and the tick-list stay absent, and are the part of this sentence that still holds: the popup may name a bucket, it may
+still not choose from the category's list or widen it.)* One flipped: Stage 91's
+`the create popup leaves the project number for the reader to type` became
+`the create popup leads the number with the chosen category's letter` — `value="M-"`, `data-prefix="M-"`, the next free
+number still the placeholder, the new hint, and a draft's `Site projects` leading `S-` with `S-02` (the fixture already
+holds `S-01`).
+
+**Verified over real HTTP, on a throwaway** (8098, demo seed; EMP0001, with `must_change_password` cleared on the
+throwaway only): `/app/projects` served
+`<input type="text" name="code" id="projectCode" value="M-" placeholder="M-03" data-prefix="M-" required maxlength="32">`
+and the hint *"M-… — type the number after the dash; the letter follows the category."*; the popup held one `bucket-pick`
+line, zero `data-bucket*`, zero `new_bucket`/`also_type`. `POST /app/projects` with no bucket fields created project 20
+(`G-01`) whose board is exactly **Engineering / Procurement / Production**; the same POST with `bucket=Commissioning`,
+`bucket=QA hold`, `new_bucket=Handover` and `also_type=1` created project 21 with the same three columns, and
+`type_default_buckets` for *Goods sales* stayed empty. The served `app.js` has no `data-bucket-add`, and the served CSS has
+no `.bucket-set`. The lead logic was driven against the shipped file with a DOM stub (no browser: the in-app browser still
+will not hold a login): load `M-`/`M-03`; empty → `G-`/`G-01`; `M-07` → `G-07`; refused `S-01` stays `S-01`; `G-07` under
+`G` stays `G-07`; bare `07` → `S-07`; lead-only `G-` → `M-`.
+
+**Deploy note.** JS and CSS changed, so **Ctrl+F5** is needed for the popup. Live `data/pts.db` was backed up as
+`data/pts.pre-stage92-20261028-142535.db`; the live JVM (PID 18640) was stopped with `deploy\stop.bat` (which also reaped
+the throwaway on 8098), `installDist` run, and the instance launched **detached** from `deploy/run.bat` (PID **15008**);
+`/` 200, the served `project-modal.js` carries `data-prefix`, and Flyway validates **V18** with *"No migration
+necessary"*.
+
+**If this is restated.** Never re-propose: an empty number box (Stage 91's answer, withdrawn by this one — the initial is
+written, the number is not); a fixed non-editable prefix control before the box (the reader may still retype the whole
+code, and `codeMatchesType` still refuses a wrong initial under the field); pushing the next free number in as a value; a
+create-popup bucket picker in any form — tick-list, typed name, or the "also make it a category default" tick (the column
+popup is its home); hiding the picker while leaving it on the POST (the route reads no bucket field at all); a "Buckets"
+line that is a control rather than a statement about the three seeded phases; or dropping the reader's number when the
+category changes (the lead moves, the tail survives).
+
+## Stage 93 — The shared backlog gets the Assigned page's Bucket picker (2026-10-28, live, no migration, Kotlin + JS)
+
+**The ask, in the user's words.** *"on the other tasks make it same as assigned tasks' other tasks make a dropdown for
+bucket choosing"*. Stage 88 had given the Assigned page's Other half a **Bucket** dropdown; the Other tasks page itself
+— the shared backlog, whose board is already one group per bucket (Stage 57) — had no way to say *just this bucket*.
+This stage puts the same control on it, in the same shape and with the same behaviour.
+
+**The control.** `otherTasksContent` now takes `showBucketId: Int = 0` and, for management on a board with at least
+one bucket (Stage 90's rule, unchanged: an empty board's picker is still the only place a first bucket can be
+aimed), prints `otherBucketPicker` above the groups:
+
+```kotlin
+form(action = "/app/other-tasks", method = FormMethod.get, classes = "board-toolbar other-bucket-filter") {
+    id = "otherBucketFilter"
+    attributes["data-live-extra"] = "#bucketsToggle,#addBucketOpener"
+    if (showAll) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
+    label("board-key") {
+        +"Bucket"
+        select {
+            id = "otherBucket"; name = "show"
+            attributes["data-autosubmit"] = "true"
+            option { value = "0"; selected = chosen == null; +"All buckets" }
+            buckets.forEach { option { value = "${it.id}"; selected = it.id == chosen?.id; +it.name } }
+        }
+    }
+    button(type = ButtonType.submit, classes = "submit btn-sm") { +"Show" }
+}
+```
+
+*(As shipped by **Stage 97** two lines of that block are different: `data-live-extra` names only `#addBucketOpener` —
+the toggle it also had to redraw is gone — and the `if (showAll) input … allbuckets` line no longer exists, so the
+picker carries one piece of view state, the `show` select. See the Stage 97 section.)*
+
+It is the Assigned page's picker to the letter — label inside `.board-key`, one card wide (Stage 89), *Show* as the
+scripts-off path — and it sits **above** the board because `#otherBoard` is now the page's `[data-live-region]`:
+`app.js`'s `regionFor` climbs from the form, so the toolbar is never part of what gets swapped, the board redraws in
+place, and `refresh` ends with `history.replaceState`, which makes the URL the view. The `⋮` menus, the `+ Add task`
+lines and the cards themselves stay exactly where Stage 57 put them.
+
+**`?show=`, not `?bucket=`.** On this page `?bucket=<id>` already names a column's *popup* (the `⋮` opener) and
+`?column=<id>` aims the create popup, so the view key had to be a third name: `show`. It is read on the GET route and
+passed to `otherTasksContent`; an id the board does not have answers *All buckets* rather than an empty page, and a
+chosen bucket prints **its own group even when empty** — five columns saying *"Nothing here."* — because choosing a
+column is a question about that column, not a request to hide it.
+
+**Whose page the picker belongs to.** The shared board is management's (Stage 51), so its filter is drawn for
+`canManage` alone, and the content ignores `?show=` for anybody else: a Viewer keeps the one-bucket slice their own
+card stands in. A dropdown of every bucket on a page scoped to one would be a directory of columns they hold no card
+in — and a `?show=` naming one of those would print an empty group carrying its name, which is the leak the gate
+closes.
+
+**The wide flag stays orthogonal.** `allbuckets` (Stages 57/90) still only says whether the empty groups are printed;
+the picker carries it as a hidden field so picking a bucket keeps the reader's wide view. The head's toggle keeps its
+second reading from this stage: on a narrowed board it **drops the filter and keeps the flag**, so *Show all buckets*
+means what it says and nothing else; narrowed-and-narrow it posts no `allbuckets` at all, because the board it returns
+to is the page's own default.
+*(**Superseded by Stage 97**, which removed both the flag and the toggle. The picker is now the board's only view
+control and the second reading is its only reading — a choice narrows, *All buckets* (`0`) widens back — and because
+the picker is a **filter** form, `refresh()` already rewrites the address bar for it: `[data-live-url]` is still in
+`app.js` as a mechanism, with no form on any page setting it.)*
+
+That press is a *view change*, not a popup, so the address bar has to follow it. `app.js` gained a fourth block-form
+attribute:
+
+```js
+if (method === 'GET' && form.hasAttribute('data-live-url')) {
+  window.history.replaceState(null, '', url);
+}
+```
+
+`[data-live-url]` on a GET block form says *the block this send swaps **is** the board*; the fetched URL replaces the
+one in history exactly as a filter form's does. Without it, pressing the toggle while `?show=2` was up would leave
+that filter in the URL and a reload would undo what the reader had just done. Only the filtered toggle carries it:
+unfiltered, the press is the transient wide view it has always been, and the URL the reader opened still describes
+the board they return to.
+
+**The filter rides `back`.** Stage 88's twin token: `backForOtherBucket(id)` renders `other` or `other:<id>`,
+`bucketOfOtherBack` reads it, `isOtherBack` recognises it, and `taskRedirect` appends `show=<id>` to
+`/app/other-tasks` (beside `allbuckets=1` when the wide view is up). `backOf` normalises the posted token, so a
+hand-built or unrecognised value lands on the full board. Everything that opens, saves, ticks, notes, deletes or
+refuses a card from this page carries the filter, which on the markup side means one hidden `show` on each of: the
+column menu, the `+ Add task` line, the card's own opener, the popup's add / rename / delete forms, and
+`+ Add bucket`. The bucket routes read `show` back and `bucketsBack(showAll, forceAll, show)` returns to the narrowed
+board — except a **create**, which passes `forceAll` so the bucket just named is visible instead of being hidden by a
+filter that predates it.
+
+**Tests.** Suite **630 → 636 / 41 classes / 0 failures**. Six new in `OtherTasksRenderTest`: the board carries the
+same picker (one `board-toolbar other-bucket-filter`, `data-autosubmit`, *All buckets* selected, every column
+offered); choosing a bucket prints that group and no other, with the picker selected on it and five status columns
+still drawn; **a Viewer's page keeps its one bucket and grows no picker** — no `other-bucket-filter`, no bucket
+name they hold no card in, and a `?show=` naming another bucket changes nothing; the chosen bucket travels with
+every way off the board (hidden `show` on menu, add line, card opener and popup forms, `back=other:<id>` on the save
+form, `taskRedirect` returning `/app/other-tasks?show=<id>`); the toggle drops the filter and keeps the wide flag
+(`data-live-url`, no `allbuckets` when narrow, `allbuckets=1` when wide, and no rewrite on an unfiltered board); and
+the token itself as a unit case (`backForOtherBucket`, `bucketOfOtherBack`, `isOtherBack`, `taskRedirect`, including
+a junk token and `otherwise` not being `other`). Existing exact-string assertions were re-pointed for the two new
+companions on the picker and the toggle's extra ids.
+
+**Verified over real HTTP, on a throwaway** (8098, demo seed; EMP0001 with `must_change_password` cleared on the
+throwaway only): `/app/other-tasks` served exactly one
+`<form … class="board-toolbar other-bucket-filter" id="otherBucketFilter" data-live-extra="#bucketsToggle,#addBucketOpener">`
+with `select#otherBucket name="show" data-autosubmit="true"` and *All buckets* selected; `?show=1` printed one
+bucket group (*Management*) and six hidden `show` fields with `back=other:1`; `?show=2` (an empty bucket) printed its
+group's five *"Nothing here."* columns; `?show=999` fell back to *All buckets*; `?allbuckets=1&show=1` kept the flag
+and the filter; a real `POST /app/assigned-tasks/save` from the filtered board answered **302 →
+`/app/other-tasks?show=1`** and the card appeared there; the toggle carried `data-live-url` only while filtered, and
+on the narrow filtered board it printed no `allbuckets` field at all. Signed in as the seeded **Viewer** EMP0016
+(with one backlog card in *Management*, on the throwaway only), `/app/other-tasks` printed **no** picker, no bucket
+name they hold no card in, their own card, and `?show=2` neither added a picker nor named *Site works*. The served
+`app.js` contains the new branch. The click itself was not driven in a browser — the in-app browser still holds no
+login on localhost and returns an empty body — so the JS is reviewed and its markup pinned, not observed.
+
+**Deploy note.** JS changed, so **Ctrl+F5** is needed for the toggle's URL rewrite. Live `data/pts.db` was backed up
+as `data/pts.pre-stage93-20261028-150426.db*`; the live JVM (PID 15008) was stopped with `deploy\stop.bat` (which
+also reaped the throwaway on 8098), `installDist` run, and the instance launched **detached** from `deploy/run.bat`
+(PID 25352). The Viewer gate was added after that deploy, so the sequence ran again over a second backup
+(`data/pts.pre-stage93b-20261028-151726.db*`). That instance (PID 17844) died with the shell that had launched it —
+`run.bat` started from inside a tool shell is reaped with that shell — so it was launched once more **detached** with
+`Start-Process cmd.exe -ArgumentList '/c','deploy\run.bat'`; the live instance is now PID **536**, `/` answers 200 and
+the served `app.js` carries `data-live-url`. Schema stays **V18** — no migration. **That swap cost the board its
+drag-and-drop** — see Stage 94, which found and fixed it the next morning; that stage ran PID **19808** and, after its
+comment-only rebuild, PID **8744**.
+
+**If this is restated.** Never re-propose: `?bucket=` as this page's view key (it opens a column's popup); a picker
+that also renames the board's shape into one flat status board (Stage 57's group-per-bucket stacking stays); a filter
+that is lost when a card is opened, saved or refused; a toggle that clears the filter **and** the wide view in one
+press; hiding the picker on a board with no buckets (the first bucket is named from that popup); a view kept in a
+session or cookie instead of the URL; or letting a toggle press leave the dropped filter in the address bar.
+
+## Stage 94 — The backlog board stays draggable after its own picker swaps it (2026-10-29, live, JS only, no migration)
+
+**The ask.** *"on other tasks kanban is not working"* — reported against the page as Stage 93 left it. The board
+printed, the picker narrowed it, but a card would not drag between the status columns any more.
+
+**What was actually broken, and when.** Nothing in Stage 93 touched the drag. What it touched was the *node*: making
+`#otherBoard` the page's live region is what lets the Bucket picker answer in place, and `app.js` answers a live
+region by parsing the response and `replaceChild`-ing a brand-new copy over the old block. `kanban.js` had bound its
+status half once, at page load, with `document.querySelectorAll('.kcol[data-status]').forEach(col => col.addEvent…)`
+— and a listener belongs to the node it was put on, not to the HTML the node was made from. So the board as it
+arrived on a fresh load was draggable (Stage 58's own fix, which the suite pins at the markup level, kept working)
+and the *narrowed* board was not: no column highlighted, the drop did nothing, and the `←`/`→` arrows — bound the
+same per-element way — were dead with it. This is exactly the trap `kanban.js`'s lane half and `app.js` had already
+avoided by delegating on `document`, and it is why Stage 93's own verification missed it: over HTTP the swap is
+`app.js`'s work, and the harness could only read markup.
+
+**The fix — `kanban.js`, both halves, no markup and no route change.** `statusCol(node)` is
+`node.closest('.kcol[data-status]')` and the three listeners (`dragover`, `dragleave`, `drop`) sit on `document`,
+each returning early when the drag is not over a status column. `dragleave` additionally ignores a `relatedTarget`
+the column still contains: crossing from a column onto one of its own cards fires `dragleave` with that card as the
+target, and clearing the highlight there is the flicker the old per-column binding had too. The `.kmove-btn` press is
+now one delegated `click` on `document` (found with `closest('.kmove-btn')`, still `preventDefault` +
+`stopPropagation`, still disabling the button so a double-click cannot post the step twice) — which also cures a
+second, older instance of the same bug: a project page's `✓ Done` / `↺ Reopen` are `.kmove-btn` inside `#projectBoard`,
+and that block has been swapped in place by its own lane writes since Stage 74, so a Done button that arrived with a
+renamed or added bucket was dead until the next reload. The two halves stay separated by the attribute they read:
+`data-status` here, `data-lane` there, and no `.kcol` carries both, so one drop never posts twice.
+
+**What deliberately did not change.** A status drop still posts `/app/tasks/status` and reloads, exactly as Stage 58
+shipped it, and the arrows still do the same write: the reload is what brings the sidebar's open-card count back in
+step, and a status move repaints the card's tint and the column counts from the server's own grouping. (**Stage 103**
+retired those arrows; the delegated press this stage added is what a lane board's **✓ Done / ↺ Reopen** still rides on,
+so the handler stays.) Only the
+lane move stays in place (`file()` + `count()`), because that one is a card changing column, not a card changing
+what it is. Making the status write in-place would be a separate ask, and would have to answer the sidebar count
+first. No Kotlin, no CSS, no schema (V18), no route.
+
+**Verified — the shipped file, in a stub DOM, against its own before-image.** The suite cannot see this: `kanban.js`
+is not exercised by a Kotlin render test, and the render tests that pin `.kcol[data-status]` /
+`.kcard[draggable][data-id]` / `.kmove-btn[data-*]` all still passed *on the broken build*. So
+`scratch/s94-kanban-harness.cjs` loads the real file against a minimal DOM whose `fire()` walks the target's
+ancestors the way bubbling does, runs a press, replaces the whole board with a fresh copy (what the swap does), and
+runs the same presses again. `--prefix` rebuilds the pre-Stage-94 binding from the same source and runs the
+identical scenario as the control:
+
+```
+                     shipped   before Stage 94
+highlight after swap    true          false
+post after swap       1 write        none
+arrow after swap      1 write        none
+```
+
+Both runs keep the load-time board working, the lane move filing in place with counts `0`/`1` and no reload, and a
+status drop posting only `/app/tasks/status`. `./gradlew test` is unchanged at **636 / 41 classes / 0 failures** —
+this stage adds no Kotlin test because it changes no Kotlin, and the comment that described the old binding in
+`OtherTasks.kt` was corrected rather than left to mislead the next reader.
+
+**Deploy.** `kanban.js` is a packaged resource, so **Ctrl+F5** is needed. Live `data/pts.db` (with its WAL) was backed
+up as `data/pts.pre-stage94-20261029-090001.db*`; the Stage 93 instance (PID 536) was stopped with `deploy\stop.bat`
+(polite close refused, force-killed after 5 s), `installDist` run, and the instance launched **detached** with
+`Start-Process cmd.exe -ArgumentList '/c','deploy\run.bat'` → PID **19808**. `/` answered 200 and the *served*
+`/static/js/kanban.js` was byte-for-byte the edited file (11,118 bytes), carrying two `document`-level `drop`
+listeners and **no** `querySelectorAll('.kcol[data-status]')`. `app.js`'s contract line was added after that deploy,
+so the sequence ran again over a second backup (`data/pts.pre-stage94b-20261029-090647.db*`) and **the live instance is
+now PID 8744**: `/` 200, served `kanban.js` still the delegated one, served `app.js` carrying the new
+`[data-live-region]` sentence, log shows the catalogue load, the due-date sweep and `Responding at
+http://127.0.0.1:8080`. Schema stays **V18**. Not observed in a real browser: the in-app browser still returns an
+empty body for localhost, so the click-and-drag was proven against the shipped file in the harness rather than on
+screen.
+
+**If this is restated.** Never re-propose: binding a live region's behaviour to nodes collected at page load (any
+block that `app.js` can swap needs its handlers on `document` — this is the second stage to be bitten by it, and the
+rule to check before adding a script to a board page); a Bucket picker that navigates instead of swapping to dodge
+the bug (Stage 93's in-place answer and its URL rewrite stay, and the reader keeps their scroll and their focus);
+dropping the reload from a status write (the arrows are the no-drag path and the sidebar count rides on the reload);
+`drag-over` cleared whenever the pointer moves inside the column; or letting a status drop also post a bucket change.
+"Make the Other tasks drag not reload at all" is the tempting restatement and is **not** this stage — it needs the
+sidebar count and the card's own tint solved first.
+
+## Stage 95 — A backlog card wears the same stage tint as every other card (2026-10-29, live, Kotlin + CSS, no migration)
+
+**The ask.** *"make other tasks kanban cards same colour with assigned task card colour"* — the two boards cut their
+cards by the same five statuses, sit one nav-item apart, and were painting one stage two ways: an assigned card wore
+its stage's edge and wash (Stage 78), a backlog card wore a slate edge of its own whatever it was.
+
+**The fix is one mapping, not a copy.** `statusSlug` was `private` in `TaskBoard.kt`; it is now `internal`, for the
+same reason `statusDot` already is internal — the column dots read it too. `otherCard` calls it, so the backlog's tint
+and the assigned board's cannot drift apart, which is the trap this project has hit before when a list was mirrored
+instead of shared (`DEFAULT_PROJECT_BUCKETS` and V16). The card prints `kcard <slug> kcard-overlay`, and the five
+`.kcard.s-*` rules — four washes and *Not started*'s bare grey edge, plus their dark-theme arms — now apply to the
+backlog exactly as they apply to the other boards.
+
+**Why `s-other` had to go rather than sit beside the tint.** That one class was doing two jobs: it was the slate
+colour (`.kcard.s-other { border-left-color: #5f6a76 }`) *and* it was the layout hook for the card that carries the
+whole-card opener (`position: relative`, and the `z-index` lift for `.kmove` / `.kfoot` so an owner's arrows are
+pressed for what they do and not for the popup under them — **Stage 103** retired the arrows and with them this rule's
+`.kmove` half; the `.kfoot` lift and the `position: relative` on `.kcard-overlay` remain). Keeping it as a third class would have looked correct in
+the markup and painted grey anyway: `.kcard.s-other` and `.kcard.s-inprogress` are both 0,2,0 and the slate rule sat
+*later* in the file, so it wins on order — the same tie that hid Stage 79's red button behind `button.submit` and left
+Stage 75's bucket dots uncoloured under `.lane-row`. The colour rule is deleted; the layout hook is renamed
+`kcard-overlay`, which says what it marks (a card wearing a `.kcard-open` form) and carries no colour at all.
+
+**What did not move.** The backlog card still prints **no stage word** and no chip: its column head *is* the word
+(Stage 57), and Stage 78's "two places for one figure" objection holds here even though the tint now repeats it — the
+tint is a picture read from across the room, the word is a sentence read at the card. The drag source, the opener
+button's `draggable` handle, the owner's arrows, the `#task-body-<id>` live region, Stage 93's picker and Stage 94's
+delegated handlers are untouched, and so are the routes, the rights and schema **V18**. `prioClass` / `formatDue` /
+`MONTHS` stay file-private copies in `OtherTasks.kt` as they were — text formatting is allowed to drift, a colour is
+not.
+
+**Tests.** Suite **636 → 637** / 41 classes / 0 failures. `OtherTasksRenderTest` (32 → **33**) gains
+`a backlog card wears the same stage tint the assigned board paints`, which files one card per status in one bucket and
+requires `class="kcard <slug> kcard-overlay"` for all five slugs, then denies `s-other` and `kstat` on the same board —
+the colour is shared, the word is still the column's. The three pins that found a backlog card by its old class
+(Stage 58's draggable node, the owner's arrow case, the open-editor case) now go through a `cardTag()` helper matching
+`class="kcard s-[a-z]+ kcard-overlay"`, and the Stage 57 case that counted `s-other` to prove the card was a backlog
+card counts that helper instead, so "drawn as a backlog card" now means "carries the opener node and wears its stage".
+
+**Verified.** The stylesheet claim is a specificity claim, so it was read off pixels: `scratch/s95-render-check.ps1`
+inlines the shipped `base.css` + `app.css` into a fixture holding both boards side by side (`scratch/s95-tint-body.html`)
+and shoots it with headless Chrome in the light and `data-theme="dark"` themes. In progress is amber, Blocked red,
+Completed green on **both** sides, in both themes, and the backlog card's arrows and avatar still sit above its overlay.
+The packaged build was then proved rather than assumed: `unzip -p` on the dist jar's `static/css/app.css` shows the five
+tint rules and **no** `.kcard.s-other` selector, and `javap -v` on `OtherTasksKt.class` carries `kcard-overlay`, **zero**
+`s-other`, and two resolved calls to `TaskBoardKt.statusSlug`.
+
+**Deploy.** Both a Kotlin and a static change, so `installDist` + restart + **Ctrl+F5**. Live `data/pts.db` was backed
+up in place — `data/pts.pre-stage95-20261029-092541.db`, `-wal` and `-shm` — the Stage 94 instance (PID 8744) was
+stopped (polite close refused, force-killed, as always on this box), and the new instance was launched **detached** with
+`Start-Process cmd.exe -ArgumentList '/c','deploy\run.bat'` → **PID 19732**, java.exe with `cmd.exe` as its parent and
+nothing of this shell's tree above it. `/` answers 200, the *served* `/static/css/app.css` is byte-for-byte the edited
+file (`cmp` clean, four `kcard-overlay` occurrences), and the log shows schema 18 up to date, the 9-category catalogue,
+the due-date scheduler and `Responding at http://127.0.0.1:8080`. Not observed in a real browser: the in-app browser
+still returns an empty body for localhost, so the screen proof is the fixture render plus the packaged markup.
+
+**If this is restated.** Never re-propose: a backlog-only colour, or a "backlog" tint keyed off the bucket instead of
+the stage — the ask was parity, and a sixth hue is the thing Stage 78 refused; copying `statusSlug` into
+`OtherTasks.kt`'s private set (one mapping, `internal`, is the whole point); re-adding `s-other` as a class on the card
+for "backlog styling hooks", which re-creates the tie this stage removed; a stage word or a `tcode` chip on a backlog
+card to "make the two boards identical" (Stage 78 took the chip off lane cards, Stage 57 keeps the word in the column
+head); or `:has(.kcard-open)` in place of `kcard-overlay` for the opener layout.
+
+## Stage 96 — One vocabulary for a stage: the project picker reads as the progression (2026-10-29, live, Kotlin + SQL **V19**)
+
+**The ask.** *"when creating a new project choosing status dropdown showing in wrong order should be Not started In
+progress On hold Blocked and Completed"*. Two things were being asked at once, and the second is why this stage has a
+migration. The order was genuinely wrong — the picker led with the status managers reached for most often, on the theory
+that the common choice should be the nearest one. But *In progress* was not a project status at all: it was a **card**
+status. A project running at 40% called itself **Ongoing**, and the app had been living with two words for one idea.
+
+**The word "In progress" named two screens**, so the ask went back as two questions before anything was written, and
+both answers widened it: **"Rename it to 'In progress' too"** — one vocabulary app-wide, with a `V19` that rewrites the
+rows — and **"Follow the picker"** for the board's Status sort.
+
+**What collapsed.** `PROJECT_STATUSES` is now `Not started, In progress, On hold, Blocked, Completed` and
+`PROJECT_STATUS_ORDER` is *that same list*, one assignment rather than a second ordering with its own rationale. Retired
+with it, in order of how much code they were:
+
+- `Calendar.taskStatusChip` — a whole function whose only job was translating a card's *In progress* into the project
+  word *Ongoing* so the calendar's list could colour it. The call site reads `chipClass(task.status)` now; both `chipClass`
+  maps (Calendar and Projects) key `"In progress" -> "ontrack"`, which is why the chip class name still says *ontrack*.
+- `Team.kt`'s `taskColor` and `team.js`'s `COLORS` each carried an `Ongoing` arm and an `In progress` arm side by side —
+  green for the project, amber for the card, one stage. The green arm is gone; the hue table is keyed by five words for
+  both of the popup's lists.
+- The deliberate divergence between the picker and the sort, which put **Blocked before On hold** on the board because a
+  stalled job wants looking at before a parked one. Sound advice; it meant the order a manager read down the Status
+  column was not the order the form offered them, and only a comment in `Project.kt` recorded which was which.
+
+**The migration.** `V19__project_status_in_progress.sql` is one statement —
+`UPDATE projects SET status = 'In progress' WHERE status = 'Ongoing';`. `projects.status` is free text with no CHECK
+constraint since V1 (the five words are enforced at the form, not the schema), which is what makes a single `UPDATE` the
+whole change: no table copy, no index rebuild. It deliberately leaves `updated_at` alone — this is the app renaming its
+own vocabulary, not a manager moving a project, and stamping every row would make a job from last month look as if it
+moved today. It does not touch `tasks.status` (the card word was already the one everything is converging on),
+`forecasts.invoice_status`, or `notifications.mail_status` — those merely share the column name. And a status the app
+cannot name survives as written: V19 renames one word, it is not a cleaning pass. `OLD_STATUS_MAP` gained the v2 word
+alongside the legacy `On track`, so a restored older export lands on the same five words without a second pass.
+
+**What did not move.** Still five statuses, no new one. The board's sort captions — *Not started first* / *Completed
+first* — are exact as written and were not re-worded, which is a way of confirming the head of the list and its tail.
+Stage 95's `.kcard.s-*` card tints, `statusSlug` and the column dots are untouched: they were always keyed off the card
+words, and the projects are what moved. `ProjectService.DEFAULT_STATUS` was already `Not started` and is now the picker's
+first option, so the server-side default and the option a manager who touches nothing gets are the same value for the
+first time (a stale form posting the retired word still falls through to it — proved on the throwaway, not assumed).
+`TASK_STATUSES` and `PROJECT_STATUSES` are now the identical five words; they stay two lists, because a card's columns
+and a project's stages are different things that happen to share their spelling.
+
+**Tests.** Suite **637 → 642** / classes **41 → 42** / 0 failures. New `db/ProjectStatusMigrationTest` (3 cases, built
+on `ChecklistCompletionMigrationTest`'s *V1–V18 then the real migrate* shape): the renamed row's word is one the picker
+offers and the five stages each survive once; a hand-edited status and a legacy `On track` are left alone and **no
+`tasks` row changes**, including a card that literally holds `Ongoing`; `updated_at` is byte-identical across the
+migration. `ProjectsPageRenderTest` (42 → **44**) gains `the status picker on a new project reads as the progression,
+not as the most-used choice` — the five option values in order, `selected` on *Not started*, and the same markup coming
+back on a rejected create — and `the board's status sort follows the picker`, which files one project per stage under the
+same end date so the status key is the only thing that can move a row, then requires the printed order to be the picker's
+order forwards and backwards. The expectation lists are spelled out rather than read from `PROJECT_STATUSES`: a test that
+asks the constant whether it matches itself passes whatever the constant says. ~50 status literals were re-pointed across
+21 files, including the Forecasts URL assertions (`status=In+progress` — `URLEncoder`, so a space is a `+`) and the
+hidden `board_status` value.
+
+**Verified.** The data claim was made over **a copy of the live database** first: `flyway_schema_history` at 18, then the
+app's own migration path (Flyway 10.20.1, `classpath:db/migration`, `baselineOnMigrate`, driven from `jshell`) reported
+`Migrating schema "main" to version "19 - project status in progress"` → `now at version v19`, `applied=1`. Two rows
+(`O-0002`, `S-0013`) went `Ongoing → In progress` with `updated_at` **identical to the pre-migration rows**, the ten
+`Not started` rows unchanged, and the tasks tally — 8 On hold, 4 Not started, 4 Blocked, 3 In progress, 2 Completed — the
+same on both sides. Then `scratch/stage96-verify.ps1` on a throwaway (8095, empty DB, disposable bootstrap admin,
+classes + resources with the Stage 95 jar excluded from `lib/*`): **28 checks, FAILS 0** — the picker's five options in
+order with `Not started` selected and no retired word offered, a create posting the retired word landing as *Not started*,
+all five words accepted, `chip ontrack` printing *In progress*, `?sort_status=asc|desc` running the progression both
+ways, the Forecasts sheet answering `?status=In+progress` and carrying it through its row forms, served `team.js` with no
+`'Ongoing':` key, and the Calendar and Team pages printing no retired word anywhere.
+
+**Deploy.** Kotlin, SQL **and** a static file, so `installDist` + restart + **Ctrl+F5**. The Stage 95 instance (PID 19732)
+was stopped (polite close refused, force-killed, as always on this box) and `data/pts.db{,-wal,-shm}` copied in place to
+`data/pts.pre-stage96-20261029-095604.db*`. The packaged jar was proved before launch: `unzip -l` carries
+`V19__project_status_in_progress.sql`, `unzip -p` on its `team.js` shows one keyed `'In progress':` and no keyed
+`'Ongoing':`, and `javap -p` on `CalendarKt.class` no longer declares `taskStatusChip`. Launched **detached** → **PID
+14592**, java.exe under cmd.exe with nothing of this shell's tree above it; `/` 200, served `team.js` 200 with
+keyed-Ongoing=0, and the real log reads `Current version of schema "main": 18` → `19 - project status in progress` →
+`now at version v19`. A read-back of the live rows after the boot: `Not started 10 / In progress 2`, `rows still Ongoing =
+0`, tasks tally unchanged, schema version 19.
+
+**If this is restated.** Never re-propose a most-used-first picker — the ask was the progression, and the two orders are
+one list now. Do not reinstate a separate `PROJECT_STATUS_ORDER` with its own rationale, do not add a
+card-word→project-word map back into `Calendar.kt` or a second hue arm back into `team.js`/`Team.kt`, and do not merge
+`PROJECT_STATUSES` into `TASK_STATUSES` because they currently agree — they are different workflows that happen to spell
+their stages the same way. A `CHECK` constraint on `projects.status` would make a future rename like this one a table
+rebuild instead of an `UPDATE`. And if a fifth word is ever genuinely wanted (say *At risk*), it is a picker change, a
+sort change, a chip class in two files, a `TASK/PROJECT_STATUSES` decision and a migration — which is exactly the spread
+this stage exists to record.
+
+## Stage 97 — The Bucket picker is the Other-tasks board's only view control (2026-10-29, live, no migration, Kotlin)
+
+**The ask.** A screenshot of the button reading *Show all buckets*, and *"no need this button on other tasks function
+since we have dropdown"*. The premise was right and it was worth saying out loud why: Stage 93 put the Assigned page's
+**Bucket** picker on this board, and from that day the two controls answer the same question — *which columns am I
+looking at?* One of them had to be the exception. The toggle was also the older, awkward half: Stage 57 had already
+noted that the two "had to be kept in step", and every write on the page carried a hidden field so the wide view could
+survive a save, a step tick, a note, a delete and a refusal.
+
+**The key word read two ways**, so the ask went back as one question before anything was written. Taking the button out
+of the page head leaves the empty columns hidden by the board's own rule, and the dropdown as it stood could name only
+columns that already held cards on the narrow board. The answer chosen was **"Dropdown becomes the only control
+(Recommended)"** — delete the button *and the whole wide view it switched on*, keep the rule that only buckets holding
+cards print, and make the dropdown able to reveal an empty one. The other option on the table (keep the wide view
+reachable through the picker's *All buckets*) was rejected because it is what this stage already does: *All buckets* is
+option `0`, the absence of a filter.
+
+**What went.** `allBucketsToggle()` — the page head's second `opener-form` (`id="bucketsToggle"`, class
+`buckets-toggle`, a hidden `allbuckets` and a caption that flipped between *Show all buckets* and *Show fewer buckets*) —
+and `otherToggleApplies()`, the predicate that asked whether the control was a choice this reader actually had. With them
+went the flag they carried: `showAllBuckets` as a parameter through `otherTasksContent`, `bucketMenuForm`,
+`bucketAddTaskForm`, `bucketModal`, `bucketAddBody`, `bucketManageBody`, `bucketDeleteForm` and `otherCard`, the
+`showAll` half of `taskFormModal`'s signature, `taskRedirect`'s fourth argument, the hidden `allbuckets` input in nine
+forms, and the `?allbuckets=` read in `GET /app/other-tasks`. `respondOtherTasks` now takes one view parameter,
+`showBucketId`, and `bucketsBack()` is the single place that turns a column id into a URL.
+
+**What took its place** is one line of behaviour rather than a control. `?show=<id>` already printed the chosen group
+even when the choice was empty (`chosen` maps to `listOf(chosen to emptyList())` when nothing is filed there), so naming
+a column is now the way to see it; the picker lists **every** bucket, empty included, because it is built from
+`TaskService.bucketRows()` and not from the board. Two edges came with that: a bucket that has just been created is
+empty and would have vanished as the reader pressed the box, so `POST /app/other-buckets` lands on
+`/app/other-tasks?show=<newId>` — the id read back by case-insensitive name lookup, since `TaskService.addBucket`
+returns the rule that stopped a name and no id, and names are unique that way — and deleting the column the board is
+filtered to drops the filter (`if (showBucketId == bucketId) 0 else showBucketId`), so a redirect never names a dead id.
+
+**What did not move.** The narrow rule (Stage 57): a board prints the buckets that hold cards, and nothing about a
+group, its five status columns, its `⋮` menu or its `+ Add task` line changed. Neither did the `other:<id>` back token,
+`#otherBoard` as the live region, or the picker's own plumbing — it is a filter form, so `app.js`'s `refresh()` rewrites
+the address bar for it and it needed no `data-live-url` to keep the URL honest after the toggle's companion blocks
+disappeared. (`[data-live-url]` itself stays in `app.js`: Stage 93 added it for a *block* form, the toggle was its only
+user, and with it gone no markup on any page sets the attribute — a mechanism with no caller, not a bug, and deleting it
+was not asked.) A stale bookmark or an old tab's `?allbuckets=1` is *unread*, not an error: the route reads `show` alone,
+so the retired flag neither widens a board nor comes back in the markup. And no asset moved: `.buckets-toggle` never had
+a CSS rule and no script ever selected `#bucketsToggle` — the only files touched outside Kotlin are three comments
+(`bucket-modal.js`'s header, `app.css`'s backlog-controls block, `kanban.js`'s live-region sentence) that named the
+toggle as the board's other control.
+
+**Tests.** Suite **642 / 42 classes / 0 failures** — the same totals Stage 96 left, because the six cases that pinned
+the toggle were replaced by six that pin its absence: `the head offers one control and the picker is the board's only
+view`, `the picker reveals a bucket the board is hiding`, `a board with nothing hidden says so and grows no extra
+control`, `a bucket that has just been named lands on its own filter`, `no write on this page carries a view state any
+more` (a card's popup, a column's menu and a refusal all re-rendered and read for the word `allbuckets`), and
+`All buckets is the way back and the address bar follows it`. `TaskBoardRenderTest` retargeted two
+(`a step written from the wide backlog board leaves the board wide` → `no popup form carries the backlog's retired wide
+view`; the wide-view delete case → `a delete answers on the board the card was opened from`, which now asserts
+`taskRedirect("other:7", 0) == "/app/other-tasks?show=7"`), and its `edit`/`editAsOwner` helpers lost the parameter.
+`AssignedTasksRenderTest`'s `nothing on this page asks for the other page's view` keeps its `assertFalse` and now records
+why the popup it inspects is never handed a wide flag.
+
+**Verified.** `scratch/stage97-verify.ps1` on a throwaway (8095, empty DB, disposable bootstrap admin, classes +
+processed resources with the Stage 96 jar excluded from `lib/*`): **60 checks, FAILS 0**. The board prints `+ Add bucket`
+and `#otherBucketFilter` and no `bucketsToggle`, `buckets-toggle`, `Show all buckets`, `Show fewer buckets` or
+`allbuckets` anywhere; an empty column is off the unfiltered board yet still in the picker's `<option>` list;
+`?show=<empty id>` prints its group with five `kcol-empty` panels and selects it in the picker; a create lands on
+`?show=<newId>` and a card saved with `back=other:<id>` comes back on that same narrowed board; `?allbuckets=1` answers
+200 and changes nothing; a refusal re-opens the card form on the narrowed board with no view flag; deleting the filtered
+column 302s to the plain `/app/other-tasks`; and `/app/assigned-tasks`, the served `app.js`, `kanban.js`,
+`bucket-modal.js` and `app.css` carry no trace of the removed control. The first run's three FAILs were the harness, not
+the app: `Contains('>Idle plant<')` matched the *picker's* option, which is why the assertions were re-scoped to
+`OnBoard($html, $name)` — the `bucket-group-title` span — and the discovery became a check of its own. `Group` as a
+function name is not usable in PowerShell (built-in alias for `Group-Object`).
+
+**Deploy.** Kotlin only, plus comment-only edits in three static files, so `installDist` + restart + **Ctrl+F5**
+(static ships inside `murray-pts-2.0.0.jar`). The Stage 96 instance (**PID 14592**) was stopped (polite close refused,
+force-killed, as always on this box) and `data/pts.db{,-wal,-shm}` copied in place to
+`data/pts.pre-stage97-20261029-111850.db*`. `jar UP-TO-DATE` says nothing about *which* code got packaged, so the
+installed jar was read instead: `unzip -p` over `OtherTasksKt.class`, `ApplicationKt.class` and `TaskBoardKt.class`
+finds zero occurrences of each retired string and one/two of `+ Add bucket`, `otherBucketFilter`, `All buckets` and
+`addBucketOpener` — the current markup, not the old. Launched **detached** → **PID 23476** (java.exe under cmd.exe,
+nothing of this shell's tree above it); `/` 200, schema read-back `Current version of schema "main": 19` with *no
+migration necessary* (this stage has none), and the served `app.js`, `bucket-modal.js` and `app.css` are byte-identical
+to the jar copies (`54c8436e…`, `a76efb30…`, `a202a1f3…`).
+
+**If this is restated.** Do not put a second view control back in the page head, and do not re-add the wide view as a
+hidden state that "only" the picker sets — the ask is the same shape as Stage 33's lane-naming reversal: the user
+described the *result* they wanted (three buckets on the board), not the mechanism (a control to press). If an empty
+column genuinely needs to be findable in bulk, the change belongs in the picker's option list and the board's filter,
+which is one read (`bucketRows()`) rather than two controls kept in step. `addBucket` still returns no id; a future
+stage that needs the new column more precisely should make it return the row rather than reach back by name. And the
+standing Stage 30 gap is untouched here: `addBucket` reserves no name, so a board can still be given a second column
+called *Unsorted* — or, now, one called *All buckets*, which the picker would print twice with only one removable.
+
+## Stage 98 — A bucket added on Settings is a column on every board of its category (2026-10-29, live, no migration, Kotlin)
+
+**The ask, twice.** *"when add a new bucket on project bucket settings its not adding on project"* — sent first as a
+report, and again while the fix was being written. It was an accurate report, and the interesting part is that nothing
+was broken: since **Stage 92** the create popup asks nothing about buckets, so `type_default_buckets` had no reader at
+all on any screen, and `BucketDefaultsService.add` wrote only that row. The panel had been inert since 2026-10-28 while
+its caption still promised the catalogue was what a new project would open with. Stage 61–77 semantics said a catalogue
+row is an *offer to the next project*; Stage 92 deleted the only place the offer was shown, which turned every add into
+a no-op the reader could see through.
+
+**One question, two answers.** The write had two halves that could move independently, so they went back as one
+multiple-choice before any code was written: **add = "Every board of that category (Recommended)"** — the new column goes
+onto every existing project of the category that lacks it, and every future project opens with it — and **remove =
+"Leave live boards alone (Recommended)"** — taking a row off the catalogue only stops future boards getting the column;
+boards that carry it keep it, exactly as removing a lane from one project archives its cards rather than deleting them.
+The asymmetry is deliberate and is now stated on the card: a bucket somebody *added* is a column they asked for; a bucket
+somebody *took off the list* is one they stopped asking new projects to have.
+
+**`add` writes the row and then the columns.** After the catalogue insert, `BucketDefaultsService.add` walks
+`ProjectRepository.findByType(category)` and gives the lane to each project that does not already hold the name,
+compared **ignoring case** — a manager may have made a column of their own by that word:
+
+```kotlin
+TypeDefaultBucketRepository.insert(category, name)
+val boards = ProjectRepository.findByType(category).count { project ->
+    ProjectBucketRepository.namesOf(project.id).none { it.equals(name, ignoreCase = true) } &&
+        TypeDefaultBucketRepository.seedOne(project.id, category, name) != null
+}
+return BucketDefaultResult(true, receiptFor(category, name, boards))
+```
+
+`seedOne` is the lane's only writer here, so the column arrives through `ProjectBucketRepository.insert` — appended last,
+positions 3, 4, 5 with no gap — and carries the **catalogue's spelling** and colour (Stage 80/83), not whatever
+capitalisation a board already had. A board that already carried the name keeps its own spelling and gets no second
+column; a board of another category is not touched. The receipt counts what actually happened — *"… — 2 Site projects
+boards gained the column, and every new project will open with it"*, *"the one … board without it has the column"* for a
+single board, and *"every new … project will open with it"* when the catalogue was widened before any project existed —
+because a message that only promises *the next project* reads as nothing having happened.
+
+**The receipt reaches the screen, which it did not at first.** `POST /app/settings/buckets/add` used to pass the message
+on a refusal only, so `LANE_ADDED` printed "Default lane added." and the count was thrown away. `PasswordStatus.LANE_ADDED`
+now has **no text of its own** — the TYPE_ADDED pattern, where the service's sentence is already a whole sentence — and
+the route always appends `&lanedetail=`. That is the one visible line a reader standing on Settings has that the add
+reached the projects.
+
+**A new project opens with the whole catalogue.** `ProjectService.create` now seeds `seedDefaults(id)` and then
+`TypeDefaultBucketRepository.seedExtras(id, type, TypeDefaultBucketRepository.namesOf(type))` — the category's entire
+catalogue, in catalogue order — so a board reads the same whether it was made before the add or after it. With that the
+create path stopped pretending to accept a bucket list: `ProjectDraft`'s `buckets` / `newBucket` / `bucketForType` and
+`ProjectField.BUCKETS` are deleted, and `POST /app/projects` still reads no bucket field (Stage 92), so a hand-built POST
+that names one gets the same board as the form.
+
+**What deliberately did not move.** `remove` still stops at the catalogue — that was the second answer, and the KDoc and
+the card both say so. A bucket typed into a **project page's own picker** with the `also_type` tick still joins the
+catalogue for *new* boards only; it was named for one project, and a tick that quietly adds a column to a dozen other
+boards is not what the box says. `BucketDefaultsService.chosenFor` therefore stays — a project page's popup is its one
+remaining caller — and nothing anywhere re-files a card: a lane is a `project_buckets` row, not a pointer into the
+catalogue. The three fixed rows at the top of the panel and the management-only guard are untouched.
+
+**Copy that had to change with the behaviour.** The panel's caption now says both directions out loud — *"Adding one puts
+an empty column on each of this category's projects now, and every project created afterwards opens with it. Taking a row
+off stops new projects getting it — the boards that already carry that column keep it."* — and the create popup's bucket
+line gained *"…plus this category's extra buckets from Settings"* before *"Add more on the project page after it is
+created."*, because a reader who was told the board starts with three chips and then watched a fourth column appear was
+being told half the truth. The `TypeDefaultBucketRepository` object KDoc, `seedExtras`, `seedOne`, `add`, `remove`,
+`chosenFor` and `BucketDefaultsService`'s class KDoc were rewritten to the new rule; `SettingsRenderTest`'s create-popup
+case was renamed (it had said *"offers this category's buckets"* since Stage 92 made that false).
+
+**Tests.** Suite **642 → 641 / 42 classes / 0 failures** (tallied from `build/test-results/test/*.xml`). The eight
+Stage-73 create-tick cases in `ProjectServiceTest` were replaced by two: `a new project opens with the three and its
+category's whole catalogue, in catalogue order` and `a create writes nothing to the catalogue`. The Stage-61 case that
+pinned the old rule — `a bucket added to a category after a project exists does not reach that board` — became
+`a bucket added to a category reaches the board of a project that already exists`. `BucketDefaultsServiceTest` grew four:
+the fan-out touches every board of the category and no other, appended last at position 3; a board holding the name in
+another case gets no second column (and the next board is given the catalogue's spelling); the receipt counts 0, 1 and
+2 boards; and a removal leaves the live columns while a board made afterwards does not open with the row.
+`SettingsRenderTest` gained `an added lane prints the service receipt, not a status line in front of it`.
+
+**Verified.** `scratch/stage98-verify.ps1` on a throwaway (8095, empty DB, disposable bootstrap admin, compiled classes +
+processed resources with the Stage 97 jar excluded from `lib/*`): **35 checks, FAILS 0**. Two Site projects and one Labor
+project are created before anything is added; the add answers 302 to `lane=LANE_ADDED` with `lanedetail=` and the Settings
+page prints *"2 Site projects boards gained the column"* with no *"Default lane added."* in front of it and the new row in
+the list; both existing site boards then print `Commissioning` as their fourth column while the Labor board still has
+three; a project created afterwards opens with four; a second add receipt counts **all three** site boards and the first
+board's column count goes 4 → 5 with no duplicate; a case-insensitive repeat is refused with *"already adds snag list"*;
+removing the row takes it off the catalogue but the board keeps the column and the next project opens with `Snag list`
+only; and the log ends with **0 ERROR** lines and *all 19 migrations applied* on the fresh DB. (The one FAIL in the first
+run was the harness — it demanded *"No migration necessary"*, which a fresh DB never says.)
+
+**Deploy.** Kotlin only, no migration, so `installDist` + restart. The Stage-97 instance (**PID 23476**) was stopped
+(polite close refused, force-killed as usual on this box) and `data/pts.db` copied in place to
+`data/pts.pre-stage98-20261029-122223.db` (405,504 bytes; no `-wal`/`-shm` stood beside it — the server had
+checkpointed). The installed jar was read rather than trusted: `BucketDefaultsService.class` carries *"boards gained the
+column"* and *"board without it has the column"*, `ProjectService.class` carries `seedExtras` and **no** `bucketForType`,
+and `PasswordStatus.class` no longer holds *"Default lane added."*. Launched **detached** → **PID 9232** (java.exe under
+cmd.exe 19820); `/` 200, `SQLite ready at …\data\pts.db`, `Current version of schema "main": 19` with *no migration
+necessary*.
+
+**If this is restated.** Do not turn the add back into a per-board or per-project choice, and do not make it "only future
+projects" — that *is* the remove rule, and it is what the user reported as broken. Do not re-add a bucket picker to the
+create popup to "explain" where the extra columns come from: the popup's line plus the panel's caption are the
+explanation, and a tick-list there would be a second way to choose what a category already decides. Two standing gaps
+remain unchanged: `TaskService.addBucket` still returns no id, and a catalogue name may literally be *Unsorted* or one of
+the three phases' spellings in another case (the catalogue refuses the exact three, not their twins).
+
+## Stage 99 — Settings loses its password box, and the first-login gate goes with it (2026-10-29, live, no migration, Kotlin)
+
+**The ask, with a screenshot.** *"delete this part from settings"* — a picture of the **Change Password** card: current,
+new and confirm fields and the full-width button. The card was not decoration. Since the launch it was the *only* way an
+account whose password the system assigned (a legacy import, a bootstrap admin with no `PTS_ADMIN_PASSWORD`, an employee
+added without one) could clear `must_change_password`, and `requireSession()` sent every such account here from every
+other route. Deleting the box alone would have stranded those accounts on a page whose only purpose was a form that no
+longer existed.
+
+**One question, one answer.** *"What should happen to the forced change?"* went back as one multiple-choice before any
+code: **"Drop the forced change too (Recommended)"**. The box and the gate are one feature, so they leave together. A new
+account signs in with the password management set for it — or its employee number — and is never blocked. A password is
+still set, and reset, from the **Team sheet's** popup, where an administrator types it; a reset still revokes every
+session it found.
+
+**What was deleted.**
+
+- `Settings.kt`: the `Change Password` heading, its `card-panel`, the locked-account flash (*"Set a new password to
+  unlock the rest of PTS"*) and `passwordForm()` itself — no `currentPassword` / `newPassword` / `confirmPassword`
+  field remains on any role's page. `settingsContent` lost its `passwordStatus` parameter.
+- `Application.kt`: `POST /app/settings/password` (the form's only endpoint), the `?pw=` flash it redirected with,
+  `UserSession.mustChangePassword`, the second arm of `requireSession()` and `MUST_CHANGE_ALLOWLIST`. The guard now
+  answers one question — is there a session — and `currentSession()` no longer reads the flag.
+- `UserService.changeOwnPassword`, and `PasswordStatus.WRONG_CURRENT` / `MISMATCH`, which only that path produced.
+  `AuthService.reissue` went too: the retired route was its one caller and keeping a self-service change signed in was
+  its documented purpose.
+
+**What did not move.** The `must_change_password` column and every write of it stay (`UserService.addUser`,
+`AuthService.ensureSuperAdmin`, `JsonImporter`): the flag is still a truthful record of how a password came to be, and
+`AuthService.mustChangePassword` / `UserRepository.mustChangePassword` still read it. Nothing enforces it, which is the
+whole change. `UserService.setPasswordByAdmin` is untouched, so an administrator's reset still clears the flag and
+revokes sessions, and the three flag assertions in `EmployeeServiceTest` keep their meaning. The Team sheet, its add
+card, the account card and the three app-settings panels are unchanged; the Settings order is now Team → Your account →
+Project types → Project bucket settings → Email notifications, because the box used to sit between the account card and
+the panels. A Viewer's Settings page now carries **no form at all** — just the account card.
+
+**Copy that had to change with the behaviour.** The add card said new accounts *"have to change it on first sign-in"*,
+and the create popup's manager branch said *"change it on first sign-in, as a Viewer"* — both promises the app no longer
+keeps. The add card now reads *"…until you set a password on this sheet the number is the password"*; the admin branch
+says *"Leave the password blank and the number is it; you can set a new one here at any time."*; the manager branch says
+*"They sign in with their employee number as the password, as a Viewer."* The README's Settings section, its
+troubleshooting table and the launch notes were corrected in the same pass.
+
+**Tests.** Suite **641 → 639 / 42 classes / 0 failures** (tallied from `build/test-results/test/*.xml`).
+`MustChangePasswordTest` (4 cases: the flag, the self-service clearing path, a wrong current password, an admin reset)
+became `DefaultPasswordFlagTest` (2: the flag reads per account and unknown accounts read false; a flagged account signs
+in and its session resolves until an administrator sets a password, which clears the record and revokes that session).
+In `SettingsRenderTest` the section count drops 6 → 5, the retired form's cases became absences (no heading, no route,
+no field names, on both a manager's and a Viewer's page), the form-nesting ceiling became *"never more than one deep"*
+because a Viewer's page now has no form at all, and two copy assertions moved with the sentence.
+
+**Verified.** `scratch/stage99-verify.ps1` on a throwaway (8095, empty DB, `PTS_DB_PATH` passed, compiled classes +
+processed resources with the app jar excluded from `lib/*`): **24 checks, FAILS 0**. Management's Settings answers 200
+with no `Change Password`, no `/app/settings/password` and none of the three field names; `POST /app/settings/password`
+answers **404**; an account created with a blank password signs in with its number, gets `/app/assigned-tasks` **200**
+instead of a bounce, prints no forced-change banner, and its own Settings is the account card alone; the retired POST is
+404 for it too and leaves its password unchanged; an administrator's reset on the Team sheet still answers 302 and that
+password is the one that logs in; the log ends with **0 ERROR** lines and all 19 migrations applied on the fresh DB.
+
+**Deploy.** Kotlin only, no migration, so `installDist` + restart. The Stage-98 instance (**PID 9232**) was stopped
+(polite close refused again, force-killed) and `data/pts.db` copied in place to
+`data/pts.pre-stage99-20261029-131530.db` (405,504 bytes, with its `-wal` and `-shm` — the forced kill left them). The
+installed jar was read rather than trusted: `Settings.class` carries the new add-card sentence and holds none of
+*Change Password*, `currentPassword` or the unlock line; `ApplicationKt.class` holds neither `/app/settings/password`
+nor `MUST_CHANGE_ALLOWLIST` nor `mustChangePassword`. Launched **detached** → **PID 9420** (java.exe under cmd.exe
+18932); `/` 200, `Current version of schema "main": 19`, *no migration necessary*.
+
+**If this is restated.** "Put the box back but keep the gate off" is a different feature — self-service password change
+— and would need its own decision about where it lives; do not restore `passwordForm()` as a quiet extra on Settings.
+"Keep the gate but hide the box" locks every system-assigned account out of the app: the two are one feature. "Stop
+writing `must_change_password`" is a data change, not a copy change: leave the column and its writes unless a migration
+is intended. A password is set from the **Team sheet** now — `EmployeeService.save` with `password=`, admin-only behind
+`maySetRoles`, and `setPasswordByAdmin` behind it; do not re-propose a password field for managers, and do not assume a
+reader can change their own password, because no route does that any more.
+
+## Stage 100 — A new board is exactly its category's Settings list (2026-10-29, live, no migration, Kotlin)
+
+**The ask.** *"so we dont have to take default buckets when we create a new project. As we setting buckets on the
+settings function"* — the create popup still named the three opening lanes (Engineering / Procurement / Production)
+on every board and the create then added the category's extras after them, while Settings › Project bucket settings
+was already where the company maintains that list. Two answers were in force at once: a universal trio nobody chose,
+and a catalogue that could only ever add to it.
+
+**Two answers, one rule.** What a new board should start with went back as one multiple-choice before any code:
+**"Board follows Settings only"** (no automatic Engineering / Procurement / Production; the board is exactly the rows
+Settings lists for its category) and, for what the live catalogues should hold, **"Start from empty / extras only"**
+(no migration: a category keeps only the extras it already has — Site projects keeps `Commissioning`, and four
+categories have none). Together they mean creation is refused, at the popup's Buckets line, when the category lists no
+bucket at all: a board with no column has nowhere to file its first card.
+
+**What changed.**
+
+- `ProjectService.create`: `seedDefaults(id)` + `seedExtras(id, type, namesOf(type))` became one
+  `TypeDefaultBucketRepository.seedBoard(id, type, TypeDefaultBucketRepository.namesOf(type))` — the whole catalogue
+  in catalogue order, and nothing that is not in it. *(**Stage 104** hands `seedBoard` one more name-set: the rows the
+  create form itself typed, appended after the catalogue and carried by `ProjectDraft.newBuckets`. "Nothing that is
+  not in it" still holds of the catalogue — Settings' list is still what every project of the category opens with —
+  and the third argument is now catalogue-then-typed rather than catalogue alone.)* A type whose `TypeDefaultBucketRepository.of(type)` is empty
+  fails the create with `ProjectField.BUCKETS` → *"This category has no buckets yet. Add one in Settings, under
+  Project bucket settings."* `ProjectField.BUCKETS` returns after Stage 92 deleted it, but for a refusal rather than
+  a picker: `Projects.kt` draws a label-only `Buckets` field with the hint and the error under it — no input, as
+  Stage 92 left it. *(**Stage 104** put an Add bucket line back on that popup — as an addition to the list rather than
+  a choice from it — so this field has one input again, `ProjectField.BUCKETS` refuses names typed into it, and the
+  empty-category sentence now reads *"Add one above, or list them in Settings under Project bucket settings."*)*
+- `TypeDefaultBucketRepository`: `seedDefaults` and `seedExtras` are deleted; `insert` now starts an empty category at
+  position **0** instead of 3 (`maxOrNull() ?: -1`), because there is no fixed opening set above it any more. The
+  object KDoc states the new rule: this table *is* the board a new project gets, its rows are only ever a template,
+  and a row's removal still cannot touch a live board (the add/remove asymmetry is unchanged).
+- `Settings.kt`: the three fixed phase rows are gone — the rows with *"Always on every board"*, the lock instead of a
+  bin, and their own layout. `entries` is now the whole catalogue, every row a normal dot + name + bin, and an empty
+  category prints *"$type has no buckets yet — add one below, or name one while creating a project."* (that wording is
+  the copy fix that followed Stage 104; the Stage-100 line said *"its projects cannot be created"*). The caption was
+  rewritten to say the panel is the board (*"these and nothing else, in this order"*, plus the "at least one bucket
+  before a project can be created" sentence), and the dot index now counts from 0 so the catalogue's first row wears
+  the same shade as the board's first column.
+- `BucketDefaultsService`: `isStandardLane` and the `allowStandard` switch are deleted. Engineering, Procurement and
+  Production are ordinary catalogue names now — addable, renamable on a board, removable from a catalogue like any
+  other. `nameProblem` keeps only the blank / duplicate / case rules; `chosenFor` stays (a project page's picker is
+  still a caller); the add's fan-out and its receipt are untouched.
+- `TaskService` / `domain/Task.kt` lost the last phase-name special case; `TaskBoard.kt`'s lane KDocs now say a
+  project's lanes come from Settings at creation and that `DEFAULT_PROJECT_BUCKETS` is the legacy trio.
+- `Team.kt` — an adjacent fix the new rule forced: the company sheet's **Sub-category** picker used to offer
+  `DEFAULT_PROJECT_BUCKETS`. A Stage-100 board need not carry any of them, so it now reads the project's real lanes
+  (`laneNamesFor`, via `ProjectBucketRepository.ofProject`).
+- `app.css`: `.set-row.phase-row`, `.set-row .phase-fixed` and `.bucket-floor` are deleted (they existed only for the
+  fixed rows and the old popup chips). `.bucket-pick` stays as the field's margin.
+
+**What deliberately did not move.** Schema stays **V19** — no migration, and no data rewritten: the live catalogues
+and all seven existing boards keep the rows they have. `DEFAULT_PROJECT_BUCKETS` still exists as the legacy trio for
+V16's existing boards, `JsonImporter`, the general/Other-board lane fallback and test fixtures — but no create path
+reads it any more. `remove` still stops at the catalogue while `add` still fans one column out to every board of the
+category, and a bucket typed on a project page joins the catalogue only with the management tick.
+
+**The live consequence, stated plainly.** Four categories have no rows in the live catalogue — **Repair/Maintenance/
+other services, Distributor product sales, Engineering, Other** — so creating a project of any of them is refused
+until management adds a bucket in Settings. That is the second answer working as chosen, not a fault: each needs at
+least one bucket before it can make a project. *(**Stage 104** narrowed the refusal, not the rule: one of those
+categories is now creatable when the popup itself names a bucket, and the board it makes holds exactly that name. What
+the narrowing did not do is write the catalogue — the next project of the same category is refused again until
+Settings lists a row, which is the point of the answer "This project only".)*
+
+**Tests.** Suite **639 / 42 classes / 0 failures** (tallied from `build/test-results/test/*.xml`; the count is
+unchanged from Stage 99 — cases were rewritten, none added). A shared fixture, `TestBoards.seedOpeningThree` /
+`seedOpeningThreeFor`, writes the legacy trio into a board / catalogue where a case needs the old shape, so the
+legacy assertions keep their meaning. New and rewritten: `ProjectServiceTest` — `setUp` seeds the trio per category,
+`a category with no buckets refuses the create until Settings lists one`, the catalogue case renamed
+`a new project opens with its category's whole Settings list, in that order`, and `a create writes nothing to the
+catalogue` now expects the trio *plus* `Commissioning`; `BucketDefaultsServiceTest` — `the three phases are ordinary
+bucket names since Stage 100`, and positions `[0, 1]` for a category whose first add is now its first column;
+`SettingsRenderTest` — the panel case rewritten with absences (no *"Always on every board"*, no phase rows) and the
+new caption, dot colours from `dot-0`, the CSS checks for phase-row/phase-fixed now assert their absence;
+`ProjectsPageRenderTest`'s create-popup case rewritten for the new hint and the refusal field;
+`TaskServiceTest`'s phase-name case renamed `a phase name put back on a board is an ordinary bucket, not a catalogue
+write` (expects `engineering` as typed, with no catalogue row to re-spell it from); `ProjectTypeServiceTest`'s rename
+expects the trio plus `Commissioning`.
+
+**Verified.** `scratch/stage100-verify.ps1` on a throwaway (8095, empty DB, `PTS_DB_PATH` passed, compiled classes +
+processed resources with the app jar excluded from `lib/*`): **47 checks, FAILS 0**. A category with an empty
+catalogue is refused at the popup with the message and writes no project; after one bucket is added in Settings the
+same create succeeds and the board holds that one column only — no Engineering, no Procurement, no Production; a
+category with two catalogue rows gets both in order; Settings renders no *"Always on every board"* row and no phase
+lock; removing a catalogue row leaves the existing board's column; the log ends with **0 ERROR** lines and all 19
+migrations applied on the fresh DB.
+
+**Deploy.** Kotlin only, no migration, so `installDist` + restart. The Stage-99 instance (**PID 9420**) was stopped
+(polite close refused again, force-killed) and `data/pts.db` copied in place to
+`data/pts.pre-stage100-20261029-140137.db` (405,504 bytes, with its `-wal` and `-shm`). The installed jar
+(1,830,896 bytes) was read rather than trusted: `SettingsKt.class` carries *"these and nothing else"* and *"has no
+buckets yet"* once and neither *"Always on every board"* nor *"Every new board starts with"*; `ProjectService.class`
+carries `seedBoard` and the refusal sentence; `ProjectsKt.class` carries the new popup hint; `TeamKt.class` carries
+`laneNamesFor`; and no class holds `seedDefaults` or `extrasOf`. Launched **detached** → **PID 4816** (java.exe under
+cmd.exe 13668); `/` 200, `Current version of schema "main": 19`, *no migration necessary*.
+
+**If this is restated.** "Put the old trio back for every category" is the opposite answer — it would need a
+migration that inserts the trio into every catalogue, and it re-arms the special-casing this stage removed. "Let an
+empty category create a board and add columns afterwards" is a different product decision: it means `create` stops
+refusing and the project page's add becomes the only way a board gets its first column; do not make that change to
+"unblock" the four empty categories — the Settings row is one line and the intent is that a category names its work
+before it makes a project. *(**Stage 104** did unblock them from the popup, by management's ask, and it is worth
+reading the sentence above as what it became: the category still names what every board opens with, and what is typed
+mid-create belongs to one board.)* Do not re-add a bucket **picker** to the create popup: the popup tells the reader
+where the list lives, and Settings is the one place it is edited. *(**Stage 104** added a line that adds to the list
+shown — never a control that chooses from it. The rows the category lists still print read-only, with no tick, no
+cross and no way to leave one out; read that stage before treating this sentence as a prohibition on the box that
+names a new column.)* V16's prose about *"every board has three phases"* describes history and existing rows only; new
+boards do not follow it.
+
+## Stage 101 — Newly added checklist steps never tick themselves (2026-10-30, live, no migration, Kotlin)
+
+**Ask.** *"when user click on their own task card on assigned tasks and adds checklist, checklist is ticking automatically stop it"*.
+
+**Change.** `TaskService.addChecklistItem` now calls `ChecklistRepository.insert(taskId, text)` with no Completed-status
+special case. `ChecklistRepository.insert` no longer accepts a `ticked` argument and always writes `done = false`.
+Every new step is unticked, whether management or the card's assignee adds it and whichever status the card has.
+Service, repository and `TaskBoard.stepRowLocked` KDocs now describe that rule. Existing live steps were not rewritten;
+schema remains V19 and there is no migration or new JavaScript.
+
+**Unchanged.** Entering Completed still ticks the plan present at that moment and records each row's earlier state.
+Leaving Completed restores only rows with `pre_completed IS NOT NULL`; a late step has no remembered state and stays
+unticked on reopen. All Completed rows remain locked. A late unticked step is not struck through and can lower card
+and project progress; a subsequent finish ticks it normally.
+
+**Tests and verification.** **640 tests / 42 classes / 0 failures**. `TaskServiceTest` proves management and an assignee
+add unticked steps to a card created Completed, reopening preserves them, and a subsequent finish/reopen ticks/restores
+them. `TaskBoardRenderTest` adds a late-step case: two finished steps plus the owner's addition reads **2 of 3 done**,
+with two struck labels, an unticked disabled late box and three locked rows. The isolated HTTP harness
+`scratch/stage101-verify.ps1` passes **31 checks** on 8095 with an explicit throwaway `PTS_DB_PATH`: the owner adds from
+Assigned tasks, reads 2 of 3 done, reopens without changing the new row, then manually ticks it to 3 of 3. Zero ERROR
+lines, schema V19. The initial form-post harness failure was PowerShell comma/plus precedence; interpolating
+`"taskId=$card"` fixed the harness, not the route.
+
+**Deployment.** In-place hash-matched backup `data/pts.pre-stage101-20261030-084153.db` (405,504 bytes), its `-wal`
+(0 bytes) and `-shm` (32,768 bytes); PTS was already stopped. `installDist` produced the 1,830,803-byte jar. Installed
+`TaskService.class` and `ChecklistRepository.class` match the tested compiled bytes; `javap` confirms the add method
+calls `insert:(ILjava/lang/String;)I` without reading status. Detached restart: java PID **17788**, cmd parent **16500**,
+`/` 200, schema 19, no migration necessary. Metadata-only live/backup counts agree (13 projects, 26 tasks, 23 checklist
+rows, 1 note). No commit or push.
+
+## Stage 102 — Login accepts a username in any letter case, and the screen says so (2026-10-30, live, no migration, Kotlin)
+
+**Ask.** *"when logging in user dont have to use capital letters to log in for username"*.
+
+**What the server already did.** `POST /login` trims and uppercases the employee number before calling
+`AuthService.authenticate`, and the service repeats `trim().uppercase()` before `UserRepository.findByEmpNo`; every
+account is stored in capitals. Passwords go to `PasswordHasher.verify` exactly as typed. So `emp0009`, `EmP0009`,
+`EMP0009` and `"  emp0009  "` were already the same login, and the check was the login screen: it showed
+`e.g. EMP0009`, offered a text box a keyboard could auto-capitalize, and its note still promised a forced password
+change that Stage 99 removed.
+
+**Change (UI only).** `Views.kt`'s login page: the employee-number placeholder is now `e.g. emp0009`, the input
+carries `autocapitalize="none"` and `spellcheck="false"` (no `pattern=` was ever there and none was added), and the note
+now reads *"Employee numbers are not case-sensitive. Passwords are case-sensitive. Your starting password, if none was
+set, is your employee number in capitals (e.g. EMP0009)."* The retired first-sign-in promise is gone. No route, service,
+repository, schema, or JavaScript change; the static assets are untouched.
+
+**Unchanged.** Passwords stay case-sensitive, including a default password typed in capitals. The login throttle,
+session cookie and the canonical uppercase employee number inside sessions all behave as before. `must_change_password`
+is still recorded and still gates nothing (Stage 99).
+
+**Tests and verification.** **642 tests / 43 classes / 0 failures**. `AuthServiceTest` gains *username letter case and
+surrounding spaces do not change login but password case does*: four spellings each succeed, land on `EMP0100`, and
+their sessions resolve to `EMP0100`, while `mixedpass42!` is refused. The new `LoginPageRenderTest` reads the form —
+lowercase example, `autocapitalize="none"`, `spellcheck="false"`, `autocomplete="username"`, no `pattern=`, the case
+sentences present, the forced-change promise absent, and the password box still a password field. The isolated HTTP
+harness `scratch/stage102-verify.ps1` boots the packaged build on 8095 against a throwaway `PTS_DB_PATH` and passes
+**6 checks**: each of `emp0000`, `EmP0000`, `EMP0000`, `"  emp0000  "` answers 302 to `/app` and opens `/app/projects`
+200, a lowercased password answers **401** with *Invalid employee number or password.*, and the database holds four
+sessions on `EMP0000`. The harness's first failure was its own: it expected a refused login to answer 200, while
+`respondLogin` correctly answers 401 when it shows an error.
+
+**Deployment.** In-place hash-matched backup `data/pts.pre-stage102-20261030-090614.db` (405,504 bytes), `-wal`
+(560,352 bytes) and `-shm` (32,768 bytes); the copy passes `pragma integrity_check` and reads the same 13 projects, 26
+tasks, 15 users and 23 checklist rows as live, schema 19. `installDist` produced the 1,830,833-byte jar; `ViewsKt.class`
+and `AuthService.class` inside it are byte-identical to the compiled classes the suite ran. Detached restart: java PID
+**3056**, cmd parent **19892**; `/` 200 serving the lowercase example, `autocapitalize="none"` and the case sentence,
+`/app/projects` 302 to `/` without a cookie, schema 19, "No migration necessary". No commit or push.
+
+## Stage 103 — A status board's card is moved by the drag alone; the prev/next arrows are gone (2026-10-30, live, no migration, Kotlin)
+
+**Ask.** *"assigned tasks card delete those two button since the kanban is working we dont need buttons to move"* — with a
+screenshot of one Assigned-tasks card carrying `← In progress` and `Blocked →` underneath it. The ask named the
+Assigned card, and the same renderer draws the same pair on the shared **Other tasks** board, so the scope question was
+which boards lose them: the answer chosen was **both status boards**, with a project's **lane** board keeping its single
+**✓ Done / ↺ Reopen** button, because that button finishes work rather than walking a card along a row of statuses.
+
+**What was removed.** Two places, one control. `TaskBoard.taskCard` drew the prev/next pair from the status branch of
+the `if (mine && !canManage)` block — the neighbour statuses read out of `TASK_STATUSES`, each button wearing
+`data-status`, `title="Move to <status>"` and the label `← <status>` / `<status> →`. That whole branch is gone, and the
+block now stands as `if (mine && !canManage && laneBoard)`, so the only button left on any card is a lane board's Done
+or Reopen. `OtherTasks.backlogMoveButtons` — the backlog board's private copy of the same pair, added in Stage 58 — is
+deleted outright, together with the call site that ran it under `if (canManage || mine) openBacklogCard(...)`.
+
+**What was kept, and why the page still behaves.** The drag is untouched: `draggable="true"` is still printed for
+exactly the accounts `TaskService.updateStatus` accepts (Stage 58's rule on both status boards), `kanban.js` still
+answers the drop from `document` (Stage 94) and posts `/app/tasks/status`, and the click that opens the card is
+everybody's (Stage 86). No route, service, repository or schema changed and no row was rewritten — this is a control
+removed, not a fact: every card keeps the status it had. `.kmove-btn` survives in the markup contract and in
+`kanban.js`'s delegated press because the lane board's one button is still a `.kmove-btn`; only its two status-board
+producers disappeared.
+
+**Dead style.** `.kcard.kcard-overlay .kmove { position: relative; z-index: 1; }` existed solely so the arrows on a
+backlog card were clickable above the whole-card opener behind them. With the arrows gone it matched nothing, so it is
+deleted; the sibling `.kcard.kcard-overlay .kfoot` rule (the holder's avatar line) stays, and so do `.kmove`,
+`.kmove-btn` and `.kmove-btn.next`, which the lane button still wears. Because the static assets ship inside the jar, a
+browser holding the old stylesheet needs a **Ctrl+F5** to see the board without the buttons.
+
+**The consequence worth stating.** On a status board the mouse drag is now the only on-card way to change a status, and
+the popup that every reader can open shows **Status** greyed to a non-manager (Stage 49). A keyboard-only or no-JS owner
+who previously pressed an arrow now asks management, on a project's lane board they still have ✓ Done / ↺ Reopen, and
+everywhere the card's other fields are theirs to edit in their own popup.
+
+**Tests and verification.** **642 tests / 43 classes / 0 failures** — the same tally as Stage 102, because this change
+rewrote existing cases rather than adding any. `TaskBoardRenderTest` now asserts the arrows are **absent** for manager,
+owner and stranger alike (`assertFalse` on the arrow labels, on `Move to `, and on `kmove` in the card's own block, the
+percentage-line case included), while its lane-board cases still require the single Done button and one of them pins
+`assertFalse(html.contains("← "), "the status arrows came back")`. `OtherTasksRenderTest`'s Stage 58 case became *a
+backlog card's status is moved by the column, and the board prints no button for anybody*, and the Viewer case now reads
+the card tag itself for `draggable="true"` plus the absence of `kmove`. The isolated HTTP harness
+`scratch/stage103-verify.ps1` boots the just-compiled classes on 8096 against a throwaway `PTS_DB_PATH` and passes
+**57 checks / 0 failures** over two boards, two accounts and one backlog column: a plain account's Assigned board and
+management's both hold a card of their reader's own and print no `class="kmove"`, no `kmove-btn`, no `Move to ` and
+neither arrow label, while both boards still print their five status columns, their card is a click and a drag source;
+the project's lane page prints exactly one button row, it is ✓ Done, it names that card and `data-status="Completed"`,
+its card wears no drag and management's does (Stage 49, untouched); the owner's and management's copies of the shared
+Other-tasks board print the bucket, the card and no buttons at all; and a `POST /app/tasks/status` from the owner still
+answers 302 and brings the card back wearing the completed tint. The harness's own first failure was a wrong
+assumption, not a regression: it expected a plain account's **lane** card to be draggable, and Stage 49 deliberately
+makes lanes management's to arrange. Log clean, schema 19.
+
+**Deployment.** In-place hash-matched backup `data/pts.pre-stage103-20261030-094030.db` (421,888 bytes) with its
+`-wal` (86,552) and `-shm` (32,768) sides; the copy passes `pragma integrity_check` (`ok`) and reads the same 13
+projects, 26 tasks, 15 users and 23 checklist rows as live. `installDist` produced the 1,828,484-byte jar: all **359**
+`mn/murray/pts/*.class` entries are byte-identical to the classes the suite ran, and no shipped class carries the
+`Move to ` constant any more. Detached restart: java PID **9776**, cmd parent **11668**; `/` 200, schema 19, "No
+migration necessary", the same counts after. `GET /static/css/app.css` 200 with the retired
+`.kcard-overlay .kmove` rule gone and `.kcard.kcard-overlay .kfoot` kept, `GET /static/js/kanban.js` 200 still holding
+the `.kmove-btn` press and the `/app/tasks/status` post — both read against the live port, since static ships inside the
+jar. No commit or push.
+
+## Stage 104 — The create popup names a bucket again, and a card's code walks to its project (2026-10-30, live, no migration, Kotlin + JS + CSS)
+
+**Ask.** *"add add bucket when user created a new project, also make user able to go to project page by clicking
+project code from task card"* — two asks in one line, and the first one read two ways, so it went back as a question
+before any code was written. The three answers, in the words chosen:
+
+- **"Add on top of the list"** — what a new board opens with is still the category's Settings rows, in that order and
+  whole; anything management types while creating is appended **after** them. The popup never removes a row.
+- **"This project only"** — a name typed at creation is that board's column and nothing more. There is no `also_type`
+  tick on this form, and no path from the create to `type_default_buckets`.
+- **"Same tab, on the card chip"** — the chip a status-board card already wears over its title becomes the link; no new
+  control, no new tab.
+
+**The popup's bucket line, in the markup it ships.** `Projects.kt`'s `projectCreateModal` keeps the `div("field full
+bucket-pick")` Stage 92 drew and Stage 100 annotated, and fills it with four parts the reader can see working together:
+
+- `div("bucket-preset-rows")#projectBucketPresets` — one `div("bucket-preset-row")` per `PROJECT_TYPES`, marked
+  `data-preset-for="<category>"`, the row for the category the popup opens on carrying `.on`. Each row prints that
+  category's Settings names as read-only `span("bucket-preset")`, or one `span("bucket-preset none")` saying
+  *"— none listed in Settings yet —"*. **Rows, not one list the script rewrites**, because the page a reader with no
+  JavaScript gets must still name the columns for the category that form will actually post — the server paints the
+  `.on`, and `[data-preset-for]` is what the script switches between when the picker changes.
+- `div("bucket-pending")#newProjectBucketList` — what the reader added, one `newBucketChip(name)` per
+  `state.values.newBuckets`. A chip is `span("bucket-pending-chip")` carrying `data-bucket-pending`, **its own hidden
+  `input(name="new_bucket")`**, the name, and a `button("bucket-pending-drop")` marked `[data-bucket-drop]` with an
+  `aria-label` naming the board it leaves. The hidden twin is the chip's value: the text box below is cleared when a
+  name becomes a chip, and Stage 73's rule stands — a control that is drawn but disabled posts nothing.
+- `div("bucket-add-line")` — `input#newProjectBucketName` (`name="new_bucket"`, `maxlength="$PROJECT_BUCKET_MAX"`,
+  autocomplete off, placeholder *e.g. QAQC*) beside `button(ghost-btn btn-sm)` marked `[data-bucket-add]` and reading
+  *+ Add bucket*, the same words the project page's dashed box prints.
+- `p("bucket-add-said")#newProjectBucketSaid`, then the `p("field-hint")` sentence — *"The board opens with the buckets
+  above, then any you add here. One added here is this project's own column and changes nothing in Settings."* — then
+  `state.error(ProjectField.BUCKETS)`.
+
+The box's own line is **not** a `.field-err` node even though it wears the same red, and that is deliberate: an
+always-printed error line is the first thing a refused create tries to stand the caret in, and this one has nothing to
+say until the script gives it a reason.
+
+**What the create writes.** `POST /app/projects` reads the whole set — `newBuckets = fields.getAll("new_bucket")` — so
+the chips' hidden twins and the name still sitting in the box arrive alike, in posted order, which is also the answer
+`Projects.kt` paints back as chips when the create is refused. `ProjectDraft` gained
+`newBuckets: List<String> = emptyList()` (positionally safe, the field's own default) and `ProjectField.BUCKETS` is an
+error key with an input behind it again. `ProjectService.create` trims, drops blanks, then takes the **first** name
+with a problem, in this order: `BucketDefaultsService.nameProblem` (blank, or over `PROJECT_BUCKET_MAX`), then
+*"$name is on this board twice."* against a case-insensitive `LinkedHashSet`, then *"$name is already one of
+${type.lowercase()}'s buckets — this board gets it from Settings."* against the category's own rows. A refusal returns
+before `ProjectRepository.insert`, so a board is never cut halfway, and the message echoes the spelling the reader
+typed rather than the catalogue's. Only when every name passes does the create seed, and it seeds
+`seedBoard(id, type, LinkedHashSet(catalogue.map { it.name } + typedBuckets))` — the catalogue first, in catalogue
+order, the typed names after it in the order the form posted them, each with no colour slot so the column wears the
+shade of its position (Stage 80, Stage 83) exactly like one added later from the board's own box. `seedBoard` and
+`insert` already behaved this way for a live board's extra names; the change is that the create is a caller.
+
+**Stage 100's last refusal, narrowed.** An empty catalogue is still a board with nowhere to file work, so it is still
+refused — but only when nothing was typed either, and the sentence now offers both ways out: *"This category has no
+buckets yet. Add one above, or list them in Settings under Project bucket settings."* The four live categories with no
+rows (Repair/Maintenance/other services, Distributor product sales, Engineering, Other) are therefore creatable from
+the popup, and remain so for exactly one project each until Settings lists a row: what the popup typed belongs to the
+board it made. Nothing on this form can widen a catalogue — that is the column popup's `[data-bucket-widen]` tick
+(Stage 77) and Settings' own add (Stage 98), and both are unchanged.
+
+**The card's code is now the way to its project.** `TaskBoard.taskCard`'s status-board branch grew a guard and a tag:
+
+```kotlin
+task.projectCode.isNotBlank() && task.projectId > 0 ->
+    a(classes = "tcode") {
+        href = "/app/projects/${task.projectId}"
+        attributes["title"] = "Open project ${task.projectCode}"
+        attributes["aria-label"] = "Open project ${task.projectCode} on the Projects board"
+        +task.projectCode
+    }
+```
+
+The `projectId > 0` is not belt-and-braces: the href needs an id to name, and a legacy assigned row whose project is
+gone keeps the dead `<span class="tcode">` Stage 88 printed. Same tab, no `target`, no script, and every reader may
+follow it — `/app/projects/{id}` has no management gate (Stage 86's read-for-all), so a plain account lands on the
+read-only page with no `kcol-menu`. The other three shapes the chip takes are untouched: a legacy code, a backlog
+card's `tcode bucket-chip` name and the `T-` fallback all stay `<span>`s; a card's own click still opens its popup, and
+one `kcard-top` line is still printed only when `!laneBoard`.
+
+**`a("tcode")` is the trap this stage found.** kotlinx.html's `a` takes its **first positional String as `href`**, not
+as `classes` — unlike `span`, `div` and `p`, where the first positional is the class. Writing the chip as
+`a("tcode") { href = … }` shipped an anchor with no class at all: the CSS rule and every assertion that looked for
+`class="tcode"` failed while the page still *worked*. The file says `a(classes = "tcode")`, with a comment on the spot.
+The same pass put `<a>`'s attributes in map order rather than the order written — `LessonsRenderTest` already proved
+that — so the chip's tests extract the anchor with `<div class="kcard-top"><a[^>]*>[^<]*</a>` and assert each attribute
+separately instead of matching a whole tag.
+
+**The script, and what it proves.** `project-modal.js` grew `showPresetFor` (moves `.on`, returns the row),
+`presetNames` (skips `.bucket-preset.none`, so the "nothing listed" line never becomes a name), `pendingNames`,
+`say`, and `addBucket`, wired to `[data-bucket-add]`, to `[data-bucket-drop]` — the × removes the chip node, and with
+it the hidden value it carries — and to **Enter inside the box**, which is swallowed with `preventDefault` and presses
+the button beside it rather than submitting a create whose board the reader meant to finish naming. A category change
+re-shows the rows and clears the box's complaint, because the sentence was answering the category that was showing.
+The box refuses only the two names the reader would otherwise learn about after the whole create came back — one the
+category already offers, one already on this board twice; length, characters and what the board really becomes stay
+the service's rules. One old line had to change for the new markup: `show(true)` stands the caret on the first field
+with an error, and the selector is now `input:not([type=hidden])` — the Buckets field holds a hidden twin per chip, and
+a browser cannot show a caret in one.
+
+**Style.** `app.css` gained `a.tcode` (no underline until hover — a board of permanently underlined chips reads as a
+list of links, not a board of cards — plus a `:focus-visible` ring, because the chip is a tab stop), and the Stage-104
+block for the popup: `.bucket-preset-rows` / `.bucket-preset-row(.on)` / `.bucket-preset(.none)`,
+`.bucket-pending` (`:empty` hides it) / `.bucket-pending-chip` / `.bucket-pending-drop`, `.bucket-add-line`, and
+`p.bucket-add-said` (also `:empty { display: none }`). Dark-theme pairs come with the chips. Because the static assets
+ship inside the jar, a browser holding the old stylesheet needs **Ctrl+F5**.
+
+**What deliberately did not move.** Schema stays **V19** — `project_buckets`, `type_default_buckets` and every existing
+board are untouched, and the create's new names ride the column `seedBoard` already knew how to write. Settings is
+unchanged in both directions: its panel is still the only writer of `type_default_buckets`, its add still fans out
+(Stage 98), its remove still stops at the catalogue (Stage 100), and the column popup keeps the `[data-bucket-widen]`
+tick the create form deliberately lacks. Two sentences in that panel were a shade wide of the truth the moment the
+popup could name a first column — *"…its projects cannot be created"* on an empty category and *"before a project of it
+can be created"* in the panel caption — and both were **fixed after the deploy**, as a copy-only follow-up with its own
+rebuild: the empty line now reads *"$type has no buckets yet — add one below, or name one while creating a project."*
+and the caption *"name one here for every project of this category, or name this project's first one while creating
+it."* `SettingsRenderTest` asserts the new words and asserts the Stage-100 ones are gone.
+`BucketDefaultsService.nameProblem` is shared, not forked: the box, the
+board's own add and Settings' add answer with the same length and case rules. `DEFAULT_PROJECT_BUCKETS`, the importer's
+legacy trio and every board that already exists are this stage's business for exactly nothing.
+
+**Tests.** Suite **650 / 43 classes / 0 failures** (from `build/test-results/test/*.xml`; Stage 103 left 642, and this
+is eight cases net of the two Stage-100 ones it replaces). `ProjectsPageRenderTest` lost Stage 100's *"says where a
+new board's buckets come from and
+posts no bucket at all"* and gained three, plus a `shownPresetRow` helper that reads which `data-preset-for` wears the
+`.on`: the popup shows the first category's rows, prints one row per `PROJECT_TYPES` with exactly one `.on`, names
+`Commissioning` for the category that has it and the em-dash line for the eight that have none, prints the box, the
+button, the list and the said line, says *changes nothing in Settings*, prints **no** `name="also_type"` and **no**
+`value=` for any bucket (a chip is not a control), and gives the field exactly one `<input>`; a refused create echoes
+each posted name as a chip carrying `data-bucket-pending`, a hidden `new_bucket` and its own `aria-label`, with the
+open box making three `new_bucket` fields in that block; and one refusal prints exactly one `.field-err`, including a
+`ProjectField.BUCKETS` refusal. `ProjectServiceTest` gained the five Stage-104 cases — a typed bucket lands **after**
+the category's list (positions 0..5, `Commissioning` keeping the colour slot Settings gave it, `QAQC` with none), a
+typed bucket is this board's and no other's (the catalogue is unchanged and a sibling project never sees it), a name
+the category lists is refused with the message quoted above, a name typed twice on one form is refused while a
+two-distinct-name create succeeds, and a 41-character name is refused while a blank is dropped — and rewrote Stage
+100's empty-category case for the narrowed sentence. `AssignedTasksRenderTest`'s `chips()` now reads an anchor as well
+as a span, and a new case pins the chip as `<a class="tcode" href="/app/projects/$id" …>S-01</a>` while the backlog
+chip stays `<span class="tcode bucket-chip">HR</span>`; `TaskBoardRenderTest`'s lane case asserts the same anchor by
+attribute.
+
+**Verified.** `scratch/stage104-verify.ps1` boots the just-compiled classes and processed resources on **8097** against
+a throwaway `PTS_DB_PATH` (the app jar excluded from `lib/*`, so no `installDist` and the live JVM untouched): **54
+checks / 0 failures** — the popup's nine rows and the empty-category line; a Settings add of *Field work* then a create
+that types *QAQC* gives one board reading `Field work,QAQC`, while Settings' catalogue reads `Field work` alone and a
+sibling project of the same category opens without the typed column; the three refusals (a catalogue name in another
+case, a name twice on one form, an empty category with nothing typed) each answer 200 with their sentence and bring the
+chips back; a category with no rows becomes creatable by typing `Fabrication` and `Finishing` and its board is exactly
+those two in that order; a plain account's card prints the linked chip with its title, following it answers 200 on the
+read-only page, that lane board prints no `kcard-top` at all, the backlog card on a status board still wears
+`<span class="tcode bucket-chip">Yard</span>`, and the shared Other-tasks board prints no chip line because its columns
+are the buckets. Served `app.css` and `project-modal.js` carry every Stage-104 marker; the log ends with **0 ERROR**
+lines and schema 19. Three checks failed first, all of them the harness: an em dash typed into the script is read as
+ANSI by PowerShell (now built from `[char]0x2014`, Stage 103's lesson), `Contains('QAQC')` matched the Settings add
+box's own *placeholder*, and a "no credential in static" check matched `input[type="password"]` in a stylesheet — the
+read is now against the run's actual password value. `scratch/stage104-js-harness.cjs` drives the **shipped**
+`project-modal.js` against a DOM stub shaped like the rendered popup: **21 checks / 0** — a name becomes a chip that
+posts itself, a repeat and a category bucket are refused with their sentences, changing category moves the `.on` row
+and re-accepts a name the new category does not list, the × takes the chip and its hidden value together, Enter in the
+box is swallowed and adds while Enter elsewhere is left to the form, a blank adds nothing, a refused create focuses the
+visible number box rather than a chip's hidden twin, and Escape still closes. Its four first failures were the stub
+missing `option.value` (a browser reads it off the attribute; the script asks the property), not the app.
+
+**Deploy.** No migration, no row rewritten, so `installDist` + restart. The live instance (**PID 9776**) was stopped
+after 8080 was proved to be `mn.murray.pts.ApplicationKt`, and `data/pts.db` copied in place to
+`data/pts.pre-stage104-20261030-105409.db` (421,888 bytes, hash-matched) with its `-wal` (0) and `-shm` (32,768) sides.
+The installed jar is 1,840,019 bytes and was read rather than trusted: all **359** `mn/murray/pts/*.class` entries are
+byte-identical to the classes the suite ran, and each of three strings only this stage's code writes is in exactly one
+of them — `Open project ` in `TaskBoardKt.class`, `bucket-preset-row` in `ProjectsKt.class`, ` is on this board twice.`
+in `service/ProjectService.class`; the jar's `app.css` and `project-modal.js` carry the new rules and the new contract.
+Launched **detached** through `deploy/run.bat` → java **PID 20004**, cmd parent **7476**; `/` 200,
+`Current version of schema "main": 19`, *No migration necessary*, and the live database reads the same 13 projects /
+26 tasks / 15 users / 23 checklist rows / 7 catalogue rows / 43 board lanes as before. Evidence in
+`scratch/stage104-deploy-evidence.json`. No commit, no push.
+
+**If this is restated.** Never re-propose: an `also_type` tick, or any create-path write to `type_default_buckets` —
+*"This project only"* is the answer, and the column popup already owns the widen. A tick-list, checkbox or cross on the
+preset rows — the rows are a statement of what the board opens with, and Stage 92's picker is not coming back. Making a
+typed bucket also a catalogue row "for convenience" reverses the one decision this stage cannot be read without. Do
+not put a status-control on the chip either: it is navigation, and Stage 103's arrows stay retired — a status board's
+card moves by the drag, and the lane board's ✓ Done / ↺ Reopen is not this stage's business. On the card, keep
+`projectId > 0` in the guard: a code with no project behind it is a label, and an `<a href="/app/projects/0">` is a
+dead link that looks alive. If a reader asks for the project page to open in a new tab, that is a `target` and a
+rel attribute on one tag — say so rather than adding a second control beside the chip.
 
 ## Out of scope (flag if you want any of these)
 

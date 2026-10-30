@@ -1,0 +1,46 @@
+-- ============================================================================
+-- Murray PTS — V17 a bucket's own colour (SQLite)
+-- ----------------------------------------------------------------------------
+-- Until now a bucket's hue has been a fact about **where it stands**: app.css gives `.bucket-dot` six colours
+-- and `bucketDotClass(index)` paints the index'th of them, so a board's fourth column is the fourth shade and
+-- taking its second column off moves the third and fourth up a shade with them. That is enough to tell three
+-- columns apart, and it is nothing else: the same phase on two projects is two colours because the projects
+-- have different extras, and a manager who wants *Weld repair* to be the rose it is on their own board cannot
+-- ask for it.
+--
+-- This migration gives a bucket a colour of its own, in the two tables that hold buckets — the lanes on one
+-- project's board (`project_buckets`, V7) and the extra lanes one project *category* offers (`type_default_buckets`,
+-- V12). The value is a **slot number in the stylesheet's own cycle**, 0..5, never a hex string: the hues live
+-- in app.css (see `BUCKET_DOT_COLOURS`), and storing a colour as text would put a colour a browser cannot be
+-- given by a stylesheet the app owns into a column that would then have to be validated like one. A slot is
+-- four named values wide at most, needs no validation beyond a range, and cannot paint an unreadable colour
+-- on either theme.
+--
+-- What this migration deliberately does not do:
+--
+--   * **backfill either column.** NULL means *wear the colour of my position*, which is precisely what every
+--     row in these tables does today, so leaving them null keeps every existing board and every Settings
+--     catalogue row painted exactly as its reader left it this morning. A backfill would have to choose
+--     between `position % 6` and the printed index, and those two are **not** the same thing on any board that
+--     has had a lane removed — a board holding positions 0, 1 and 7 paints its third column with the third
+--     shade, because a column's index is where the reader sees it. Choosing wrongly here would recolour a
+--     production board from a migration, for no ask.
+--   * touch `buckets`, the **Other tasks** board's columns (V7). That board is cut by status, not by bucket
+--     (Stage 57), and nothing prints a coloured dot for one of its columns, so a colour there would be a
+--     column of data with no surface to show it on. It gets one the day that board wears one.
+--   * put a colour on the three lanes a board opens with. `seedDefaults` writes them name-first, position 0..2,
+--     and a fresh board's first three columns already read as three distinct hues by position alone; giving
+--     them a stored slot would fix Engineering to a colour the manager of one project can change and the next
+--     project's cannot, which is a rule nobody asked for. They stay positional, and a manager who wants
+--     Engineering in teal sets it on that column's popup.
+--
+-- `ADD COLUMN` with no default is the whole of the DDL, which is what SQLite does in place — no table copy, no
+-- index to rebuild, and no read of the two tables that has to change shape. Both surfaces that print a bucket
+-- dot now read the stored slot first and fall back to the position, so the two pages keep agreeing the way
+-- Stage 75 made them agree: Settings' catalogue row and the board column it seeded are the same bucket, and
+-- from here they are the same colour whether or not anybody has said so.
+-- ============================================================================
+
+ALTER TABLE project_buckets ADD COLUMN colour_slot INTEGER;
+
+ALTER TABLE type_default_buckets ADD COLUMN colour_slot INTEGER;

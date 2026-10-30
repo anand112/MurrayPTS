@@ -14,6 +14,11 @@
                           without a live region, after a failed refresh, or with JavaScript switched off
                           entirely, is just an ordinary GET form: the browser loads the page the markup
                           describes, and the restore block further down puts those three things back.
+                          **Everything inside one must be bound on `document`.** The swap hands back a node parsed
+                          out of the response, and a listener belongs to the node it was put on, not to the HTML —
+                          so any script that collects this block's elements at page load (`querySelectorAll` +
+                          `addEventListener`) works until the first swap and is dead afterwards. That is how
+                          `kanban.js` lost the Other tasks board's drag in Stage 93, and why Stage 94 delegated it.
      [data-confirm="…"] — an element that asks for confirmation on `click`; the message
                           lives in the attribute so it can still be server-rendered.
      A pressed submit button carries its own `name`/`value` on the send, on the query string for a GET
@@ -35,6 +40,11 @@
      [data-live-extra="#id,#id2"] — with a block form **or a filter form**: other blocks the same send
                           changes, swapped from the same response, so a number that describes the block
                           cannot stay behind it. A companion that is not on this page is skipped, not a failure.
+     [data-live-url]    — on a GET block form whose block **is** the board: its send is a view change and
+                          not a popup, so the fetched URL is written into history the way a filter form's
+                          is. Without it the address bar would keep a filter the press has just dropped.
+     [data-confirm]     — a control that asks the reader first, and is not pressed when they say no.
+     [data-copy-link]   — a button that copies this page's URL and shows a tick, with no write of its own.
 
    Delegation on `document` also covers rows inserted later via fetch (the board on every refresh), which
    per-element inline handlers could not. */
@@ -73,11 +83,35 @@
     return url;
   }
 
-  /** Replace the live region with the one in `html`; false when the response is not a board. */
-  function showResults(html) {
+  /* Settings draws TWO live regions — the team sheet's roster and the bucket catalogue — so a filter form
+     has to refresh the one it belongs to, not whichever region happens to come first in the document. The
+     bucket category picker sits inside the card that holds its list, so climbing to that card finds the
+     bucket region; the team toolbar stands above its board with no such ancestor, so it falls back to the
+     page's first region exactly as every single-region page always did.
+
+     This is not cosmetic: a category picker that swapped the roster left the bucket list, the hidden
+     `lanes` field and the *"Adds to … only"* label on the category the reader had just left, and the next
+     **+ Add bucket** wrote to that old category while the select showed the new one (Stage 82 fix). */
+  function regionFor(form) {
+    var node = form;
+    while (node && node !== document.body) {
+      if (node.querySelector) {
+        var found = node.querySelector('[data-live-region]');
+        if (found) return found;
+      }
+      node = node.parentElement;
+    }
+    return liveRegion();
+  }
+
+  /** Replace `region` with the same board in `html`; false when the response is not a board. */
+  function showResults(html, region) {
     var parsed = new DOMParser().parseFromString(html, 'text/html');
-    var next = parsed.querySelector('[data-live-region]');
-    var region = liveRegion();
+    // Match by id when the region has one: a two-region page's response carries both, and the first
+    // region in it may be the other board.
+    var next = (region && region.id ? parsed.getElementById(region.id) : null) ||
+               parsed.querySelector('[data-live-region]');
+    region = region || liveRegion();
     if (!next || !region || !region.parentNode) return false;
     region.parentNode.replaceChild(document.importNode(next, true), region);
     return true;
@@ -92,6 +126,7 @@
 
   function refresh(form, submitter) {
     var url = boardUrl(form, submitter);
+    var region = regionFor(form);
     var token = ++generation;
     document.body.classList.add('pts-refreshing');
     window.fetch(url.href, { credentials: 'same-origin' })
@@ -101,7 +136,7 @@
       })
       .then(function (html) {
         if (token !== generation) return;        // a newer query owns the board by now
-        if (!showResults(html)) throw new Error('the response carried no board region');
+        if (!showResults(html, region)) throw new Error('the response carried no board region');
         // A filter form may name companions too, exactly as a block form does: the lesson sheet's
         // "3 active, 0 archived" line sits on the toolbar beside the pickers that change it, and a
         // count left on the whole sheet while the board under it shows five rows is the same
@@ -194,6 +229,12 @@
         // Companions come from the same response and the same token, so the block and the numbers that
         // describe it are never from two different moments. Missing ones are simply not swapped.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
+        // A block that is the board itself is not a popup but a view: the reader's next reload has to
+        // land on what they are looking at, so the URL the response was fetched for takes the place of
+        // the one they came from — a filter it dropped does not survive in the address bar.
+        if (method === 'GET' && form.hasAttribute('data-live-url')) {
+          window.history.replaceState(null, '', url);
+        }
       })
       .catch(function () { if (token === targetGenerations[id]) fallBack(form, submitter); })
       .then(function () {
@@ -374,4 +415,5 @@
       navigator.clipboard.writeText(text).then(done, function () { /* clipboard refused: leave the button as-is */ });
     }
   });
+
 })();

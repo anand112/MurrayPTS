@@ -5,6 +5,8 @@ import com.zaxxer.hikari.HikariDataSource
 import mn.murray.pts.db.Migrations
 import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.domain.Member
+import mn.murray.pts.domain.PROJECT_BUCKET_MAX
+import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.Project
 import mn.murray.pts.domain.migrateCode
 import mn.murray.pts.domain.migrateType
@@ -15,6 +17,7 @@ import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TaskRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.TypeDefaultBucketRepository
+import mn.murray.pts.seedOpeningThreeFor
 import org.jetbrains.exposed.sql.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -51,6 +54,11 @@ class ProjectServiceTest {
         Database.connect(ds)
         TeamRepository.upsert(Member("EMP0001", "Munkhtsetseg", "Operations", "Project Manager"))
         TeamRepository.upsert(Member("EMP0002", "Bat-Erdene", "Workshop", "Engineer"))
+        // Stage 100: a create takes its board from its category's Settings list, and a category that lists
+        // nothing cannot make a project at all. These cases were written against the board every project used to
+        // open with, so each category is given those three first, the way Settings would name them — one test
+        // below empties a category to prove the refusal.
+        PROJECT_TYPES.forEach { seedOpeningThreeFor(it) }
     }
 
     @AfterEach
@@ -67,10 +75,11 @@ class ProjectServiceTest {
         managerName: String = "Munkhtsetseg",
         revenue: String = "1,250,000",
         invoiced: String = "",
+        newBuckets: List<String> = emptyList(),
     ) = ProjectDraft(
         type = type, code = code, name = name, client = client,
         start = start, end = end, status = status, managerName = managerName, revenue = revenue,
-        invoiced = invoiced,
+        invoiced = invoiced, newBuckets = newBuckets,
     )
 
     @Test
@@ -173,7 +182,7 @@ class ProjectServiceTest {
     @Test
     fun `suggestions continue the highest number already used in that category`() {
         listOf("S-01", "S-02", "M-01").forEach { code ->
-            ProjectRepository.insert(code, "$code job", "Ongoing", 10, null, "", categoryOf(code))
+            ProjectRepository.insert(code, "$code job", "In progress", 10, null, "", categoryOf(code))
         }
         val suggested = ProjectService.suggestedCodes()
         assertEquals("S-03", suggested["Site projects"])
@@ -187,18 +196,19 @@ class ProjectServiceTest {
         }
     }
 
-    // --- the lanes a new project starts with (V7) -------------------------------------------------
+    // --- the lanes a new project starts with (V7, re-cut by V16) ---------------------------------------
 
     @Test
-    fun `a new project is created with the six shared lanes, in the order the board draws them`() {
+    fun `a new project is created with the three opening lanes, in the order the board draws them`() {
         val created = ProjectService.create(draft())
         assertNotNull(created.projectId, "expected success, got ${created.errors}")
         val id = created.projectId!!
         // The ask behind this: a new project is not an empty board somebody has to set up before they can
-        // use it. The six sub-categories every Murray job is cut by are there the moment it is saved, in the
-        // order the columns read, and every one of them is a lane this project can add to on its own.
+        // use it. Since Stage 100 the three arrive because this category's Settings list names them — not
+        // because the code adds them — and they land in the order that list holds. Stage 75 calls them an opening
+        // rather than a floor: every one of them is a lane this project's own manager can retitle or remove.
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
-        assertEquals((0..5).toList(), TaskService.lanesOf(id).map { it.position })
+        assertEquals((0..2).toList(), TaskService.lanesOf(id).map { it.position })
     }
 
     @Test
@@ -208,8 +218,8 @@ class ProjectServiceTest {
             draft(code = "M-01", type = "Fabrication/Manufacturing", name = "Crusher liner supply")
         ).projectId!!
         assertTrue(TaskService.addLane(first, "Haul", "EMP0001", canManage = true).added)
-        // The shared six first, then whatever this project's own manager added — Stage 48 keeps a project's
-        // extra lanes and appends them, so a board is never re-cut underneath the cards that sit on it.
+        // The three it opened with first, then whatever this project's own manager added — a project's extra
+        // lanes are appended, so a board is never re-cut underneath the cards that sit on it.
         assertEquals(DEFAULT_PROJECT_BUCKETS + "Haul", TaskService.lanesOf(first).map { it.name })
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(second).map { it.name })
         // Different rows, so a lane named on one board is not a column on the other — which is the whole
@@ -227,7 +237,7 @@ class ProjectServiceTest {
         val id = ProjectService.create(draft()).projectId!!
         val second = ProjectService.create(draft(code = "S-01", name = "Second job"))
         assertNull(second.projectId, "a duplicate number was written anyway")
-        // One project on the board and exactly its six lanes in the table: a create the popup refused
+        // One project on the board and exactly its three opening lanes in the table: a create the popup refused
         // must not leave an empty board for somebody else to trip over.
         assertEquals(1, ProjectRepository.findAll().size)
         assertEquals(DEFAULT_PROJECT_BUCKETS.size, TaskService.lanesOf(id).size)
@@ -236,16 +246,16 @@ class ProjectServiceTest {
     // --- naming the board while the project is being created --------------------------------------------
 
     @Test
-    fun `a create answers the form's own fields and nothing about lanes`() {
-        // Stage 32 put three lane inputs in this popup and the user asked for them back out on 2026-10-15: a
-        // new project's board is the three defaults, always, and naming them is the manager's job on the page.
-        // Pinned here because `ProjectField` is the contract the modal prints its messages against — a field
-        // added to that enum reappears in the popup, so this is where the "no lane questions" rule bites.
-        // INVOICED (Stage 60) joins the enum for the detail strip's save messages only; the create popup builds
-        // its boxes field by field and deliberately offers no amount-invoiced box, because nothing is billed
-        // before the project exists — management enters it once the row is open.
+    fun `the create form's error keys are the fields the popup prints messages against`() {
+        // Stage 32 put three lane inputs in this popup and the user asked for them back out on 2026-10-15. Stage 73
+        // put the question back as a tick-list, Stage 92 took it out again, and Stage 98 took `ProjectField.BUCKETS`
+        // with it. Stage 100 put the key back for the empty-category refusal alone, and **Stage 104 gave it an
+        // input: the popup's Add bucket box.** Pinned here because `ProjectField` is the contract the modal prints
+        // its messages against. INVOICED (Stage 60) joins the enum for the detail strip's save messages only; the
+        // create popup builds its boxes field by field and deliberately offers no amount-invoiced box.
         assertEquals(
-            listOf("TYPE", "CODE", "NAME", "CLIENT", "START", "END", "STATUS", "MANAGER", "REVENUE", "INVOICED"),
+            listOf("TYPE", "CODE", "NAME", "CLIENT", "START", "END", "STATUS", "MANAGER", "REVENUE",
+                "INVOICED", "BUCKETS"),
             ProjectField.entries.map { it.name },
         )
         val created = ProjectService.create(draft())
@@ -253,37 +263,152 @@ class ProjectServiceTest {
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(created.projectId!!).map { it.name })
     }
 
-    // --- the extra lanes a category adds at create (Stage 61, V12) ---------------------------------
+    // --- the buckets a category gives a new project (catalogue V12, the Stage 98 rule) ------------------
 
     @Test
-    fun `a new project of a category with defaults starts with the six then its extras, numbered from 6`() {
+    fun `a new project opens with its category's whole Settings list, in that order`() {
         TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
         TypeDefaultBucketRepository.insert("Site projects", "Snag list")
+        // The create popup can add to the list since Stage 104, but a form that names nothing still gets the
+        // category's rows whole: the list is not an offer to tick, it is the board. Every row lands, in list order,
+        // at positions 0..4 — the same rows a board that already exists is given when Settings adds them.
         val id = ProjectService.create(draft(type = "Site projects", code = "S-10")).projectId!!
-        // The six are the floor the card-filing rule depends on, and the category's own lanes append after
-        // them in catalogue order — positions 6 and 7, so a board column never collides with a standard lane.
-        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Commissioning", "Snag list"), TaskService.lanesOf(id).map { it.name })
-        assertEquals((0..7).toList(), TaskService.lanesOf(id).map { it.position })
+        assertEquals(
+            DEFAULT_PROJECT_BUCKETS + listOf("Commissioning", "Snag list"),
+            TaskService.lanesOf(id).map { it.name },
+        )
+        assertEquals((0..4).toList(), TaskService.lanesOf(id).map { it.position })
     }
 
     @Test
-    fun `a category with no defaults gets exactly the six, as it did before the table existed`() {
-        // Nothing seeded for Fabrication/Manufacturing: an empty catalogue must not change the old behaviour.
+    fun `a create writes nothing to the catalogue`() {
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        ProjectService.create(draft(type = "Site projects", code = "S-10"))
+        // A project inherits the category; it does not edit it — the list is still exactly what the setUp and this
+        // test put there, with nothing added by the create.
+        assertEquals(
+            (DEFAULT_PROJECT_BUCKETS + "Commissioning"),
+            TypeDefaultBucketRepository.of("Site projects").map { it.name },
+        )
+    }
+
+    // --- Stage 104: what the create form itself names -----------------------------------------------------
+
+    @Test
+    fun `a bucket typed while creating lands after the category's list`() {
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning", colourSlot = 2)
         val id = ProjectService.create(
-            draft(type = "Fabrication/Manufacturing", code = "M-01", name = "Crusher liner supply")
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("QAQC", "Dewatering"))
         ).projectId!!
-        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
+        val board = TaskService.lanesOf(id)
+        // Addition, never re-ordering: the Settings rows keep their places and the typed names follow them in the
+        // order the form posted them — which is the order of the chips on the popup.
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Commissioning", "QAQC", "Dewatering"), board.map { it.name })
+        assertEquals((0..5).toList(), board.map { it.position })
+        // The typed column is in no catalogue to inherit a shade from, so it wears the hue of the position it took.
+        assertEquals(2, board.first { it.name == "Commissioning" }.colourSlot)
+        assertNull(board.first { it.name == "QAQC" }.colourSlot, "a typed bucket was given a colour it was never offered")
     }
 
     @Test
-    fun `a default added after a project exists does not reach that board`() {
+    fun `a bucket typed while creating is this board's and no other's`() {
+        // The ask's own words: "this project only". So no `type_default_buckets` row is written and no sibling
+        // project of the category grows a column — the reach Stage 77 gave a bucket typed on a live board with its
+        // `also_type` tick left off, which is why this form prints no tick.
+        val id = ProjectService.create(
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("QAQC"))
+        ).projectId!!
+        assertEquals(DEFAULT_PROJECT_BUCKETS + "QAQC", TaskService.lanesOf(id).map { it.name })
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TypeDefaultBucketRepository.of("Site projects").map { it.name })
+        // A second project of the same category, created after, does not see the first one's column.
+        val sibling = ProjectService.create(
+            draft(type = "Site projects", code = "S-11", name = "Second site")
+        ).projectId!!
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(sibling).map { it.name })
+    }
+
+    @Test
+    fun `a typed bucket the category already lists is refused rather than dropped`() {
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        val refused = ProjectService.create(
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("commissioning"))
+        )
+        assertNull(refused.projectId, "a refused bucket write created a project")
+        // The name is echoed as the reader typed it; the match that refused it ignores case.
+        assertEquals(
+            "commissioning is already one of site projects's buckets — this board gets it from Settings.",
+            refused.errors[ProjectField.BUCKETS],
+        )
+        // seedBoard would have ignored the repeat in silence; here the reader watched a chip they added vanish.
+        assertEquals(0, ProjectRepository.findAll().size, "a refused create wrote the project anyway")
+    }
+
+    @Test
+    fun `a bucket typed twice on the same form is refused`() {
+        val refused = ProjectService.create(
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("QAQC", "qaqc"))
+        )
+        assertNull(refused.projectId)
+        assertEquals("qaqc is on this board twice.", refused.errors[ProjectField.BUCKETS])
+        val created = ProjectService.create(
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("QAQC", "Dewatering"))
+        )
+        assertNotNull(created.projectId, "two different names were refused: ${created.errors}")
+    }
+
+    @Test
+    fun `a bucket name too long for a column head is refused`() {
+        // The same length rule the board's own add and Settings' add use, so one column head cannot be wider on
+        // the create popup than it is anywhere else.
+        val refused = ProjectService.create(
+            draft(type = "Site projects", code = "S-10", newBuckets = listOf("a".repeat(PROJECT_BUCKET_MAX + 1)))
+        )
+        assertNull(refused.projectId)
+        assertEquals("A bucket name is $PROJECT_BUCKET_MAX characters or fewer.", refused.errors[ProjectField.BUCKETS])
+        // Blank names are what the box is when the reader never typed: no chip, nothing to refuse.
+        val created = ProjectService.create(draft(type = "Site projects", code = "S-10", newBuckets = listOf("  ")))
+        assertNotNull(created.projectId, "an empty box refused the create: ${created.errors}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(created.projectId!!).map { it.name })
+    }
+
+    @Test
+    fun `a category with nothing in Settings is creatable once the form names a bucket`() {
+        // Stage 100's flat refusal, narrowed: an empty category is still a board with nowhere to file work in, but
+        // the popup's own box can fill it without a walk to Settings. (The setUp gave every category the three
+        // phases; this one is emptied to prove both halves.)
+        TypeDefaultBucketRepository.of("Fabrication/Manufacturing").forEach {
+            TypeDefaultBucketRepository.delete(it.id)
+        }
+        val refused = ProjectService.create(
+            draft(type = "Fabrication/Manufacturing", code = "M-01", name = "Crusher liner supply")
+        )
+        assertNull(refused.projectId)
+        assertEquals(
+            "This category has no buckets yet. Add one above, or list them in Settings under Project bucket settings.",
+            refused.errors[ProjectField.BUCKETS],
+        )
+        // One name typed here is enough, and the board is exactly that name — not that name plus a trio, and not a
+        // row added to the category on the way past.
+        val id = ProjectService.create(
+            draft(type = "Fabrication/Manufacturing", code = "M-01", name = "Crusher liner supply",
+                newBuckets = listOf("Fabrication"))
+        ).projectId!!
+        assertEquals(listOf("Fabrication"), TaskService.lanesOf(id).map { it.name })
+        assertEquals(listOf(0), TaskService.lanesOf(id).map { it.position })
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TypeDefaultBucketRepository.of("Site projects").map { it.name })
+    }
+
+    @Test
+    fun `a bucket added to a category reaches the board of a project that already exists`() {
         val first = ProjectService.create(draft(type = "Site projects", code = "S-11")).projectId!!
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(first).map { it.name })
-        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
-        val second = ProjectService.create(draft(type = "Site projects", code = "S-12", name = "Second site")).projectId!!
-        // Changing a default shapes the *next* project, not the last one — the whole point of the table being
-        // read at create rather than the board being re-cut under existing cards.
-        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(first).map { it.name })
+        // Stage 98: Settings' add is a column on every board of the category, not just an offer to the next one.
+        val added = BucketDefaultsService.add("Site projects", "Commissioning", canManage = true)
+        assertTrue(added.ok, added.message)
+        assertEquals(DEFAULT_PROJECT_BUCKETS + "Commissioning", TaskService.lanesOf(first).map { it.name })
+        val second = ProjectService.create(
+            draft(type = "Site projects", code = "S-12", name = "Second site")
+        ).projectId!!
         assertEquals(DEFAULT_PROJECT_BUCKETS + "Commissioning", TaskService.lanesOf(second).map { it.name })
     }
 
@@ -377,7 +502,7 @@ class ProjectServiceTest {
 class ProjectCategoryTest {
 
     private fun project(code: String, type: String) =
-        Project(1, code, "x", "Ongoing", 0, "", "", type)
+        Project(1, code, "x", "In progress", 0, "", "", type)
 
     @Test
     fun `pre-V3 labels map onto the nine categories`() {

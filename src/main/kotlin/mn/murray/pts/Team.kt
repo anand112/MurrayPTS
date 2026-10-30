@@ -10,6 +10,7 @@ import kotlinx.html.FormMethod
 import kotlinx.html.InputType
 import kotlinx.html.TBODY
 import kotlinx.html.TD
+import kotlinx.html.TR
 import kotlinx.html.button
 import kotlinx.html.div
 import kotlinx.html.form
@@ -69,24 +70,60 @@ private const val CHOOSE_COLUMN = "— Choose a column —"
  * The Team page.
  *
  * The roster — name, department, position, email — belongs to everybody: it is how a new site
- * engineer finds the person to call. *Who is doing what* is management's view, so a reader without
- * that access gets the task count and the drill-down only on their own row, and the member popup
- * carries nobody's task list but theirs. The same [mn.murray.pts.service.TaskService.assignedFor]
- * rule as the board, applied per row.
+ * engineer finds the person to call. Stage 68 extends that to how much work is *on* them: the
+ * **Projects** figure, the **Tasks** count, the five status columns and **Total** print on every row for
+ * every reader, because "is this person already carrying a lot?" is a question a colleague is entitled to ask
+ * before they hand something over. What stays management's view is *which* work it is: the card-by-card
+ * drill-down under a row and the task list inside the member popup come only on the reader's own row unless
+ * they manage the sheets. So a figure the reader may not open below is printed as a plain number rather than
+ * as the button that would open it — the count is shared, the list underneath it is not. The same
+ * [mn.murray.pts.service.TaskService.assignedFor] rule as the board, applied per row.
+ *
+ * Every figure on a row is counted from the member's **cards**, from both boards: the cards filed on a project
+ * and the ones that sit outside every project on *Other tasks* ([mn.murray.pts.service.TaskService.assignedOtherFor]).
+ * A card with no project is still work that is on somebody, and a sheet that counted one kind and not the other
+ * would understate the person doing it. The number on the **Tasks** button, the five status columns and **Total**
+ * all come from the one list the row's own drill-down prints, so the figures cannot disagree with each other or
+ * with what the reader sees when they open it.
+ *
+ * **Projects** is the one column that is not a card count, and it is the one set worth naming exactly: the
+ * projects the member is *on*, which is the ones they manage **plus** the ones holding at least one of their
+ * cards ([memberProjects]) — which is also what the member popup lists as that person's projects, for every
+ * reader, so the figure and the list under it are the same set counted once. A backlog card belongs to a column
+ * rather than a project, so it moves **Total** and not **Projects**, and the two figures are allowed to differ.
+ *
+ * The sheet is wrapped in `#teamSheet` for one reason: **the figures on it are only ever true for the moment the
+ * page was drawn** (Stage 69). A card dragged on a board writes its new status to SQLite and the board reloads,
+ * but this page — sitting in the tab they came from, or waiting under the Back button — has no reason to ask
+ * again, so it goes on printing the counts from before the move. `team.js` therefore re-pulls
+ * this very URL and swaps this one panel when the page is restored from the browser's back/forward cache or
+ * comes back on screen, which is what makes the numbers right without the reader pressing F5. The panel is the
+ * whole of what changes, so nothing else on the page moves under them.
+ *
+ * The script covers a page that is *already open*. The other half is a page the browser never even asked the
+ * server for: with no `Cache-Control` of its own, this HTML was fair game for Chrome's own cache, so pressing
+ * Back handed the reader the sheet as it was drawn before the drag — a stale answer with no request in front of
+ * it to intercept. [mn.murray.pts.web.plugin.isServerDrawnPage] is why every page here now goes out as
+ * `Cache-Control: no-store`, so a revisit reads the database again and only a tab that never navigated at all
+ * needs the re-count above.
  *
  * [assign] is the panel below the sheet in the state this answer needs: blank for an ordinary read, and
  * the typed words with the field-keyed reasons when a save was refused — the same contract the card popup
  * keeps, and the reason `/app/team/assign` answers a refusal with this page rather than with a redirect.
  */
 fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm = AssignForm()) {
-    val projects = DemoData.projects
     div("card-panel") {
+        // The hook the re-count swaps. It holds the caption and the sheet and nothing else — not the member
+        // popup's data island, which the script refreshes by itself, and not the assign panel below, where the
+        // reader may be mid-sentence in a task title.
+        id = "teamSheet"
         p("panel-caption") {
             if (canManage) {
                 +"Tip: click a member for details, or open the Tasks count to see who is doing what."
                 +" Use + next to it to assign them a task."
             } else {
-                +"Open your own Tasks count to see what is assigned to you."
+                +"Every row shows how many projects and how much work that person is carrying."
+                +" Click a member for the projects they are on, and open your own Tasks count to see what is assigned to you."
             }
         }
         table("grid team-table") {
@@ -96,8 +133,9 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                     th { +"Name" }
                     th { +"Department" }
                     th { +"Position" }
+                    th(classes = "num") { +"Projects" }
                     th(classes = "num") { +"Tasks" }
-                    th(classes = "num") { +"Ongoing" }
+                    th(classes = "num") { +"In progress" }
                     th(classes = "num") { +"On hold" }
                     th(classes = "num") { +"Not started" }
                     th(classes = "num") { +"Blocked" }
@@ -110,13 +148,21 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                 teamGroupedByDepartment().forEach { (department, members) ->
                     departmentRow(department, members.size)
                     members.forEach { member ->
-                        val mine = projects.filter { it.manager == member.name }
-                        fun count(status: String) = mine.count { it.status == status }
-                        // Whose work this row is allowed to show: management sees everybody's, and a
-                        // normal account sees its own — the only row with a number to open.
-                        val seesTasks = canManage || member.employeeNumber == viewerEmpNo
-                        val tasks = if (seesTasks) memberTaskRows(member.employeeNumber) else emptyList()
-                        val open = tasks.count { it.first.isOpen }
+                        // Whose *cards* this row may list, as opposed to count: every figure below prints for
+                        // every reader (Stage 68), and this flag decides only whether the drill-down that names
+                        // each card is attached under the row.
+                        val seesDetail = canManage || member.employeeNumber == viewerEmpNo
+                        // Every card the member holds, project cards and backlog cards together — the same list
+                        // the drill-down under this row prints. It is fetched once and every figure on the row is
+                        // counted off it, so the button, the five columns and the total cannot disagree.
+                        val tasks = memberTaskRows(member.employeeNumber)
+                        val cards = tasks.map { it.first }
+                        val open = cards.count { it.isOpen }
+                        // The projects figure is a set of projects, not a count of cards, and it is the same call
+                        // the popup makes below — so the number on the sheet is the list behind it, for anybody
+                        // who opens it and for anybody who does not.
+                        val projects = memberProjects(member.name, cards)
+                        fun count(status: String) = cards.count { it.status == status }
                         tr {
                             attributes["data-emp"] = member.employeeNumber
                             td { span("code") { +member.employeeNumber } }
@@ -131,17 +177,19 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                             }
                             td { +member.department }
                             td { +member.position }
+                            td("num") { span("proj-count") { +"${projects.size}" } }
                             td("num") {
-                                if (seesTasks) {
+                                if (seesDetail) {
                                     button(type = ButtonType.button, classes = if (open == 0) "tasks-toggle zero" else "tasks-toggle") {
                                         attributes["data-emp"] = member.employeeNumber
                                         attributes["title"] = "Show ${member.name}'s tasks"
                                         +"$open"
                                     }
                                 } else {
-                                    // The column stays so the table lines up; only what is inside it
-                                    // is withheld, and a dash says "not yours to open", not "no work".
-                                    span("mtd-empty") { +"—" }
+                                    // The same figure, without the control. There is no card list under this row
+                                    // for this reader to open, and a button that opens nothing is read as the
+                                    // page being broken rather than as the list being somebody else's.
+                                    span(if (open == 0) "tasks-static zero" else "tasks-static") { +"$open" }
                                 }
                                 if (canManage) {
                                     button(type = ButtonType.button, classes = "quick-add") {
@@ -151,15 +199,15 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                                     }
                                 }
                             }
-                            td("num") { statusCount("ontrack", count("Ongoing")) }
-                            td("num") { statusCount("onhold", count("On hold")) }
-                            td("num") { statusCount("planning", count("Not started")) }
-                            td("num") { statusCount("atrisk", count("Blocked")) }
-                            td("num") { statusCount("done", count("Completed")) }
-                            td("num") { span("count-total") { +"${mine.size}" } }
+                            counted("ontrack", count("In progress"))
+                            counted("onhold", count("On hold"))
+                            counted("planning", count("Not started"))
+                            counted("atrisk", count("Blocked"))
+                            counted("done", count("Completed"))
+                            td("num") { span("count-total") { +"${cards.size}" } }
                             td("num") { span("mhint") { +"›" } }
                         }
-                        if (seesTasks) memberTasksRow(member, tasks)
+                        if (seesDetail) memberTasksRow(member, tasks)
                     }
                 }
             }
@@ -248,12 +296,15 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                     div("field") {
                         attributes["data-board-half"] = "project"
                         if (assign.onBacklog) attributes["hidden"] = "hidden"
-                        // The six sub-categories beside it are the same six on every project's board, which is
-                        // what lets this page ask without knowing any project's lane ids.
+                        // Since Stage 100 a board's lanes are whatever Settings listed for its category, so this
+                        // panel no longer has a universal trio to offer: it shows the chosen project's own lanes,
+                        // in its board's order. Switching the Project box leaves the list as drawn — the page does
+                        // not reload — and a name the new project does not carry is refused when the card is filed,
+                        // because the name is resolved against the lanes that project actually has (Stage 75).
                         label { +"Sub-category" }
                         select {
                             name = "lane"
-                            DEFAULT_PROJECT_BUCKETS.forEach { lane ->
+                            laneNamesFor(v.projectName).forEach { lane ->
                                 option {
                                     value = lane
                                     selected = lane == v.projectLane
@@ -342,14 +393,57 @@ private fun TD.statusCount(kind: String, n: Int) {
 }
 
 /**
- * The label row above each department's people. It spans all twelve columns so the numeric columns
+ * The lanes the assign panel's Sub-category picker offers for the project named in its Project box (Stage 100).
+ *
+ * Before Stage 100 the answer was a constant: every board was created with the same three phases, so a page that
+ * knew nothing about any project's lane ids could still offer them by name. Now a board carries whatever Settings
+ * listed for its category, so the list has to be read from the board — the first project's when the box is still
+ * unanswered, which is the same row the select has marked selected. A project with no lanes answers with nothing
+ * rather than with a guess: the card could not be filed in any of them.
+ */
+private fun laneNamesFor(projectName: String): List<String> {
+    val projects = DemoData.projects
+    val project = projects.firstOrNull { it.name == projectName } ?: projects.firstOrNull() ?: return emptyList()
+    return mn.murray.pts.repository.ProjectBucketRepository.ofProject(project.id).map { it.name }
+}
+
+/**
+ * One counted column of a member's row: the figure off their cards.
+ *
+ * There is no rights flag here, which is the whole of Stage 68: every reader gets every row's counts, so the
+ * flag the row carries decides only whether the card list under it is printed, never the number above it. The
+ * dash this column used to be able to print is gone, and with it the ambiguity between "this person holds
+ * nothing in that state" and "this row is not yours to read".
+ */
+private fun TR.counted(kind: String, n: Int) {
+    td("num") { statusCount(kind, n) }
+}
+
+/**
+ * The projects a member is *on*: the ones their name is set as the manager of, plus the ones holding at least
+ * one of their cards.
+ *
+ * Two worlds, because a project can be a person's in either of them: the manager who has not written a card for
+ * it yet is the one carrying it, and the engineer whose cards sit in four projects is carrying those. The row's
+ * **Projects** figure and the popup's list of projects both come from this one call, which is what keeps a
+ * number on the sheet from naming a different set than the list underneath it. A backlog card belongs to a
+ * column rather than to a project, so it moves **Total** without moving this — the two figures are meant to be
+ * able to differ, and a row of `3 projects, 9 cards` is a normal thing to read.
+ */
+private fun memberProjects(name: String, cards: List<TaskItem>): List<Project> {
+    val onCards = cards.map { it.project }.filter { it.isNotBlank() }.toSet()
+    return DemoData.projects.filter { it.manager == name || it.name in onCards }
+}
+
+/**
+ * The label row above each department's people. It spans all thirteen columns so the numeric columns
  * stay in line beneath it, and it states the headcount rather than leaving anyone to count rows —
  * the roster runs to fourteen departments, and a plain sort would make each group's size invisible.
  */
 private fun TBODY.departmentRow(department: String, people: Int) {
     tr("dept-row") {
         td {
-            colSpan = "12"
+            colSpan = "13"
             div("dept-cell") {
                 span("dept-name") { +department }
                 span("dept-count") { +"$people ${if (people == 1) "person" else "people"}" }
@@ -380,7 +474,7 @@ private fun taskColor(status: String): String = when (status) {
     "In progress" -> "#e0a800"
     "On hold" -> "#e07000"
     "Blocked" -> "#d93025"
-    "Completed", "Ongoing" -> "#1e8e3e"
+    "Completed" -> "#1e8e3e"
     else -> "#8a9199"
 }
 
@@ -402,13 +496,19 @@ private fun memberTaskRows(emp: String): List<Pair<TaskItem, Boolean>> =
             )
         )
 
-/** Hidden table sub-row listing everything a member is doing; toggled from the Tasks count. */
+/**
+ * Hidden table sub-row listing everything a member is doing, card by card; toggled from the Tasks count.
+ *
+ * It is printed only under a row this reader may open — management's, or their own — which is the half of the
+ * page Stage 68 left gated. Above it the figures are on every row for everybody; this is the part that names
+ * *what* the work is, and a colleague's task titles are not the roster's business.
+ */
 private fun TBODY.memberTasksRow(member: Member, tasks: List<Pair<TaskItem, Boolean>>) {
     tr("member-tasks") {
         attributes["data-emp"] = member.employeeNumber
         attributes["hidden"] = "hidden"
         td {
-            colSpan = "12"
+            colSpan = "13"
             if (tasks.isEmpty()) {
                 span("mtd-empty") { +"No tasks assigned yet." }
             } else {
@@ -477,34 +577,33 @@ private val detailJson = Json { encodeDefaults = true }
 /**
  * One entry per team member: projects they manage or contribute tasks to, plus their tasks.
  *
- * The payload is the page's one copy of "what is this person doing", and it is a normal account's
- * own entry that may carry it: for anybody else, [canManage] false and not the reader's own number
- * means the task lists come back empty and only the projects they *manage* are named. A colleague
+ * The two halves of the payload are read under two different rights, and Stage 68 is what split them. The
+ * **projects** are everybody's view of a colleague, because that set is what the sheet's **Projects** figure
+ * now prints for every row — a number on the page that its own popup contradicts would be read as the page
+ * being wrong, so the list is the same [memberProjects] call, whatever the reader may see of the cards that
+ * feed it. The **tasks** stay the old rule: their own entry, and everybody's for management. A colleague
  * is still findable by name, department, position and email — which is what the page is for.
  */
 private fun buildMemberDetails(canManage: Boolean, viewerEmpNo: String): Map<String, MemberDetail> {
-    val allProjects = DemoData.projects
-    val projectByName = allProjects.associateBy { it.name }
+    val projectByName = DemoData.projects.associateBy { it.name }
     // The percentage a popup prints for a project is the Projects board's figure for the same project —
     // one measurement, from the checklists on its cards, with the row's own number only where no card
     // carries a plan. Three pages naming one project three different numbers would be read as three bugs.
     val measured = TaskService.progressByProject()
     return DemoData.team.associate { member ->
         val seesTasks = canManage || member.employeeNumber == viewerEmpNo
-        val managed = allProjects.filter { it.manager == member.name }
-        val managedIds = managed.map { it.id }.toSet()
         val assigned = if (seesTasks) DemoData.assignedTasks.filter { it.assignee == member.employeeNumber } else emptyList()
         val other = if (seesTasks) DemoData.otherTasks.filter { it.assignee == member.employeeNumber } else emptyList()
-        val contributedNames = assigned.map { it.project }.toSet()
-        val contributed = allProjects.filter { it.name in contributedNames && it.id !in managedIds }
-
-        val projectInfos = (
-            managed.map {
-                MemberProjectInfo(it.code, it.name, it.status, TaskService.displayedProgress(it, measured), it.due, "Manager")
-            } + contributed.map {
-                MemberProjectInfo(it.code, it.name, it.status, TaskService.displayedProgress(it, measured), it.due, "Tasks")
+        // The projects they are on, for every reader and from the one helper the row uses. Only the *names*
+        // travel here; the cards behind them are still the gated half, which is why this reads the member's
+        // own project cards off the repository rather than reusing the gated [assigned] above.
+        val theirCards = DemoData.assignedTasks.filter { it.assignee == member.employeeNumber }
+        val projectInfos = memberProjects(member.name, theirCards)
+            .map {
+                val role = if (it.manager == member.name) "Manager" else "Tasks"
+                MemberProjectInfo(it.code, it.name, it.status, TaskService.displayedProgress(it, measured), it.due, role)
             }
-            ).sortedWith(compareBy({ it.role != "Manager" }, { it.name }))
+            .sortedWith(compareBy({ it.role != "Manager" }, { it.name }))
 
         val taskInfos = (assigned.map { it to false } + other.map { it to true })
             .sortedWith(compareBy({ (t, _) -> t.due.isEmpty() }, { (t, _) -> t.due }))

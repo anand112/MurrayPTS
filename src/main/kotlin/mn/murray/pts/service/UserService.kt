@@ -147,18 +147,6 @@ object UserService {
         return PasswordStatus.CHANGED
     }
 
-    /** Self-service password change: verifies the current password with bcrypt. */
-    fun changeOwnPassword(employeeNumber: String, current: String, new: String, confirm: String): PasswordStatus {
-        if (current.isEmpty() || new.isEmpty() || confirm.isEmpty()) return PasswordStatus.EMPTY
-        val user = UserRepository.findByEmpNo(employeeNumber) ?: return PasswordStatus.WRONG_CURRENT
-        if (!PasswordHasher.verify(current, user.passwordHash)) return PasswordStatus.WRONG_CURRENT
-        if (new != confirm) return PasswordStatus.MISMATCH
-        if (new.length < MIN_PASSWORD_LENGTH) return PasswordStatus.TOO_SHORT
-        UserRepository.updatePasswordHash(employeeNumber, PasswordHasher.hash(new), mustChange = false)
-        SessionRepository.revokeAllFor(employeeNumber)
-        return PasswordStatus.CHANGED
-    }
-
     /** Admin updates a user's position (by name) and/or access level. */
     fun updateUserAccess(employeeNumber: String, positionName: String, access: String) {
         val empNo = employeeNumber.trim().uppercase()

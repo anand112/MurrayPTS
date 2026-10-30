@@ -72,7 +72,7 @@ class DueDateAlertServiceTest {
     private fun project(
         code: String,
         due: String,
-        status: String = "Ongoing",
+        status: String = "In progress",
         progress: Int = 40,
         manager: String? = "EMP0001",
         assignees: List<String> = emptyList(),
@@ -115,7 +115,7 @@ class DueDateAlertServiceTest {
     fun `a finished project is silent`() {
         // Both completion signals must be honoured: status Completed, or progress 100.
         project("SIT-02", due = today.plusDays(1).toString(), status = "Completed", progress = 60)
-        project("SIT-03", due = today.plusDays(1).toString(), status = "Ongoing", progress = 100)
+        project("SIT-03", due = today.plusDays(1).toString(), status = "In progress", progress = 100)
 
         val summary = DueDateAlertService.runSweep(today)
 

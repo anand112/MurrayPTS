@@ -24,6 +24,8 @@ import mn.murray.pts.service.MailSwitch
 import mn.murray.pts.service.NotificationService
 import mn.murray.pts.service.ProjectDraft
 import mn.murray.pts.service.ProjectService
+import mn.murray.pts.service.ProjectTypeResult
+import mn.murray.pts.service.ProjectTypeService
 import mn.murray.pts.service.TaskService
 import mn.murray.pts.service.TodoService
 import mn.murray.pts.service.UserService
@@ -85,12 +87,12 @@ private fun ApplicationCall.clientIp(): String {
 /**
  * The signed-in user for one request.
  *
- * [mustChangePassword] is read with the session on every request so the route guard can
- * enforce "set a real password before you see the app" — the flag exists because imported
- * accounts whose password defaulted to their employee number, and a super admin bootstrapped
- * without `PTS_ADMIN_PASSWORD`, are not safe to leave working.
+ * The `must_change_password` flag is still recorded on an account whose password the system
+ * assigned (an import, a bootstrap admin, an account added without one), but since Stage 99
+ * nothing enforces it: the Settings password box is gone, and a flagged reader reaches the
+ * app exactly like any other.
  */
-class UserSession(val employeeNumber: String, val mustChangePassword: Boolean = false)
+class UserSession(val employeeNumber: String)
 
 /**
  * Issue the session cookie for an authenticated [token]. Name stays `PTS_SID` (legacy
@@ -123,7 +125,9 @@ private val log = LoggerFactory.getLogger("mn.murray.pts.Application")
  * exactly the set of accounts `/save` accepts a create from. It is what the page head's `+ New task` posts,
  * and what a lane's `+ Add task` line posts with `&into=<lane id>` beside it to open the form already in
  * that column. `?edit=<card>` goes through
- * [TaskService.editableBy], so a hand-typed id for somebody else's card comes back as an ordinary board
+ * [TaskService.openableBy], which since Stage 86 hands a project card to any reader — it opens read-only for
+ * somebody who may not write it — and still answers a backlog card only to management or the person it is
+ * assigned to, so a hand-typed id for a card off that reader's scoped board comes back as an ordinary board
  * rather than as their task form.
  *
  * A backlog card is the one create that is not gated by [TaskService.mayAddTasks], because writing one is
@@ -137,24 +141,30 @@ private fun openingTaskForm(
     session: UserSession,
     canManage: Boolean,
     pageProjectId: Int = 0,
+    allowSelfBacklogCreate: Boolean = false,
 ): TaskForm? {
     val query = call.request.queryParameters
     val isNew = query["new"] != null
     // A project page's popup gets that project's lanes (V7) so its Sub-category picker can offer them in the
     // order the board prints them, extras and all. The general board passes none, and the popup then lists the
-    // six every project is created with (Stage 48) — the same names on every board, which is why it can ask the
-    // question at all without knowing a project's lane ids.
+    // three every project opens with (Stage 75) — the names no board is created without, which is why it can ask
+    // the question at all without knowing a project's lane ids. A board that has renamed one of the three refuses
+    // that name when the card is saved, because the name is looked up on the project the card lands on.
     val lanes = if (pageProjectId > 0) TaskService.lanesOf(pageProjectId) else emptyList()
-    if (isNew && pageProjectId == 0 && canManage) {
-        // `?column=<id>` is the column a backlog `+ Add task` line was pressed under, checked against the
-        // board's own columns rather than trusted: a hand-typed id is not a place a card can be filed, and
-        // an unaimed `?new=1` stays the assigned create this page's head has always posted.
-        // Stage 51: writing a *new* card onto the shared backlog is an Other-tasks function management keeps.
-        // A Viewer reaches the board only to work their own card, so a hand-typed `?new=1&column=<id>` lands
-        // them on their scoped board with the popup shut rather than on a create form their route will not save.
+    if (isNew && pageProjectId == 0) {
+        // `?column=<id>` is the bucket a backlog `+ Add task` line was pressed under, checked against the
+        // board's own columns rather than trusted: a hand-typed id is not a place a card can be filed, and an
+        // unaimed `?new=1` stays the assigned create this page's head has always posted.
+        // **Stage 90** draws that line on the Assigned page for every reader ([allowSelfBacklogCreate]):
+        // a non-manager's card is pinned to them as *Not started* by
+        // [mn.murray.pts.service.TaskService.createBacklog], so the form is theirs to fill in and nothing
+        // outside the title, dates, priority and bucket is theirs to choose. The shared Other-tasks page keeps
+        // its Stage 51 shape, so its own `?new=1` still opens nothing for a non-manager.
         val columns = TaskService.bucketRows()
         val into = query["column"]?.trim()?.toIntOrNull()?.takeIf { id -> columns.any { it.id == id } }
-        if (into != null) return backlogFormOf(canManage, session.employeeNumber, columns, into = into)
+        if (into != null && (canManage || allowSelfBacklogCreate)) {
+            return backlogFormOf(canManage, session.employeeNumber, columns, into = into)
+        }
     }
     if (isNew && TaskService.mayAddTasks(pageProjectId, session.employeeNumber, canManage)) {
         // `?into=<lane id>` is the lane a `+ Add task` line was pressed under. It is checked against this
@@ -166,7 +176,7 @@ private fun openingTaskForm(
         return newFormOf(canManage, into = into?.name).copy(lanes = lanes)
     }
     val id = query["edit"]?.trim()?.toIntOrNull() ?: return null
-    return TaskService.editableBy(id, session.employeeNumber, canManage)?.let { task ->
+    return TaskService.openableBy(id, session.employeeNumber, canManage)?.let { task ->
         // Which picker this popup has is the row's answer, not the URL's: a backlog card is filed in a column
         // of that board and needs its list to fill the select with, a project card in a lane of its own.
         // Management gets both lists whatever the row says, because their popup can move a card from one board
@@ -177,7 +187,7 @@ private fun openingTaskForm(
 }
 
 /**
- * The backlog column popup this page was asked to arrive open, and the board's own width while it is up.
+ * The backlog column popup this page was asked to arrive open.
  *
  * Two keys, one for each thing a reader can press on that board: `?newbucket=1` for the dashed box that adds a
  * column, `?bucket=<id>` for the `⋮` that renames or empties one. Since Stage 48 the create key is honoured for
@@ -185,10 +195,10 @@ private fun openingTaskForm(
  * a non-manager's copy of the popup prints the add half whatever the query claims — [otherTasksContent] checks
  * the role before it draws a rename form, so nothing typed here can ask for one.
  *
- * [showAll] is `?allbuckets=1`: the columns that hold nothing are printed. It travels through the bucket forms
- * as a field of their own rather than being re-read from the address bar, because a popup that redraws the
- * board has to redraw it the way the reader has it set — the columns that were hidden before a refusal must be
- * hidden after it, or the answer says something different from the question.
+ * *(**Stage 97** retired a third key this KDoc used to document — `?allbuckets=1`, the wide view the head's
+ * toggle carried, which printed the columns that hold nothing. Both the flag and the view are gone; the columns a
+ * reader wants to see are named one at a time by the board's Bucket picker, and that filter — `?show=<id>`, read at
+ * the GET route below — is the state that travels through the forms on this page now.)*
  */
 private fun openingBucketForm(call: ApplicationCall, canManage: Boolean): BucketForm {
     val query = call.request.queryParameters
@@ -199,6 +209,125 @@ private fun openingBucketForm(call: ApplicationCall, canManage: Boolean): Bucket
 }
 
 /**
+ * Where one of a project page's bucket writes sends the reader back, and what it says there (Stage 74).
+ *
+ * Since **Stage 81** this is also how the Archive is answered — a card put away from its popup, and a card
+ * restored or destroyed from inside the panel — because the page has one place for a sentence about this board's
+ * shape and its work, and one key (`?archive=1`) for whether that panel is up.
+ *
+ * All three — the dashed box's add, a column's rename, a column's removal — answer the same way the Stage 73
+ * picker already did: the outcome in `?buckets=`, the sentence in `?bucketnote=`. The pair of keys that used to
+ * tell the page **which half of it asked** is down to one now that **Stage 79** has taken the picker panel off the
+ * page: every write comes from the board, so the sentence prints over the columns the reader changed. [onBoard] is
+ * the form's own `src` field carried into the
+ * URL, and [reopen] is the popup to put back up: a **refusal** hands the reader their own words in the field that
+ * was refused, a **success** closes the form and lets the redrawn board be the answer.
+ *
+ * The URL built with [onBoard] false and [reopen] null is still exactly the string Stage 73 built, so an old
+ * bookmark resolves the same way — the page simply has no panel left to print it in, and puts it over the board.
+ */
+private fun laneRedirect(
+    projectId: Int,
+    ok: Boolean,
+    note: String,
+    onBoard: Boolean,
+    reopen: LaneForm? = null,
+    forType: Boolean = false,
+    /**
+     * Stage 81: keep this project's **Archived tasks** panel up on the way back. The panel's two forms are the
+     * only callers that ask, because a reader working a card out of the Archive is looking at the panel when they
+     * press — a write that landed must redraw the list it just changed rather than throw them back at the board.
+     * A write from the board itself (a bucket removed, a card put away) leaves it shut, and its sentence over the
+     * board says where the card went.
+     */
+    archive: Boolean = false,
+): String {
+    val keys = mutableListOf(
+        "buckets=${if (ok) "ok" else "err"}",
+        "bucketnote=" + java.net.URLEncoder.encode(note, "UTF-8"),
+    )
+    if (onBoard) keys += "bucketsrc=board"
+    if (archive) keys += "archive=1"
+    // Stage 77: a refused save that was asked with the *also offer it to new projects* tick on says so, so the
+    // form that comes back still shows the reader's own answer. A save that landed needs no such key — the
+    // sentence it prints already told them whether the category widened.
+    if (!ok && forType) keys += "widen=1"
+    reopen?.let {
+        if (it.open) keys += "laneadd=1"
+        if (it.laneId != 0) keys += "laneedit=${it.laneId}"
+        if (it.typed.isNotEmpty()) keys += "lanetyped=" + java.net.URLEncoder.encode(it.typed, "UTF-8")
+        // Stage 80: the swatch the reader had chosen, kept for the same reason their word in the name field is
+        // kept — a refusal about the name should not also quietly re-pick the colour they were happy with.
+        it.colourSlot?.let { slot -> keys += "lanecolour=$slot" }
+    }
+    return "/app/projects/$projectId?" + keys.joinToString("&")
+}
+
+/**
+ * What a removal the board asked for answers with when it did not remove (Stage 74).
+ *
+ * [TaskService.removeLane] answers with a [mn.murray.pts.service.LaneRemoval] — the refusal, or how many cards
+ * went to the Archive with the column — and the board's `⋯` is the only control that turns either half into
+ * words. The older bare-`?lane=` round trip has no control pointing at it any more and keeps its code-only answer. Since Stage 75 [LaneError.LAST_LANE] is the one a real click does reach — every column
+ * carries its `⋯`, including the three a board opened with, so a project that has been emptied down to one lane
+ * can be asked to remove it — and the rest are what a stale page or a hand-built POST reaches, since a board
+ * prints no menu for a reader who may not write it and no menu for a column that is already gone.
+ */
+private fun laneRemovalNote(error: LaneError): String = when (error) {
+    LaneError.LAST_LANE -> "A board keeps at least one bucket, so this one cannot go."
+    else -> "That bucket is no longer on this board."
+}
+
+/**
+ * The project page's bucket popup, read out of its URL (Stage 74).
+ *
+ * [LaneForm] is the page's own state, so a plain click and a bookmarked link open the same form — the dashed box
+ * is `?laneadd=1` and a column's `⋯` is `?laneedit=<id>`, each a GET form [mn.murray.pts.laneKanban] draws. Three
+ * keys belong to a refusal rather than to an opener, and a refusal is why the page also needs [note] and
+ * [refused] here: the sentence a write answers with arrives in the URL, and where it prints depends on whether the
+ * form is still up. **A name refused inside the open popup is printed at the field, not twice** — so [note] goes
+ * into [LaneForm.nameError] and [noteOnBoard] comes back false — while a write that landed, or one refused for
+ * some other reason, keeps the sentence over the board it changed. Since **Stage 79** the board is the page's only
+ * bucket control, so every bucket write's answer is the board's: the `?bucketsrc=board` mark its forms carry is
+ * what distinguishes a refusal that belongs at a field from one that does not, and a URL without the mark — an
+ * old bookmark, or the picker's own redirect from before the panel went — is printed over the board too rather
+ * than swallowed with the panel that used to hold it.
+ *
+ * Every key is honoured only for a reader who may make the write ([mayWriteLanes]): a Viewer who bookmarks
+ * `?laneedit=7` is handed the page, not a form whose every button the routes refuse, which is the same reason
+ * [openingBucketForm] asks for the role before it reads `?bucket=`.
+ */
+private fun openingLaneForm(
+    call: ApplicationCall,
+    mayWriteLanes: Boolean,
+    note: String?,
+    refused: Boolean,
+): LaneEntry {
+    if (!mayWriteLanes) return LaneEntry(LaneForm(), false)
+    val query = call.request.queryParameters
+    val add = query["laneadd"] == "1"
+    val laneId = query["laneedit"]?.trim()?.toIntOrNull() ?: 0
+    val inPopup = refused && query["bucketsrc"] == "board" && (add || laneId != 0)
+    return LaneEntry(
+        form = LaneForm(
+            typed = query["lanetyped"].orEmpty(),
+            nameError = if (inPopup) note else null,
+            open = add,
+            laneId = laneId,
+            forType = query["widen"] == "1",
+            // Stage 80: the swatch the reader had chosen, or null for "no answer yet", which the popup reads as
+            // the colour the column already wears.
+            colourSlot = colourSlotOf(query["lanecolour"]),
+        ),
+        noteOnBoard = !inPopup,
+    )
+}
+
+/** What [openingLaneForm] read: the popup's state and whether this page's bucket sentence belongs over the board.
+ *  Stage 77's *also offer it to new projects of this category* tick rides inside the form, where it is drawn. */
+private data class LaneEntry(val form: LaneForm, val noteOnBoard: Boolean)
+
+/**
  * The page a bucket write answers itself with: the board redrawn and the popup in the state to show.
  *
  * A refusal comes back as this HTML rather than as a redirect, because `app.js` swaps `#otherBoard` and its
@@ -207,36 +336,43 @@ private fun openingBucketForm(call: ApplicationCall, canManage: Boolean): Bucket
  * followed page carries the new board and a closed popup — the same two blocks, moved by the same swap.
  *
  * The same renderer serves the plain page, the card popup's refusal and the column popup's, which is the whole
- * reason it is one function: the head's `Show all buckets` has to be asked of the same read the board is drawn
- * from, or the control appears over a board that has nothing for it to do.
+ * reason it is one function: the head's `+ Add bucket` has to be asked of the same read the board is drawn from,
+ * or the control appears over a board that has nothing for it to do. *(Until **Stage 97** the head carried a second
+ * control, the `Show all buckets` toggle, and it had to be asked the same question; it went with the wide view, and
+ * the picker's filter is the only board state this page answers with.)*
  */
 private suspend fun ApplicationCall.respondOtherTasks(
     session: UserSession,
     canManage: Boolean,
     state: TaskForm? = null,
     bucket: BucketForm = BucketForm(),
-    showAll: Boolean = false,
+    showBucketId: Int = 0,
 ) = respondHtml {
+    // The head's control and the board both read one answer: whether a bucket is chosen, which the picker's own
+    // `?show=` names. A stale id is not chosen — it answers as *All buckets*, exactly as the board does.
+    val filtered = TaskService.bucketRows().any { it.id == showBucketId }
     appPage(
         session, "other-tasks", "Other tasks", subtitle = OTHER_TASKS_SUBTITLE,
         actions = {
-            if (canManage) addBucketButton(showAll)
-            if (canManage && otherToggleApplies(showAll)) allBucketsToggle(showAll)
+            if (canManage) addBucketButton(if (filtered) showBucketId else 0)
         },
     ) {
-        otherTasksContent(session, canManage, state, bucket, showAll)
+        otherTasksContent(session, canManage, state, bucket, showBucketId)
     }
 }
 
 /**
  * The page a bucket write that landed redirects to, on the view the reader was looking at.
  *
- * [forceAll] is for the one write whose own result would otherwise hide it: a new column has no cards in it,
- * and a board that prints only the columns holding work would swallow the thing the reader just added. So the
- * create answers with the full board up — where the toggle is on the reader's sight to bring it back down.
+ * [showBucketId] is the board's bucket filter (Stage 93). A rename and a delete carry the column the reader was
+ * reading, so the board comes back narrowed exactly as they left it. The create carries the column it **made**: a
+ * new bucket holds nothing, and the board prints only the buckets that do, so unless the answer names the newcomer
+ * it would vanish as the reader pressed the box. That is what the wide view used to be forced on for (**Stage 40**,
+ * retired by **Stage 97**); pointing the filter at one column reaches the same end with one view control on the page
+ * instead of two, and it leaves the reader somewhere they can see what they just added.
  */
-private fun bucketsBack(showAll: Boolean, forceAll: Boolean = false): String =
-    if (showAll || forceAll) "/app/other-tasks?allbuckets=1" else "/app/other-tasks"
+private fun bucketsBack(showBucketId: Int = 0): String =
+    if (showBucketId > 0) "/app/other-tasks?show=$showBucketId" else "/app/other-tasks"
 
 /**
  * Prepare persistence for the v2 SQLite/Exposed stack.
@@ -265,6 +401,13 @@ private fun bootstrapDatabase() {
     }
     // Guarantee an admin account exists even on a fresh DB with no legacy JSON.
     AuthService.ensureSuperAdmin()
+    // Publish the category catalogue (V14) into the domain's PROJECT_TYPES / TYPE_PREFIX views. Every board
+    // panel, forecast tab, create-form picker and `?type=` check reads that snapshot rather than the table, so
+    // it has to be loaded before the first request — and the count goes in the boot log because a catalogue
+    // that came up empty is the one thing on this page a manager would notice as missing categories, not as a
+    // stack trace.
+    val categories = ProjectTypeService.list()
+    log.info("Project categories: {} loaded from the catalogue.", categories.size)
     // Non-fatal deployment advisories: surfaced every boot so a misconfigured VPS is visible
     // in the log rather than discovered by a user who cannot stay logged in.
     AppConfig.warnings().forEach { log.warn("Launch check: {}", it) }
@@ -355,13 +498,47 @@ fun main() {
                 // cards here too, which is the one thing that widens the opener below management.
                 val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canManage)
                 val state = openingTaskForm(call, session, canManage, project.id)
-                // Nothing here reads `?lane=` any more (Stage 35). The two lane routes still answer a
-                // request with the code they refused it on — `POST /app/projects/{id}/buckets` is a
-                // management-only endpoint with no control pointing at it, so that query is the whole of
-                // what its outcome says, and it belongs to the URL rather than to this renderer.
+                // `?lane=` is read by nothing here (Stage 35). The two lane routes still answer a request with
+                // the code they refused it on — `POST /app/projects/{id}/buckets` is a management-only endpoint
+                // with no control pointing at it, so that query is the whole of what its outcome says, and it
+                // belongs to the URL rather than to this renderer.
+                //
+                // `?buckets=` is a bucket write's outcome (Stage 73) and this page does read it: `ok` or `err`
+                // names which, and `bucketnote` carries the sentence to print over the board. Both are
+                // only honoured as a pair — a bare `bucketnote` on a URL somebody typed is a stranger's words on
+                // a page about a different save — and the openers that write are drawn for the reader who may use
+                // them, so a Viewer who bookmarks the link gets no form, only the sentence the board carries.
+                val savedCode = call.request.queryParameters["buckets"]
+                val bucketNote = if (savedCode == "ok" || savedCode == "err") {
+                    call.request.queryParameters["bucketnote"]?.trim()?.takeIf { it.isNotEmpty() }
+                } else null
+                // Since **Stage 74** the same three keys can also belong to the board, because the dashed
+                // `+ Add bucket` box and a column's `⋯` post to the very same routes the page's bucket picker used
+                // to. Since **Stage 79** they are the page's only bucket forms at all — the picker panel under the
+                // header is gone.
+                // `?bucketsrc=board` says the write came from one of them, and `?laneadd=` / `?laneedit=<id>` /
+                // `?lanetyped=` are the popup's own openers — all four are read together, since where the sentence
+                // prints depends on whether the form that earned it is still up. The role is asked here, not only
+                // inside the renderer, so a Viewer's bookmarked `?laneedit=7` opens nothing at all.
+                val mayWriteLanes = TaskService.mayEditLanes(project.id, session.employeeNumber, canManage)
+                val laneEntry = openingLaneForm(call, mayWriteLanes, bucketNote, savedCode == "err")
+                // Stage 80: which columns are showing their completed cards is the URL's `showdone` keys, repeated
+                // once per open column. Nothing on the page tracks it in a script, so a reload, a bookmark and
+                // the back button all come back to the same board the reader was looking at.
+                val doneOpen = openDoneLanesOf(call.request.queryParameters)
+                // Stage 81: `?archive=1` is the same arrangement for the Archive panel — the page says whether it
+                // is up, and only for the reader the header's 🗄 is drawn for. A Viewer's bookmarked link gets the
+                // panel closed, because every write behind it would be refused and a panel of rows nobody can act
+                // on is the dead control Stage 51 made a rule about.
+                val archiveOpen = call.request.queryParameters["archive"] == "1" && mayWriteLanes
                 call.respondHtml {
                     appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
-                        projectDetailContent(it, project, canManage, state)
+                        projectDetailContent(
+                            it, project, canManage, state,
+                            bucketNote = bucketNote, bucketNoteIsError = savedCode == "err",
+                            noteOnBoard = laneEntry.noteOnBoard, lane = laneEntry.form,
+                            doneOpen = doneOpen, archiveOpen = archiveOpen,
+                        )
                     }
                 }
             }
@@ -376,14 +553,33 @@ fun main() {
             get("/app/assigned-tasks") {
                 val session = call.requireSession() ?: return@get
                 val canManage = Authorization.canManage(session.employeeNumber)
-                val state = openingTaskForm(call, session, canManage)
+                // Stage 90: this page's Other-tasks section carries its own `+ Add task` line for every reader,
+                // so this is the one route that opens a backlog create for a non-manager.
+                val state = openingTaskForm(call, session, canManage, allowSelfBacklogCreate = true)
+                // Which Other-tasks bucket the board below is narrowed to (Stage 88). It is a view key like the
+                // calendar's month: absent, mistyped or pointing at a column that no longer exists all answer
+                // **all buckets**, so an ageing bookmark opens the whole board rather than an empty one.
+                val bucket = call.request.queryParameters["bucket"]?.trim()?.toIntOrNull() ?: 0
                 call.respondHtml {
                     appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canManage) newTaskButton() }) {
-                        assignedTasksContent(session, canManage, state)
+                        assignedTasksContent(session, canManage, state, otherBucketId = bucket)
                     }
                 }
             }
-            sectionRoute("/app/calendar", "calendar", "Calendar") { calendarContent(it) }
+            /**
+             * The reader's own month plan, for whichever month the address names.
+             *
+             * Two controls answer that question on the page — the ‹ / › steps (and `This month`), which send
+             * `month`, and the box that names any month at all, which sends `pick` — and both are keys of the same
+             * shape the forecast sheet reads. A step is the control that was *acted on*, so it is believed first;
+             * the box is read only when no step was taken. A word that is not a month is not an error page:
+             * [monthKeyOf] answers this month, so a mistyped or ageing bookmark still opens a plan.
+             */
+            get("/app/calendar") {
+                val session = call.requireSession() ?: return@get
+                val params = call.request.queryParameters
+                call.respondCalendar(session, monthKeyOf(params["month"], params["pick"]))
+            }
             /**
              * The Team sheet, and the panel management assigns a card from.
              *
@@ -535,15 +731,20 @@ fun main() {
              * the dashed box and a column's `⋮`, both read by [openingBucketForm]; `?new=1&column=<id>` and
              * `?edit=<card>` are the card popup's, read by [openingTaskForm] — the first of those is a
              * backlog `+ Add task` line, which is why it aims at this page rather than the assigned one.
-             * `?allbuckets=1` is the head's own toggle: the columns holding nothing are printed too.
+             * `?show=<id>` is the board's Bucket picker (Stage 93): one column's group and nothing else. It is
+             * `show` rather than `bucket` because `bucket` already names a column's popup on this route.
+             *
+             * *(Until **Stage 97** a fifth key was read here — `?allbuckets=1`, the head's toggle's wide view. The
+             * picker covers both of that control's readings, so the toggle, the key and the view went together; a
+             * stale bookmark carrying it now simply gets the ordinary board.)*
              */
             get("/app/other-tasks") {
                 val session = call.requireSession() ?: return@get
                 val canManage = Authorization.canManage(session.employeeNumber)
                 val state = openingTaskForm(call, session, canManage)
                 val bucket = openingBucketForm(call, canManage)
-                val showAll = call.request.queryParameters["allbuckets"] == "1"
-                call.respondOtherTasks(session, canManage, state, bucket, showAll)
+                val showBucketId = call.request.queryParameters["show"]?.trim()?.toIntOrNull() ?: 0
+                call.respondOtherTasks(session, canManage, state, bucket, showBucketId)
             }
             sectionRoute("/app/todo", "todo", "To-do") { todoContent(it) }
             get("/app/access-control") {
@@ -559,14 +760,13 @@ fun main() {
                 call.respondHtml { appPage(session, "access-control", "Access control") { accessContent(canAdmin, canManage, session.employeeNumber, status, detail) } }
             }
             /**
-             * The Settings page: the Team sheet, the reader's own account, and the password form.
+             * The Settings page: the Team sheet and the reader's own account.
              *
              * `q`, `position`, `role` and `sort` are the sheet's own view — the search box, the two
              * pickers and whichever column header was last pressed. `new=1` and `edit=<employee number>`
              * are the two openers, each a GET onto this route so a reader with no JavaScript gets the
-             * same popup as a fresh page load rather than a dead button. `pw` and `note` are the one-shot
-             * lines: the first belongs to the password form, the second to the sheet an account was just
-             * added to or taken off.
+             * same popup as a fresh page load rather than a dead button. `note` is the one-shot line
+             * under the Team heading for an account that was just added to or taken off.
              *
              * The account behind `?edit=` is read from the database and never from a form, and the popup's
              * rights come from the reader rather than the row: a number this account may not change answers
@@ -591,30 +791,66 @@ fun main() {
                         mayEdit = canAdmin,
                     ),
                     note = PasswordStatus.fromCode(query["note"]),
-                    passwordStatus = PasswordStatus.fromCode(query["pw"]),
                     mailStatus = PasswordStatus.fromCode(query["mail"]),
                     mailDetail = query["mailerr"]?.trim()?.takeIf { it.isNotEmpty() },
                     bucketNote = PasswordStatus.fromCode(query["lane"]),
                     bucketDetail = query["lanedetail"]?.trim()?.takeIf { it.isNotEmpty() },
                     bucketDefaultsType = BucketDefaultsService.typeFor(query["lanes"]),
+                    typeNote = PasswordStatus.fromCode(query["cat"]),
+                    typeDetail = query["caterr"]?.trim()?.takeIf { it.isNotEmpty() },
+                    typeBeingEdited = query["edittype"]?.trim()?.takeIf { it.isNotEmpty() }.orEmpty(),
                 )
             }
 
-            post("/app/settings/password") {
+            /**
+             * Add a project category (the V14 catalogue Settings' *Project types* panel edits).
+             *
+             * Management-only here and again inside [ProjectTypeService.add]. The letter is what makes a
+             * category more than a label — every project number filed under it starts with that letter — so a
+             * collision with a letter already in use is refused rather than quietly renumbered. A refusal
+             * writes nothing and comes back as the panel's own flash line.
+             */
+            post("/app/settings/types/add") {
                 val session = call.requireSession() ?: return@post
                 val form = call.receiveParameters()
-                val status = UserService.changeOwnPassword(
-                    employeeNumber = session.employeeNumber,
-                    current = form["currentPassword"].orEmpty(),
-                    new = form["newPassword"].orEmpty(),
-                    confirm = form["confirmPassword"].orEmpty(),
+                val result = ProjectTypeService.add(
+                    rawCode = form["code"].orEmpty(),
+                    rawName = form["name"].orEmpty(),
+                    canManage = Authorization.canManage(session.employeeNumber),
                 )
-                if (status == PasswordStatus.CHANGED) {
-                    // changeOwnPassword revoked all sessions; re-issue one so the user stays signed in.
-                    val ua = call.request.headers[HttpHeaders.UserAgent].orEmpty()
-                    call.setSessionCookie(AuthService.reissue(session.employeeNumber, call.clientIp(), ua))
-                }
-                call.respondRedirect("/app/settings?pw=${status.name}")
+                call.respondTypeAnswer(result, PasswordStatus.TYPE_ADDED)
+            }
+
+            /**
+             * Rename a category, carrying the label across the projects and lane defaults that store it.
+             *
+             * The letter is not part of this write and cannot be: it is the catalogue's key and the first
+             * token of numbers already issued, so `S-04` written under the old name still reads `S-04` after
+             * the rename. The answer says how many projects moved with the label.
+             */
+            post("/app/settings/types/rename") {
+                val session = call.requireSession() ?: return@post
+                val form = call.receiveParameters()
+                val result = ProjectTypeService.rename(
+                    oldName = form["name"].orEmpty(),
+                    rawName = form["newname"].orEmpty(),
+                    canManage = Authorization.canManage(session.employeeNumber),
+                )
+                call.respondTypeAnswer(result, PasswordStatus.TYPE_RENAMED)
+            }
+
+            /**
+             * Retire a category — refused while any project is still filed under it, which is the whole
+             * difference between a label nobody is using and forty orphaned rows. See [ProjectTypeService.remove].
+             */
+            post("/app/settings/types/delete") {
+                val session = call.requireSession() ?: return@post
+                val form = call.receiveParameters()
+                val result = ProjectTypeService.remove(
+                    code = form["code"].orEmpty(),
+                    canManage = Authorization.canManage(session.employeeNumber),
+                )
+                call.respondTypeAnswer(result, PasswordStatus.TYPE_REMOVED)
             }
 
             /**
@@ -737,6 +973,10 @@ fun main() {
              * back as the panel's own flash line through the `?lane=` code. A refusal writes nothing. The
              * `?lanes=` key rides back so the answer is the same category's panel the reader was editing,
              * whichever of the nine it was — see `get("/app/settings")` for how that key is read.
+             *
+             * Since **Stage 83** the form sends a name and the category, and nothing else: the colour is the
+             * app's answer, so there is no swatch to carry back on a refusal — only the name the reader typed,
+             * which the browser keeps in the field it came from.
              */
             post("/app/settings/buckets/add") {
                 val session = call.requireSession() ?: return@post
@@ -748,7 +988,11 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 val code = if (result.ok) PasswordStatus.LANE_ADDED else PasswordStatus.LANE_REFUSED
-                val reason = if (result.ok) "" else "&lanedetail=${java.net.URLEncoder.encode(result.message, "UTF-8")}"
+                // Stage 98: the receipt rides the success redirect too. [BucketDefaultsService.add] now says how
+                // many boards took the new column, and that number is the only evidence a reader standing on
+                // Settings has that the add reached the projects — dropping it left the panel claiming a catalogue
+                // row while the boards behind it were the thing the reader was asking about.
+                val reason = "&lanedetail=${java.net.URLEncoder.encode(result.message, "UTF-8")}"
                 call.respondRedirect(
                     "$SETTINGS_PATH?lane=$code$reason&lanes=${java.net.URLEncoder.encode(category, "UTF-8")}",
                 )
@@ -787,6 +1031,15 @@ fun main() {
                         status = fields["status"].orEmpty(),
                         managerName = fields["manager"].orEmpty(),
                         revenue = fields["revenue"].orEmpty(),
+                        // **Stage 104 put a bucket line back on this form, and this route reads it.** Every
+                        // `new_bucket` the popup posts arrives — the hidden twin behind each chip and the name
+                        // still sitting in the box alike, since a reader who typed one and pressed Create
+                        // instead of Add asked for that column as surely as one who pressed Add. Blank values are
+                        // dropped by the service, order is the form's, and nothing here touches the category's
+                        // catalogue: there is no `also_type` on this popup, so a hand-built POST naming one is
+                        // read by nobody. Stage 92's "this route reads no bucket field" is superseded; Stage 98's
+                        // board-from-the-category rule is not — the catalogue rows still come first.
+                        newBuckets = fields.getAll("new_bucket").orEmpty(),
                     ),
                     actorEmpNo = session.employeeNumber,
                 )
@@ -918,6 +1171,125 @@ fun main() {
                 )
             }
             /**
+             * Save the whole set of one project's buckets, in one write (Stage 73).
+             *
+             * The form posts the bucket **names** it carries plus the one name typed into its add box, and
+             * every rule about that set — whose board this is, a name that is not a bucket, a bucket that still
+             * holds cards, a name only management may add to the category — is
+             * [mn.murray.pts.service.TaskService.saveLanes]'s. What is left here is the round trip: the redirect
+             * names the outcome in `?buckets=` and carries the sentence in `?bucketnote=`, which
+             * [projectDetailContent] prints over `#projectBoard` — the block the form's `data-live-target` asks
+             * app.js to swap, so the columns the reader just changed and the words that say what happened to them
+             * arrive together and nothing else on the page moves. A refused save changed no board, so what comes
+             * back is the board as it stands plus the reason for the refusal.
+             *
+             * Since **Stage 79** the page's one caller is the dashed `+ Add bucket` box, which posts the board's
+             * whole set as hidden fields plus its own new name; the tick-list panel that used to post the same
+             * route from under the header is gone, so what a reader adds here never silently unticks anything.
+             *
+             * Two refusals are not a page to come back to: [LaneError.DENIED] means the reader may not run this
+             * board at all — the board draws no `⋯` and no add box for them, so only a hand-built POST reaches here — and
+             * [LaneError.NO_PROJECT] means the project is gone. Both go to the project list, the same answer the
+             * two older lane routes give.
+             */
+            post("/app/projects/{id}/buckets/save") {
+                val session = call.requireSession() ?: return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                    ?: return@post call.respondRedirect("/app/projects")
+                val fields = call.receiveParameters()
+                val result = TaskService.saveLanes(
+                    id,
+                    fields.getAll("bucket").orEmpty(),
+                    fields["new_bucket"].orEmpty(),
+                    session.employeeNumber,
+                    Authorization.canManage(session.employeeNumber),
+                    // Stage 77: does a bucket this form names also join the category's default buckets? The tick
+                    // is the reader's answer and its absence is the question answered "no" — a new column stays
+                    // this project's own. Nothing here defaults it on: a field a browser did not send because the
+                    // box was clear means the box is clear.
+                    alsoForType = fields["also_type"].orEmpty().isNotEmpty(),
+                )
+                val error = result.error
+                if (error == LaneError.DENIED || error == LaneError.NO_PROJECT) {
+                    return@post call.respondRedirect("/app/projects")
+                }
+                // One route, and since **Stage 79** one form on this page calls it: the dashed box, which posts the
+                // whole set. `src` is the box's own mark and is what [laneRedirect] uses to put the sentence over
+                // the columns it just changed. A refusal from the box also hands the
+                // reader back the word they typed, in the popup that is still up. A request with no `src` — a
+                // bookmark from before the picker panel went — builds the identical URL it always did, and the
+                // page prints its sentence over the board now that the panel is not there to hold it.
+                val typed = fields["new_bucket"].orEmpty().trim()
+                val fromBoard = fields["src"] == "board"
+                call.respondRedirect(
+                    laneRedirect(
+                        id,
+                        result.ok,
+                        result.message ?: if (result.ok) "Saved." else "Nothing changed.",
+                        fromBoard,
+                        reopen = if (fromBoard && !result.ok) {
+                            LaneForm(open = true, typed = typed)
+                        } else null,
+                        forType = fields["also_type"].orEmpty().isNotEmpty(),
+                    )
+                )
+            }
+            /**
+             * Retitle one column of this project's board (Stage 74) — the route a column's `⋯` posts to.
+             *
+             * The lane is named by **id** and the new heading by `name`, and every rule about the pair — whose board
+             * this is, whether this lane is even on it, and a name blank, too long or already taken — is
+             * [mn.murray.pts.service.TaskService.renameLane]'s. Since **Stage 75** no name is protected: the three a
+             * board opens with are retitled like any other column, which is why nothing here asks whether the lane
+             * is one of them. What is left here is the round trip, and it is the same one the box above uses: the outcome and its sentence in
+             * the URL, the popup put back up only when the write was refused, since a rename that landed is its own
+             * answer in the column head the reader is looking at.
+             *
+             * [LaneError.DENIED] and [LaneError.NO_PROJECT] are not a page to come back to — the board draws no `⋯`
+             * for a reader who may not write it, so only a hand-built POST reaches them — and [LaneError.NO_LANE] is
+             * the stale-request case: the column the popup was opened from is gone, so the form that names it is
+             * closed rather than reopened over a board that no longer has it, and its sentence is printed on the
+             * board itself.
+             */
+            post("/app/projects/{id}/buckets/rename") {
+                val session = call.requireSession() ?: return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                    ?: return@post call.respondRedirect("/app/projects")
+                val fields = call.receiveParameters()
+                val lane = fields["lane"]?.trim()?.toIntOrNull() ?: 0
+                val name = fields["name"].orEmpty().trim()
+                val slot = colourSlotOf(fields["colour"])
+                val result = TaskService.renameLane(
+                    id,
+                    lane,
+                    name,
+                    session.employeeNumber,
+                    Authorization.canManage(session.employeeNumber),
+                    // Stage 80: the same swatch row the add half draws. A rename that only resubmits the name
+                    // sends the colour the column already wears, so this field can pin a shade without changing
+                    // a heading — and [mn.murray.pts.service.TaskService.renameLane] writes it even when the
+                    // name is unchanged, which is what makes a colour-only post a legitimate one.
+                    colourSlot = slot,
+                )
+                val error = result.error
+                if (error == LaneError.DENIED || error == LaneError.NO_PROJECT) {
+                    return@post call.respondRedirect("/app/projects")
+                }
+                val gone = error == LaneError.NO_LANE
+                call.respondRedirect(
+                    laneRedirect(
+                        id,
+                        result.ok,
+                        result.message
+                            ?: if (result.ok) "$name is that column's name now." else "Nothing changed.",
+                        fields["src"] == "board",
+                        reopen = if (!result.ok && !gone) {
+                            LaneForm(laneId = lane, typed = name, colourSlot = slot)
+                        } else null,
+                    )
+                )
+            }
+            /**
              * The task popup endpoint. `taskId` 0 creates a card, any other value edits that one,
              * so the popup always posts here and only fills its own fields.
              *
@@ -946,12 +1318,17 @@ fun main() {
                 val taskId = form["taskId"]?.trim()?.toIntOrNull() ?: 0
                 val draft = taskDraftOf(form)
                 val backlogCreate = taskId == 0 && draft.columnId != null
-                // Stage 51: the shared-backlog create is management's function. The board draws no `+ Add task`
-                // line for a Viewer and their popup opener is shut (see [openingTaskForm]), so a POST carrying a
-                // column from a non-manager has no page it belongs to. It is discarded back to their own scoped
-                // board rather than saved — the markup is not the right, and this is the route checking it.
-                if (backlogCreate && !canManage) {
-                    return@post call.respondOtherTasks(session, canManage, showAll = showAllOf(form))
+                // Stage 51 had narrowed a backlog create to management on every board. Since **Stage 90** the
+                // reader's own Other-tasks line is back on the Assigned page, because [TaskService.createBacklog]
+                // has always pinned an ordinary account's card to themselves and *Not started* before it is
+                // validated. So the flag, not the role, decides which create this is; the pinning is the service's,
+                // and a hand-built POST that names a colleague still writes the caller's own card.
+                // The shared Other-tasks page keeps its Stage 51 shape — no line, no create — so a column-carrying
+                // POST claiming that page is still discarded back to the reader's scoped board rather than saved.
+                if (backlogCreate && !canManage && isOtherBack(back)) {
+                    return@post call.respondOtherTasks(
+                        session, canManage, showBucketId = bucketOfOtherBack(back),
+                    )
                 }
                 // No role gate here any more, deliberately: an assignee may now save their own dates and
                 // priority, and [TaskService] is the place that knows which of the two callers is allowed
@@ -963,16 +1340,17 @@ fun main() {
                     backlogCreate -> TaskService.createBacklog(draft, session.employeeNumber, canManage)
                     else -> TaskService.create(draft, session.employeeNumber, canManage, projectId)
                 }
-                // A card on the backlog's wide view answers on that same view: `allbuckets` is the popup's own
-                // hidden field, carried through [taskRedirect] so saving a card cannot hide the columns the
-                // reader was looking at, and read back below for the page that re-prints a refusal.
-                val showAll = showAllOf(form)
-                if (result.taskId != null) return@post call.respondRedirect(taskRedirect(back, projectId, showAllBuckets = showAll))
+                // The board a saved card answers on is named by `back` alone — on the backlog that token carries the
+                // bucket filter as `other:<id>` (Stage 93), so a save comes back on the narrowed board the popup was
+                // opened from. *(Stage 40 used to pass a second piece of view state through [taskRedirect] — the
+                // popup's hidden `allbuckets` field, so a save could not hide the columns the reader had opened up.
+                // **Stage 97** retired the wide view, and the read-back below that re-printed a refusal with it.)*
+                if (result.taskId != null) return@post call.respondRedirect(taskRedirect(back, projectId))
                 // Rejected: the popup comes back open on the page it was posted from, with what
                 // was typed still in the inputs and each message under its own field. The card is read
                 // again so its steps and log ride along — a rejected due date must not close the list
                 // somebody was writing next to it.
-                val refused = if (taskId > 0) TaskService.editableBy(taskId, session.employeeNumber, canManage) else null
+                val refused = if (taskId > 0) TaskService.openableBy(taskId, session.employeeNumber, canManage) else null
                 val state = taskFormOf(
                     taskId = taskId,
                     result = result,
@@ -983,7 +1361,7 @@ fun main() {
                     canCreate = if (backlogCreate) true else mayAdd,
                     // The lanes this popup was posted from, so a rejected save comes back with the same lane
                     // picker it was filled with — and the card's chosen lane still selected in it (V7). Any
-                    // other page's popup lists the six standard names from its own state instead.
+                    // other page's popup lists the three phase names from its own state instead.
                     lanes = if (back == BACK_PROJECT && projectId > 0) TaskService.lanesOf(projectId) else emptyList(),
                     // Likewise its columns: a refused backlog write comes back with the board's own picker, so
                     // the reader can see what they chose and change it without closing the form. Management gets
@@ -1014,20 +1392,30 @@ fun main() {
                 // board since Stage 47, and answering it on the assigned board would close the popup it came
                 // from and redraw a board that never held the card. Both pages draw the same `#taskModal`, so
                 // `app.js` swaps the refusal either way — what moves is the board behind it.
-                if (back == BACK_OTHER) {
-                    return@post call.respondOtherTasks(session, canManage, state = state, showAll = showAll)
+                if (isOtherBack(back)) {
+                    return@post call.respondOtherTasks(
+                        session, canManage, state = state, showBucketId = bucketOfOtherBack(back),
+                    )
                 }
                 call.respondHtml {
-                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { newTaskButton() }) {
-                        assignedTasksContent(session, canManage, state)
+                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canManage) newTaskButton() }) {
+                        // The bucket this page was reading rides `back` (Stage 88), so a refused save comes back
+                        // on the same narrowed Other-task board the popup was opened from.
+                        assignedTasksContent(session, canManage, state, otherBucketId = bucketOfBack(back))
                     }
                 }
             }
             /**
-             * Deletes the card named by the form's hidden `taskId`. The card menu on the board is
-             * one shared form, so the id arrives as a field rather than as part of the path.
+             * Deletes the card named by the form's hidden `taskId`, its steps and its notes going with it.
              *
-             * The Delete option renders for managers only; this is that promise, kept server-side.
+             * The **Delete task** button beside a card's note box is what points here since Stage 72; before that
+             * this was a management-only endpoint with no control behind it, left over from the card menu
+             * Stage 35 took out. It stays the only door: [TaskService.deleteAssigned] refuses a caller who is
+             * not management whatever the markup offered, and the popup prints the button on the same flag.
+             *
+             * Success and a refusal both land on the board the form names, and there is no popup to bring back
+             * up — the card it would open on is the thing that has just gone. The board is named by `back` alone,
+             * and on the backlog that token carries the bucket filter (Stage 93).
              */
             post("/app/assigned-tasks/delete") {
                 val session = call.requireSession() ?: return@post
@@ -1036,7 +1424,9 @@ fun main() {
                 if (id != null && Authorization.canManage(session.employeeNumber)) {
                     TaskService.deleteAssigned(id, session.employeeNumber, true)
                 }
-                call.respondRedirect(taskRedirect(backOf(form), projectIdOf(form)))
+                call.respondRedirect(
+                    taskRedirect(backOf(form), projectIdOf(form)),
+                )
             }
             /**
              * The bell's only link: mark the row read on the way through to whatever it points at.
@@ -1116,31 +1506,168 @@ fun main() {
             }
             /**
              * Take one lane off this project's board (V7, Stage 31) — the route the **×** on a column head used
-             * to post to, and since Stage 35 the only way a lane comes off, because that × is gone.
+             * to post to, which Stage 35 took off the board and **Stage 74** put back as the `Remove bucket`
+             * button in a column's `⋯` popup, on the one board that prints those columns: a project with no cards.
              *
              * The twin of the route above, and by design: one field (`bucket`, the lane's own id), the whole
-             * rule inside [TaskService.removeLane], and the same `?lane=` back to the board the reader is
-             * standing on — a code nothing on that board any longer turns into a sentence, its box having gone
-             * before this control did. The project
-             * comes from the URL and the lane from the form, and the service is what checks the two belong to
-             * each other — which is why a POST naming another project's lane removes nothing.
+             * rule inside [TaskService.removeLane], and the outcome back to the board the reader is standing on.
+             * The project comes from the URL and the lane from the form, and the service is what checks the two
+             * belong to each other — which is why a POST naming another project's lane removes nothing. Without the
+             * popup's `src` mark this is still Stage 31's round trip, `?lane=` carrying a code nothing on the page
+             * any longer turns into a sentence; with it, the answer is the board's own.
+             *
+             * **Since Stage 81 the answer also names the work.** A column that holds cards is removed all the same,
+             * and what it held goes to this project's Archive rather than being refused a move it has no way to
+             * make — the count the popup prints is the consequence, not a gate — so the sentence has to say where
+             * the cards are as well as that the column is gone.
              */
             post("/app/projects/{id}/buckets/delete") {
                 val session = call.requireSession() ?: return@post
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@post call.respondRedirect("/app/projects")
-                val lane = call.receiveParameters()["bucket"]?.trim()?.toIntOrNull() ?: 0
-                val error = TaskService.removeLane(
+                val fields = call.receiveParameters()
+                val lane = fields["bucket"]?.trim()?.toIntOrNull() ?: 0
+                val canManage = Authorization.canManage(session.employeeNumber)
+                val fromBoard = fields["src"] == "board"
+                // **Stage 81: an occupied column comes off, and its work goes to Archive.** Until now this route
+                // re-read the count and refused the press when a card had arrived since the page was drawn
+                // (Stage 74's stale-page guard, kept through Stage 75 and the retirement of `LaneError.HAS_CARDS`),
+                // because the schema's `ON DELETE SET NULL` would have left those cards filed under nothing. The
+                // service now archives them itself, in the same transaction order that makes the snapshot stick
+                // ([mn.murray.pts.service.TaskService.removeLane] writes the rows before it deletes the lane), so
+                // there is nothing left for the route to protect the reader from and no count worth re-asking.
+                val removal = TaskService.removeLane(
                     id,
                     lane,
                     session.employeeNumber,
-                    Authorization.canManage(session.employeeNumber),
+                    canManage,
                 )
-                if (error == LaneError.DENIED || error == LaneError.NO_PROJECT) {
+                if (removal.error == LaneError.DENIED || removal.error == LaneError.NO_PROJECT) {
                     return@post call.respondRedirect("/app/projects")
                 }
+                // Since **Stage 74** the popup on a column's `⋯` posts here again, and it says so with the same
+                // `src` field the add box carries. From there the answer is the board's: one column shorter, or the
+                // reason printed over the columns with the popup shut — shut, because a removal has no field of its
+                // own to put a sentence under, and this popup's fields are about the column's *name*. Without `src`
+                // the older round trip stands exactly as it was, code in `?lane=` and nothing on the page reading it.
+                if (fromBoard) {
+                    val note = when {
+                        !removal.ok -> laneRemovalNote(removal.error ?: LaneError.NO_LANE)
+                        removal.archived > 0 -> {
+                            "That bucket is off the board, and its ${removal.archived} " +
+                                "${if (removal.archived == 1) "card" else "cards"} went to Archive."
+                        }
+                        else -> "That bucket is off the board."
+                    }
+                    call.respondRedirect(laneRedirect(id, removal.ok, note, true))
+                } else {
+                    // The older round trip: a bare id, no sentence, and the refusal's code in `?lane=` for the
+                    // bookmark that still expects Stage 31's shape.
+                    val error = removal.error
+                    call.respondRedirect(
+                        if (error == null) "/app/projects/$id" else "/app/projects/$id?lane=${error.name.lowercase()}"
+                    )
+                }
+            }
+            /**
+             * Put one archived card back on its project's board (Stage 81).
+             *
+             * The Archive panel's first button, and the whole of the promise the flag design was chosen for: the
+             * row was never moved or copied, so its steps, its log and its lesson learnt are what they were the
+             * moment it left, and this write clears the flag and names a lane. Which lane is decided inside
+             * [mn.murray.pts.service.TaskService.restoreCard] — the column the card remembers while that column is
+             * still on this project, otherwise the board's first — and the answer comes back in the sentence,
+             * because a reader who restores a card from a bucket that no longer exists should be told where it
+             * actually landed.
+             *
+             * The redirect carries `archive=1` on purpose. The reader is working down a list, and a panel that
+             * throws them out to the board on every press is a list they have to reopen each time; [app.js] swaps
+             * the panel and the board together, so the row they acted on disappears from one and reappears as a
+             * card on the other without the page moving under their hands.
+             */
+            post("/app/projects/{id}/archive/restore") {
+                val session = call.requireSession() ?: return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                    ?: return@post call.respondRedirect("/app/projects")
+                val taskId = call.receiveParameters()["taskId"]?.trim()?.toIntOrNull()
+                val canManage = Authorization.canManage(session.employeeNumber)
+                val lane = taskId?.let {
+                    TaskService.restoreCard(it, id, session.employeeNumber, canManage)
+                }
                 call.respondRedirect(
-                    if (error == null) "/app/projects/$id" else "/app/projects/$id?lane=${error.name.lowercase()}"
+                    laneRedirect(
+                        id,
+                        lane != null,
+                        if (lane != null) "That card is back on the board, in $lane."
+                        else "That card is not in this project's archive.",
+                        onBoard = true,
+                        archive = true,
+                    )
+                )
+            }
+            /**
+             * Delete an archived card for good (Stage 81) — the last permanent delete a project card has.
+             *
+             * The panel's second button: a card that left the board with its bucket can be destroyed for good from
+             * here, one deliberate step later. (Stage 84 put the live card popup's **Delete task** back, so this is
+             * no longer the *only* permanent delete on a project — it is the one for cards already in the Archive.)
+             * [mn.murray.pts.service.TaskService.deleteArchived] refuses a card that
+             * is not archived, so a hand-built POST naming a live card deletes nothing, and the plan and the log go
+             * with the row by the same `ON DELETE CASCADE` the older delete has always relied on. The panel comes
+             * back up with one row fewer.
+             */
+            post("/app/projects/{id}/archive/delete") {
+                val session = call.requireSession() ?: return@post
+                val id = call.parameters["id"]?.toIntOrNull()
+                    ?: return@post call.respondRedirect("/app/projects")
+                val taskId = call.receiveParameters()["taskId"]?.trim()?.toIntOrNull()
+                val canManage = Authorization.canManage(session.employeeNumber)
+                val gone = taskId != null && TaskService.deleteArchived(
+                    taskId, id, session.employeeNumber, canManage,
+                )
+                call.respondRedirect(
+                    laneRedirect(
+                        id,
+                        gone,
+                        if (gone) "That card is gone, with its steps and its notes."
+                        else "That card is not in this project's archive.",
+                        onBoard = true,
+                        archive = true,
+                    )
+                )
+            }
+            /**
+             * Take one card off its project's board and into that project's Archive (Stage 81).
+             *
+             * **No page prints a control for this since Stage 84.** Stage 81 put an **Archive task** button on a
+             * project card's popup in place of **Delete task**; Stage 84 removed that button at the user's request
+             * and restored the delete, so the route is left with no caller. The Archive itself is still written —
+             * removing a bucket archives the cards standing in it (`TaskService.archiveLane`, Stage 81), and the
+             * header's 🗄 restores or destroys them — which is why the route and its service are kept rather than
+             * torn out: they are the card-level half of a mechanism that is now driven by the bucket. The right is
+             * the board's ([mn.murray.pts.service.TaskService.mayEditLanes]: management or this project's manager).
+             *
+             * Like the delete, this posts no `edit`: there is no card to be open on afterwards. The redirect is the
+             * project page with its sentence over the board, and the Archive shut — the note tells the reader where
+             * the card went, and the 🗄 is the way to it.
+             */
+            post("/app/tasks/archive") {
+                val session = call.requireSession() ?: return@post
+                val form = call.receiveParameters()
+                val id = form["taskId"]?.trim()?.toIntOrNull()
+                val projectId = projectIdOf(form)
+                val canManage = Authorization.canManage(session.employeeNumber)
+                val archived = id != null && TaskService.archiveCard(id, session.employeeNumber, canManage)
+                call.respondRedirect(
+                    if (archived && projectId > 0) {
+                        laneRedirect(
+                            projectId, true,
+                            "That card is in the Archive — bring it back from the panel behind the 🗄.",
+                            onBoard = true,
+                        )
+                    } else {
+                        taskRedirect(backOf(form), projectId)
+                    }
                 )
             }
             /**
@@ -1181,7 +1708,8 @@ fun main() {
              *
              * *Whether* a caller may do any of it is decided in [TaskService] rather than here, so the
              * rule reads the same from the board, from a project page, or from a hand-built request:
-             * management writes the list, and management or the assignee works down it.
+             * management and the card's own assignee write the list and work down it (the assignee's
+             * right to add a step is Stage 89's), and taking one off stays management's.
              *
              * A form inside the editor popup carries `edit=<card>`, so its redirect lands on the page with
              * the same popup open on the same card — otherwise the block [app.js] asked for would not be in
@@ -1198,7 +1726,7 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 call.respondRedirect(
-                    taskRedirect(backOf(form), projectIdOf(form), editOf(form), showAllBuckets = showAllOf(form)),
+                    taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             post("/app/tasks/checklist/toggle") {
@@ -1211,7 +1739,7 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 call.respondRedirect(
-                    taskRedirect(backOf(form), projectIdOf(form), editOf(form), showAllBuckets = showAllOf(form)),
+                    taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             post("/app/tasks/checklist/remove") {
@@ -1224,7 +1752,7 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 call.respondRedirect(
-                    taskRedirect(backOf(form), projectIdOf(form), editOf(form), showAllBuckets = showAllOf(form)),
+                    taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             /**
@@ -1247,7 +1775,7 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 call.respondRedirect(
-                    taskRedirect(backOf(form), projectIdOf(form), editOf(form), showAllBuckets = showAllOf(form)),
+                    taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             post("/app/tasks/notes/remove") {
@@ -1260,7 +1788,7 @@ fun main() {
                     canManage = Authorization.canManage(session.employeeNumber),
                 )
                 call.respondRedirect(
-                    taskRedirect(backOf(form), projectIdOf(form), editOf(form), showAllBuckets = showAllOf(form)),
+                    taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             // There is no `POST /app/other-tasks` any more (Stage 42). The backlog's `+ Add task` line used to
@@ -1278,7 +1806,7 @@ fun main() {
                 if (!canManage) return@post call.respondRedirect("/app/other-tasks")
                 val form = call.receiveParameters()
                 val name = form["name"]?.trim().orEmpty()
-                val showAll = form["allbuckets"]?.trim() == "1"
+                val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
                 // [TaskService.addBucket] answers with the rule that stopped the name, so the two a reader can
                 // reach by typing — nothing at all, and a name the board already carries — are told apart in
                 // the popup rather than landing on the same silent board.
@@ -1291,13 +1819,19 @@ fun main() {
                     // return, every one is a word about the field the reader is looking at.
                     return@post call.respondOtherTasks(
                         session, canManage, bucket = BucketForm(typed = name, nameError = bucketMessage(error)),
-                        showAll = showAll,
+                        showBucketId = showBucketId,
                     )
                 }
-                // Landed, or aimed at a column this page cannot show a popup for. A new bucket is drawn with
-                // the whole board up: it holds nothing, and the default view prints only the columns that do,
-                // so the column the reader just added would otherwise vanish as they pressed the box.
-                call.respondRedirect(bucketsBack(showAll, forceAll = true))
+                // Landed. The answer names the column that was just made, because a new bucket holds nothing and
+                // the board prints only the buckets that do: unfiltered, the thing the reader added would vanish as
+                // they pressed the box. **Stage 40** forced the wide view for exactly this moment; since **Stage 97**
+                // the create lands on the newcomer's own filter instead — the same end, one view control, and the
+                // picker already lists every column, so *All buckets* is one choice away.
+                // [TaskService.addBucket] returns the rule that stopped the name and no id, so the row is read back
+                // by it: names are unique case-insensitively, so this is the one column just inserted.
+                val createdId = TaskService.bucketRows()
+                    .firstOrNull { it.name.equals(name, ignoreCase = true) }?.id ?: 0
+                call.respondRedirect(bucketsBack(createdId))
             }
             /**
              * Rename one backlog column. `app.js` swaps the board and this popup from whichever answer comes
@@ -1310,7 +1844,7 @@ fun main() {
                 val bucketId = call.parameters["id"]?.toIntOrNull() ?: 0
                 val form = call.receiveParameters()
                 val name = form["name"]?.trim().orEmpty()
-                val showAll = form["allbuckets"]?.trim() == "1"
+                val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
                 val error = TaskService.renameBucket(bucketId, name, session.employeeNumber, canManage)
                 // The two answers with nothing to say them: this reader may not be renaming a column at all,
                 // or the column they aimed at is not on the board. Neither has a field on this page to print
@@ -1324,10 +1858,10 @@ fun main() {
                         session,
                         canManage,
                         bucket = BucketForm(typed = name, nameError = bucketMessage(error), bucketId = bucketId),
-                        showAll = showAll,
+                        showBucketId = showBucketId,
                     )
                 }
-                call.respondRedirect(bucketsBack(showAll))
+                call.respondRedirect(bucketsBack(showBucketId))
             }
             /**
              * Take one backlog column off the board, handing its cards to another first.
@@ -1342,7 +1876,7 @@ fun main() {
                 val canManage = Authorization.canManage(session.employeeNumber)
                 val bucketId = call.parameters["id"]?.toIntOrNull() ?: 0
                 val form = call.receiveParameters()
-                val showAll = form["allbuckets"]?.trim() == "1"
+                val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
                 val moveTo = form["moveTo"]?.trim()?.toIntOrNull()
                 val error = TaskService.deleteBucket(bucketId, moveTo, session.employeeNumber, canManage)
                 if (error == BucketError.DENIED || error == BucketError.NO_BUCKET) {
@@ -1353,10 +1887,12 @@ fun main() {
                         session,
                         canManage,
                         bucket = BucketForm(deleteError = bucketMessage(error), bucketId = bucketId, moveId = moveTo ?: 0),
-                        showAll = showAll,
+                        showBucketId = showBucketId,
                     )
                 }
-                call.respondRedirect(bucketsBack(showAll))
+                // The board the reader was on is gone with the column, so a filter naming it is dropped rather than
+                // left pointing at an id no bucket has — same answer as a stale bookmark, but said on the way out.
+                call.respondRedirect(bucketsBack(if (showBucketId == bucketId) 0 else showBucketId))
             }
             post("/app/access-control") {
                 val session = call.requireSession() ?: return@post
@@ -1757,17 +2293,32 @@ private suspend fun ApplicationCall.respondLessons(
  * reader change it, and may they delete it", and the counts column a Viewer cannot see is a dash rather
  * than a zero.
  */
+/**
+ * Answer a *Project types* write with the Settings page and the panel's own one-line flash.
+ *
+ * The service's sentence is the whole answer — it names the letter, the label and, for a rename, how many
+ * projects moved with the label — so the three success codes print it alone and a refusal prints it under
+ * "That category cannot be saved." See [PasswordStatus.message].
+ */
+private suspend fun ApplicationCall.respondTypeAnswer(result: ProjectTypeResult, whenOk: PasswordStatus) {
+    val status = if (result.ok) whenOk else PasswordStatus.TYPE_REFUSED
+    val detail = "&caterr=${java.net.URLEncoder.encode(result.message, "UTF-8")}"
+    respondRedirect("$SETTINGS_PATH?cat=${status.name}$detail")
+}
+
 private suspend fun ApplicationCall.respondSettings(
     session: UserSession,
     filter: EmployeeFilter,
     form: EmployeeForm,
     note: PasswordStatus? = null,
-    passwordStatus: PasswordStatus? = null,
     mailStatus: PasswordStatus? = null,
     mailDetail: String? = null,
     bucketNote: PasswordStatus? = null,
     bucketDetail: String? = null,
     bucketDefaultsType: String = PROJECT_TYPES.first(),
+    typeNote: PasswordStatus? = null,
+    typeDetail: String? = null,
+    typeBeingEdited: String = "",
 ) = respondHtml {
     val canManage = Authorization.canManage(session.employeeNumber)
     val canAdmin = Authorization.canAdmin(session.employeeNumber)
@@ -1780,12 +2331,14 @@ private suspend fun ApplicationCall.respondSettings(
             canManage = canManage,
             canAdmin = canAdmin,
             note = note,
-            passwordStatus = passwordStatus,
             mailStatus = mailStatus,
             mailDetail = mailDetail,
             bucketNote = bucketNote,
             bucketDetail = bucketDetail,
             bucketDefaultsType = bucketDefaultsType,
+            typeNote = typeNote,
+            typeDetail = typeDetail,
+            typeBeingEdited = typeBeingEdited,
         )
     }
 }
@@ -1823,6 +2376,19 @@ private fun io.ktor.server.routing.Route.sectionRoute(
     }
 }
 
+/**
+ * The month plan, on every route that answers with it.
+ *
+ * [month] is the `YYYY-MM` the address asked for, already resolved at the route; it is a renderer argument
+ * rather than something the view reads off the request so that [calendarContent] can be drawn, tested and
+ * swapped on a month without a browser being involved at all. `sectionRoute` cannot carry this page any more
+ * for the same reason the forecast sheet left it behind: the lambda it hands the view is a `DIV.(UserSession)`
+ * one, and it never sees the query the reader arrived with.
+ */
+private suspend fun ApplicationCall.respondCalendar(session: UserSession, month: String) = respondHtml {
+    appPage(session, "calendar", "Calendar") { calendarContent(session, month) }
+}
+
 private suspend fun ApplicationCall.respondLogin(error: String?) =
     respondHtml(if (error == null) HttpStatusCode.OK else HttpStatusCode.Unauthorized) {
         loginPage(error)
@@ -1831,34 +2397,25 @@ private suspend fun ApplicationCall.respondLogin(error: String?) =
 fun ApplicationCall.currentSession(): UserSession? =
     request.cookies[SESSION_COOKIE]
         ?.let { AuthService.resolve(it) }
-        ?.let { UserSession(it.employeeNumber, AuthService.mustChangePassword(it.employeeNumber)) }
+        ?.let { UserSession(it.employeeNumber) }
 
 /**
  * The guard every authenticated route calls, in place of [currentSession].
  *
  * It answers the call itself and returns null so the handler can `?: return@get`:
- *  - no session            -> back to the login page;
- *  - must change password  -> to Settings, where the password form is the only thing that
- *    clears the flag. Settings and its password POST are allowlisted, so the user can always
- *    complete the change; /logout stays reachable because it is not gated through here at all.
+ *  - no session -> back to the login page.
  *
- * The redirect target is a page, not an action: a `mustChangePassword` user who bookmarks
- * /app/team simply lands on Settings. That is deliberate — hiding the app behind one form is
- * safer than letting a default-password account read and write real data.
+ * Stage 99 retired the second arm it used to have ("must change password -> to Settings, where
+ * the password form is the only thing that clears the flag"). The box and the flag's enforcement
+ * went together: a password is now set from the Team sheet, and a reader whose password is still
+ * the number the system gave them reaches every page like anybody else.
  */
 private suspend fun ApplicationCall.requireSession(): UserSession? {
     val session = currentSession() ?: run {
         respondRedirect("/")
         return null
     }
-    if (session.mustChangePassword && request.path() !in MUST_CHANGE_ALLOWLIST) {
-        respondRedirect(SETTINGS_PATH)
-        return null
-    }
     return session
 }
 
 private const val SETTINGS_PATH = "/app/settings"
-
-/** Paths a `mustChangePassword` account may still use: the Settings page and its password form. */
-private val MUST_CHANGE_ALLOWLIST = setOf(SETTINGS_PATH, "$SETTINGS_PATH/password")

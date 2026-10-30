@@ -9,7 +9,9 @@ import kotlinx.html.FormMethod
 import kotlinx.html.InputType
 import kotlinx.html.button
 import kotlinx.html.div
+import kotlinx.html.a
 import kotlinx.html.form
+import kotlinx.html.FlowContent
 import kotlinx.html.h3
 import kotlinx.html.id
 import kotlinx.html.input
@@ -39,6 +41,13 @@ import mn.murray.pts.service.TaskService
  * their own time on it — start, due, priority — and reads the rest greyed. [task] is the card
  * being edited, and it is what the popup's steps and notes sections are printed from.
  *
+ * **Since Stage 86 the popup also opens for readers who may write nothing on the card.** The card's board is
+ * shared (a project's is the whole team's, Stage 56), and the user asked that a non-manager be able to click one
+ * and *see* it, not change it — so the popup has a third state beside management's and the assignee's:
+ * [viewOnly], where every field is greyed, the plan is drawn stopped, the log has no box under it and there is no
+ * save button. The rights below are what tell the three apart; the service refuses the stranger's write whatever
+ * this says.
+ *
  * [canCreate] is a second, narrower right and it applies to a **create** only: the account a project
  * names as its manager is not management, so [canEditAll] is false for them, yet the card they are about
  * to write needs a title, an assignee and a column. It never widens an edit — an existing card keeps
@@ -57,9 +66,10 @@ data class TaskForm(
     val task: TaskItem? = null,
     /**
      * The lanes of the project this popup was opened from (V7), empty for the general board and for the Other
-     * tasks board. On a project page they are that project's own list — the six sub-categories plus whatever its
-     * manager has added — so the picker can offer them in the board's order; on any other page the picker falls
-     * back to [DEFAULT_PROJECT_BUCKETS], which is the same six on every board (Stage 48).
+     * tasks board. On a project page they are that project's own list — since Stage 100 the buckets Settings
+     * listed for its category when it was created, plus whatever its manager has added since — so the picker
+     * can offer them in the board's order; on any other page the picker falls back to
+     * [DEFAULT_PROJECT_BUCKETS], the legacy trio those boards were filed under.
      */
     val lanes: List<ProjectBucket> = emptyList(),
     /**
@@ -87,6 +97,36 @@ data class TaskForm(
 
     /** Whether this popup's fields are writable: management always, a create by a project's manager too. */
     val mayWriteCard: Boolean = canEditAll || (!isEdit && canCreate)
+
+    /**
+     * Whether the reader is the person this card is assigned to.
+     *
+     * [viewerEmpNo] is set from the session, never from a field, so this is a fact about the reader rather than
+     * something a post can claim. It is the one non-management right over a card: the work itself — the reader's
+     * own day on it, its steps and its log.
+     */
+    val ownsCard: Boolean = task != null && task.assignee.isNotBlank() && task.assignee == viewerEmpNo
+
+    /**
+     * Whether the three fields that describe the reader's own day on a card — **start date, due date, priority** —
+     * may be written. Management fills them, so does a project's manager on a create; on an edit they belong to
+     * management and to the card's own assignee
+     * ([mn.murray.pts.service.TaskService.updateAssigned]'s narrower half).
+     *
+     * **Stage 86** is why this exists apart from [mayWriteCard]: since then anybody may open any card on a board
+     * they can see, so a popup can be on screen for a reader who may write *nothing* in it. That reader is
+     * [viewOnly], the fields above are greyed and there is no save button; the assignee's popup is the one the
+     * widen did not touch.
+     */
+    val mayBookTime: Boolean = mayWriteCard || ownsCard
+
+    /**
+     * A card on screen that is neither management's nor the reader's own: every field is greyed and the popup
+     * offers no save — the plan and the log are there to be read. It is the state the user asked for in Stage 86
+     * — *a non-manager can click a card and see it, not change it* — and the answer to "is this popup a form or a
+     * view", which is the one thing the modal branches on below.
+     */
+    val viewOnly: Boolean = isEdit && !mayBookTime
 
     /**
      * Whether this is a card of the Other tasks board — a backlog card belongs to a column of that board and
@@ -123,10 +163,12 @@ data class TaskForm(
     /**
      * The sub-categories this form's Lane picker lists (Stage 48).
      *
-     * On a project page, that project's own lanes, in the order its board prints them: the six every project is
-     * created with, then whatever its manager added. Anywhere else, the six — the same names on every board,
-     * which is the whole reason the general board's popup can ask the question at all without knowing a
-     * project's lane ids. Posted by name for the same reason.
+     * On a project page, that project's own lanes, in the order its board prints them: since Stage 100 whatever
+     * Settings listed for its category when it was created, then whatever its manager added. Anywhere else, the
+     * legacy [DEFAULT_PROJECT_BUCKETS] trio — the names those boards were filed under, which is why the general
+     * board's popup can ask the question at all without knowing a project's lane ids. Posted by name for the
+     * same reason, and resolved against the project the card lands on, so a board that has retitled or removed
+     * one of those names simply stops accepting it (Stage 75).
      */
     val laneChoices: List<String> get() =
         (if (lanes.isNotEmpty()) lanes.map { it.name } else DEFAULT_PROJECT_BUCKETS).distinct()
@@ -175,11 +217,27 @@ data class TaskForm(
      * own rule read as presentation: management works any card, and the person a card is assigned to works
      * their own. An unassigned backlog card belongs to nobody, so only management is offered the box on it.
      *
-     * Adding a step or taking one off is **not** in here: that stays [canEditAll], the same line the service
-     * draws in `addChecklistItem` and `removeChecklistItem`.
+     * Taking a step off is **not** in here: that stays [canEditAll] ([mayAddStep] says which half of the plan
+     * writing moved). A reader who may only read the card — [viewOnly] — still sees the plan, drawn stopped
+     * ([stepRowLocked]), because a plan is part of what the card is.
      */
-    val mayTick: Boolean = canEditAll ||
-        (task != null && task.assignee.isNotBlank() && task.assignee == viewerEmpNo)
+    val mayTick: Boolean = canEditAll || ownsCard
+
+    /**
+     * Whether this popup may offer a *New step…* line — [mn.murray.pts.service.TaskService.addChecklistItem]'s
+     * rule read as presentation. It is [mayTick]'s line: management plans any card, and **since Stage 89** the
+     * person the card is assigned to plans their own. Taking a step off stays [canEditAll]'s, so an owner's row
+     * carries no × beside the box they may work — knowing the work lets them add to the plan, but striking a
+     * line off it is management's decision about the plan.
+     */
+    val mayAddStep: Boolean = canEditAll || ownsCard
+
+    /**
+     * Whether this popup may carry the *Add note* box — [mn.murray.pts.service.TaskService.addNote]'s rule, which
+     * is [mayTick]'s: management writes on any card, and so does the person doing the work. Taking an entry off
+     * stays [canEditAll]'s. Everybody else reads the log without a box under it (Stage 86).
+     */
+    val mayNote: Boolean = mayTick
 
     /** A new card whose project is decided by the page it was opened from rather than by the picker. */
     val projectPinned: Boolean = !canEditAll && !isEdit && canCreate
@@ -245,28 +303,70 @@ private fun DIV.laneAddTaskForm(projectId: Int, lane: ProjectBucket) {
  * to that card, and the reader is looking at the card's own form when they press the button. With no id
  * — or after a save, which closes the popup — this is the plain page.
  *
- * [showAllBuckets] carries the backlog's own view (Stage 40) across the same trip. `?allbuckets` is only a
- * view, and only on the board that has columns, so it travels in the popup's hidden field exactly the way
- * `back` does: a card saved from the wide backlog must not land the reader back on the narrow one, with the
- * columns they were looking at hidden under their hands. Since Stage 47 that board is its own page, so the
- * flag belongs to [BACK_OTHER] alone — the assigned page has no columns to hide or show.
+ * *(**Stage 40** added a fourth thing here — `showAllBuckets`, which carried the backlog's wide view across
+ * the same trip so a card saved from it did not land the reader on the narrow board. **Stage 97** deleted it
+ * with the wide view: the board's Bucket picker is the only view control left, and its filter already rides
+ * this token in `show`.)*
  */
-fun taskRedirect(back: String, projectId: Int, edit: Int = 0, showAllBuckets: Boolean = false): String {
+fun taskRedirect(back: String, projectId: Int, edit: Int = 0): String {
     val page = when {
         back == BACK_PROJECT && projectId > 0 -> "/app/projects/$projectId"
-        back == BACK_OTHER -> "/app/other-tasks"
+        isOtherBack(back) -> "/app/other-tasks"
         else -> "/app/assigned-tasks"
     }
+    // The Assigned page's Other-tasks bucket filter (Stage 88) rides the same token `back` does, so opening a
+    // card, saving it, adding a step, writing a note or answering a refusal all land the reader on the board
+    // they were reading rather than on the unfiltered one. Only that page has the filter; a project page and
+    // the shared backlog are never sent a `bucket`.
+    val bucket = if (back.startsWith("$BACK_ASSIGNED:")) bucketOfBack(back) else 0
+    // Since Stage 93 the shared backlog's own Bucket picker rides the same token in `show` — the key its filter
+    // form posts, because `?bucket=` on that URL already names a column's popup.
+    val picked = bucketOfOtherBack(back)
     val query = listOfNotNull(
         if (edit > 0) "edit=$edit" else null,
-        // The backlog's view belongs to the backlog's page alone.
-        if (showAllBuckets && back == BACK_OTHER) "allbuckets=1" else null,
+        if (bucket > 0) "bucket=$bucket" else null,
+        if (picked > 0) "show=$picked" else null,
     ).joinToString("&")
     return if (query.isEmpty()) page else "$page?$query"
 }
 
 const val BACK_ASSIGNED = "assigned"
 const val BACK_PROJECT = "project"
+
+/**
+ * The `back` token for the Assigned page, carrying which Other-tasks bucket its reader was filtering by
+ * (**Stage 88**): plain `assigned` when they are reading every bucket, `assigned:<bucket id>` when one is
+ * chosen.
+ *
+ * The filter is a page view, not a stored setting — the URL is the state — so it has to survive every trip a
+ * card makes out of that page: the popup opener, the save, a step tick, a note, a delete and a refusal all post
+ * `back` and are answered through [taskRedirect], which reads the id back out of the token. Anything that
+ * cannot be read as a bucket id is the unfiltered page, never an error.
+ */
+fun backForBucket(bucketId: Int): String = if (bucketId > 0) "$BACK_ASSIGNED:$bucketId" else BACK_ASSIGNED
+
+/** Which Other-tasks bucket a [backForBucket] token names; 0 for `assigned` and for anything unrecognised. */
+fun bucketOfBack(back: String): Int =
+    if (back.startsWith("$BACK_ASSIGNED:")) back.removePrefix("$BACK_ASSIGNED:").trim().toIntOrNull() ?: 0 else 0
+
+/**
+ * The `back` token for the **shared** Other-tasks board, carrying the bucket its own picker is showing
+ * (**Stage 93**): plain `other` when every bucket is on the board, `other:<bucket id>` when one is chosen.
+ *
+ * It is [backForBucket]'s twin on the other page, and for the same reason: the filter is the URL's, not a stored
+ * setting, so a card opened, saved, stepped, noted, deleted or refused from a narrowed board has to come back to
+ * that board. [bucketOfOtherBack] reads the id back out; anything that is not a number is the full board, never
+ * an error. The Assigned page keeps its own `assigned:<id>` token — the two pages may filter by a bucket at the
+ * same time, and one token cannot name two boards.
+ */
+fun backForOtherBucket(bucketId: Int): String = if (bucketId > 0) "$BACK_OTHER:$bucketId" else BACK_OTHER
+
+/** Which bucket a [backForOtherBucket] token names; 0 for plain `other` and for anything unrecognised. */
+fun bucketOfOtherBack(back: String): Int =
+    if (back.startsWith("$BACK_OTHER:")) back.removePrefix("$BACK_OTHER:").trim().toIntOrNull() ?: 0 else 0
+
+/** Whether a `back` token names the shared Other-tasks board, filtered or not (Stage 93). */
+fun isOtherBack(back: String): Boolean = back == BACK_OTHER || back.startsWith("$BACK_OTHER:")
 
 /**
  * The Other tasks board (Stage 47). Its cards are the same shape as an assigned card's and are written, edited
@@ -308,8 +408,8 @@ fun taskDraftOf(form: Parameters): TaskDraft = TaskDraft(
     status = form["status"].orEmpty().trim().ifBlank { "Not started" },
     // Absent is not blank: the Lane picker is greyed for the one reader who may not refile a card, and a
     // disabled select posts nothing at all, so the card it updates keeps the lane it was in (V7). Since
-    // Stage 48 the field is the lane's **name**, which is what lets the general board's popup offer the six
-    // sub-categories without knowing this project's lane ids.
+    // Stage 48 the field is the lane's **name**, which is what lets the general board's popup offer the three
+    // every board opens with without knowing this project's lane ids.
     projectLane = form["lane"]?.trim(),
     // The same for the backlog's column (Stage 42): only a backlog popup renders that picker, so a POST from
     // either project board carries no `column` at all and the card is not being filed anywhere.
@@ -318,13 +418,23 @@ fun taskDraftOf(form: Parameters): TaskDraft = TaskDraft(
     board = boardOf(form),
 )
 
-/** Which page a posted card action came from; anything unrecognised is the general board. */
-fun backOf(form: Parameters): String =
-    when (form["back"].orEmpty().trim()) {
-        BACK_PROJECT -> BACK_PROJECT
-        BACK_OTHER -> BACK_OTHER
-        else -> BACK_ASSIGNED
+/**
+ * Which page a posted card action came from; anything unrecognised is the general board.
+ *
+ * The general board's answer is normalised through [backForBucket], so a token that carries a bucket filter
+ * (`assigned:3`, Stage 88) survives the round trip while a hand-built or unrecognised one lands on the
+ * unfiltered board rather than being echoed back. The shared backlog's `other:<id>` (Stage 93) is normalised the
+ * same way through [backForOtherBucket].
+ */
+fun backOf(form: Parameters): String {
+    val raw = form["back"].orEmpty().trim()
+    return when {
+        raw == BACK_PROJECT -> BACK_PROJECT
+        raw == BACK_OTHER -> BACK_OTHER
+        raw.startsWith("$BACK_OTHER:") -> backForOtherBucket(bucketOfOtherBack(raw))
+        else -> backForBucket(bucketOfBack(raw))
     }
+}
 
 /** The project page to go back to, server-rendered into the form rather than typed by anyone. */
 fun projectIdOf(form: Parameters): Int =
@@ -338,23 +448,34 @@ fun projectIdOf(form: Parameters): Int =
 fun editOf(form: Parameters): Int = form["edit"].orEmpty().trim().toIntOrNull() ?: 0
 
 /**
- * Whether the card form was posted from the backlog on its wide view (Stage 40): the popup's own hidden
- * `allbuckets`, server-rendered from the page it is on. Absent is false, so a project page, an old bookmark
- * and a hand-built POST all answer narrow rather than being told anything about a board they are not on.
+ * Which of a project board's columns are showing their completed cards (Stage 80).
+ *
+ * A column's `▸ Completed N` line is a GET form onto the project page, so the open set **is** the URL: one
+ * repeated `showdone=<lane id>` for every column the reader has opened, which is how one button can fold one
+ * column up without folding the others down. The whole set is resent with each press for the same reason the
+ * bucket popup carries the board's other lanes as hidden fields — a form only knows what it posts. A value that
+ * is not a number is dropped rather than guessed at, and no key at all means nothing is open, which is the
+ * board's shape before anybody presses the line and what a bookmarked or hand-built link gets.
  */
-fun showAllOf(form: Parameters): Boolean = form["allbuckets"].orEmpty().trim() == "1"
+fun openDoneLanesOf(params: Parameters): Set<Int> =
+    params.getAll("showdone").orEmpty().mapNotNull { it.trim().toIntOrNull() }.toSet()
 
 /**
  * The task board.
  *
  * Two ways to cut it, and one list of cards. On the **Assigned tasks** page [lanes] is empty, so the board is
  * the five status columns it has always been — that reader is asking "what is on me now" across every project,
- * and Not started → Completed is the answer. On a **project's** page the caller passes that project's lanes
- * (V7: the six sub-categories every project is created with, plus whatever its manager adds), and the same cards
- * are grouped by which phase of the project they belong to instead. A card has both at once — `status` and
- * `project_bucket_id` are separate columns — so no data moves when the board changes shape, and a lane board
- * prints no status word anywhere: the column a card sits in on that page says where the work is, not how far
- * it has got.
+ * and Not started → Completed is the answer. When the caller passes a project's lanes (V7: the three every
+ * project is created with, plus whatever its manager adds), the same cards are grouped by which phase of
+ * the project they belong to instead. A card has both at once — `status` and `project_bucket_id` are separate
+ * columns — so no data moves when the board changes shape, and a lane board prints no status word anywhere: the
+ * column a card sits in on that page says where the work is, not how far it has got.
+ *
+ * Which of the two a **project's** page asks for stopped being the card list's decision at **Stage 75**: the
+ * page passes its buckets and gets buckets, populated or not. The user's word for the project page was *the
+ * bucket structure is shown all in kanban*, and the two shapes do not disagree about anything — a card's stage
+ * is on the card, and moves through its Done button and popup rather than through a column — so the columns can
+ * answer the one question this page asks, which is what the work is filed under, all the time.
  *
  * A project with no lanes at all falls back to the status board, because a board with zero columns is worse
  * than a familiar one.
@@ -382,9 +503,13 @@ fun showAllOf(form: Parameters): Boolean = form["allbuckets"].orEmpty().trim() =
  * prints the reader's own project cards and their own Other-task cards as two status boards under a single card
  * popup — draws it on exactly one of them. Every other caller leaves it true and gets the opener as before.
  *
- * Nothing on either board names or removes a lane (Stage 35). A project's columns are the six sub-categories
- * every project carries (Stage 48) plus any its manager has added, and the popup's Lane field and a drag are
- * the only ways a card moves between them — see [laneKanban], which prints no lane control at all.
+ * Nothing on either board names or removes a lane (Stage 35) — with one exception, since **Stage 74** and for
+ * every project board now that Stage 75 made the lane board the project board: a column the reader may retitle or
+ * take off carries a `⋯`, and one more bucket is offered as a dashed box at the end of the run. Both hang on
+ * [canManageLanes], which is the picker's own right passed through (see
+ * [mn.murray.pts.service.TaskService.mayEditLanes]), and both are drawn whether or not the columns hold cards.
+ * What the board *always* offers, populated or not, is where the work goes: the popup's Lane field and a drag are
+ * the only ways a card moves between columns.
  */
 fun DIV.taskKanban(
     tasks: List<TaskItem>,
@@ -397,12 +522,18 @@ fun DIV.taskKanban(
     lanes: List<ProjectBucket> = emptyList(),
     canMoveCards: Boolean = false,
     drawOpener: Boolean = true,
+    canManageLanes: Boolean = false,
+    doneOpen: Set<Int> = emptySet(),
 ) {
     val laneBoard = lanes.isNotEmpty()
     if (laneBoard) {
-        laneKanban(tasks, session, canManage, back, projectId, lanes, canAdd, canMoveCards)
+        laneKanban(tasks, session, canManage, back, projectId, lanes, canAdd, canMoveCards, canManageLanes, doneOpen)
     } else statusKanban(tasks, session, canManage, back, projectId)
-    if (tasks.isEmpty() && canAdd) {
+    // The empty-board invitation is drawn only where there is no board to invite anybody into. On a project that
+    // has no cards yet, the bucket columns *are* the invitation — each one carries its own `+ Add task` line —
+    // so a "No tasks on this project yet." panel and a `+ New task` button stacked under them would be a second
+    // answer to the question the columns already answer (Stage 74).
+    if (tasks.isEmpty() && canAdd && lanes.isEmpty()) {
         div("board-empty") {
             p("board-empty-line") {
                 +(if (fixedProject == null) "Nothing has been assigned yet." else "No tasks on this project yet.")
@@ -418,13 +549,14 @@ fun DIV.taskKanban(
     }
     // One opener for the whole board. Which card was clicked is only known in the browser, so the card's
     // id has to be a field [task-modal.js] can fill in rather than an href written at render time. It
-    // appears only when something on this board can be clicked: an empty column set has no card to open,
-    // and a Viewer reading a project they have no work on gets nothing.
+    // appears only when something on this board can be clicked: an empty column set has no card to open. Since
+    // **Stage 86** every card on the board is a click target for every reader — the popup inside is what
+    // narrows to a read-only view — so the test is the board holding a card, not the reader owning one.
     //
     // [drawOpener] is switched off by the caller when a second board on the same page already carries the
     // page's one opener — `task-modal.js` finds it by id, so two boards must not each emit a `#taskEditOpener`
     // (Stage 55's Assigned page, which prints a project board and the reader's own Other-tasks board under it).
-    if (drawOpener && (canManage || tasks.any { it.assignee == session.employeeNumber })) {
+    if (drawOpener && tasks.isNotEmpty()) {
         taskEditOpener(back, projectId)
     }
 }
@@ -481,16 +613,23 @@ private fun DIV.statusKanban(
  * same repaint as the card arriving, with nothing in the script to keep it in step — which is the whole reason
  * the line is not written conditionally here the way the status board still writes it. Unsorted
  * needs no line: it is only drawn while it has a card in it, and [kanban.js] takes the column away when the
- * last one leaves.
+ * last one leaves. Since **Stage 80** a lane whose work is partly finished also prints that part as its own block
+ * just before the line, and app.css hides the line for that too (`.kcol-done + .kcol-empty`) — a column holding
+ * only completed cards is not a column with nothing in it.
  *
- * A lane head prints its name and its count and nothing else (Stage 35). There is no box under these columns
- * that names another lane and no **×** on a head that takes one off, for any reader including management: a
- * project's board is the six sub-categories it was created with, and `POST /app/projects/{id}/buckets` and its
- * `delete` twin stay in the routes as management-only endpoints with no control pointing at them. What the
- * board *does* offer is where the work goes: [canAdd] — the same reader whose page head carries `+ New task` —
- * gets a `+ Add task` line at the foot of every **lane**, which is that same opener aimed at the column
- * (`into=<lane id>`, see [laneAddTaskForm]). Unsorted is left without one on purpose: it is where unplaced
- * cards wait, not a place somebody sets out to put one.
+ * A lane head prints its colour, its name and its count (Stage 74), and — for the reader who may re-shape this
+ * board — a `⋯` that opens that one column's popup. The colour is the bucket's own dot, from the six the
+ * stylesheet defines: since **Stage 80** a column wears the hue somebody picked for it on its own popup, and one
+ * nobody picked still wears the shade of its position in the run — the same cycle the Settings catalogue prints
+ * its bucket list with, so **QAQC** is the same shade on both pages until a manager colours one board
+ * differently. There is
+ * no box under these columns that names a lane on its own and no **×** on a head that takes one off: a new bucket
+ * is asked for in the popup the dashed box at the end of the run opens, which is where a refusal has somewhere to
+ * print its reason, and the picker under the board remains the one place the whole set is ticked. Where the work
+ * goes is still the board's own offer: [canAdd] — the same reader whose page head carries `+ New task` — gets a
+ * `+ Add task` line at the foot of every **lane**, which is that same opener aimed at the column
+ * (`into=<lane id>`, see [laneAddTaskForm]). Unsorted is left without one on purpose: it is where unplaced cards
+ * wait, not a place somebody sets out to put one.
  *
  * **Dragging is [canMoveCards]'s alone** (Stage 49). The cards printed here are the same cards either way —
  * a plain account whose work is on this project sees it in the lane it is filed in — and what management and
@@ -510,18 +649,46 @@ private fun DIV.laneKanban(
     lanes: List<ProjectBucket>,
     canAdd: Boolean = false,
     canMoveCards: Boolean = false,
+    canManageLanes: Boolean = false,
+    doneOpen: Set<Int> = emptySet(),
 ) {
     val unfiled = tasks.filter { it.projectBucketId == 0 }
+    val mayWriteLanes = canManageLanes && projectId > 0
     div("kanban kanban-lanes") {
-        lanes.forEach { lane ->
+        lanes.forEachIndexed { index, lane ->
             val inCol = tasks.filter { it.projectBucketId == lane.id }
+            val finished = inCol.filter { it.status == STATUS_COMPLETED }
             div("kcol") {
                 attributes["data-lane"] = "${lane.id}"
                 div("kcol-head") {
+                    span(bucketDotClass(index, lane.colourSlot)) { }
                     span("kcol-title") { +lane.name }
                     span("kcol-count") { +"${inCol.size}" }
+                    // Every column of a board this reader may re-shape carries its menu, the three it opened with
+                    // included: since Stage 75 those are ordinary lanes, and [TaskService.renameLane] and
+                    // [removeLane] refuse them no more than they refuse a bucket somebody added — the only rule
+                    // left is that a board keeps one lane and a lane keeps its cards until they are moved. A `⋯`
+                    // whose every button answers *no* is the dead control Stage 51 made a rule about, and that is
+                    // now a *right* question, not a name question: [mayWriteLanes] is the answer to it.
+                    if (mayWriteLanes) laneMenuForm(projectId, lane.id)
                 }
-                inCol.forEach { taskCard(it, session, canManage, laneBoard = true, mayDrag = canMoveCards) }
+                inCol.filter { it.status != STATUS_COMPLETED }
+                    .forEach { taskCard(it, session, canManage, laneBoard = true, mayDrag = canMoveCards) }
+                // **Stage 80's collapse.** A column's finished cards stay on the column and stop taking the room:
+                // the live ones print first, then a `▸ Completed N` line, then the finished ones inside a block
+                // the page draws `hidden` unless this column is named by `?showdone=`. It is the board's own
+                // question rather than a script's: the toggle is a GET form onto this page carrying every column
+                // that is open *after* the click, `app.js` swaps `#projectBoard` out of the answer, and a reader
+                // with no JavaScript gets the same opened-and-closed board from the same URL. The count in the
+                // head is untouched (it has always counted every card in the column, and [kanban.js] recomputes
+                // it the same way after a drag), and a column with nothing finished in it prints no line at all.
+                if (finished.isNotEmpty()) {
+                    laneDoneToggle(projectId, lanes, lane.id, finished.size, doneOpen)
+                    div("kcol-done") {
+                        if (lane.id !in doneOpen) attributes["hidden"] = "true"
+                        finished.forEach { taskCard(it, session, canManage, laneBoard = true, mayDrag = canMoveCards) }
+                    }
+                }
                 p("kcol-empty") { +"Nothing here." }
                 if (canAdd && projectId > 0) laneAddTaskForm(projectId, lane)
             }
@@ -544,6 +711,124 @@ private fun DIV.laneKanban(
                 unfiled.forEach { taskCard(it, session, canManage, laneBoard = true, mayDrag = canMoveCards) }
             }
         }
+        // The dashed box that trails the run of columns, for the reader who may add one. It is a column's width
+        // and a column's height without being a column — no `data-lane`, so [kanban.js] never offers it as a drop
+        // target, and no cards could ever sit in it. What it opens is the popup, not a field: a name that is
+        // blank, too long, already on this board or outside the category's catalogue needs a place to say so, and
+        // the picture's own answer is an empty box that asks rather than a box that takes the typing.
+        if (mayWriteLanes) laneAddBucketForm(projectId)
+    }
+}
+
+/**
+ * The `⋯` on one lane's head (Stage 74): the opener for that column's popup.
+ *
+ * [bucketMenuForm]'s exact mechanism on the project page — a GET form onto this page carrying `laneedit=<id>`,
+ * which [app.js] answers by fetching that URL and swapping only `#projectLaneModal`, so the popup the server drew
+ * already open arrives over the board the reader is standing on. Scripts off, the same click loads the same page
+ * with the same popup up. The id travels as a field of the form rather than as an `href` written per column, and
+ * `?laneedit=` is a key of its own because `?lane=` on this URL already carries the code a management lane
+ * request was refused with, and `?into=` the lane a new card is aimed at.
+ */
+private fun DIV.laneMenuForm(projectId: Int, laneId: Int) {
+    form(action = "/app/projects/$projectId", method = FormMethod.get, classes = "kcol-menu") {
+        attributes["data-live-target"] = "#projectLaneModal"
+        input(type = InputType.hidden, name = "laneedit") { value = "$laneId" }
+        button(type = ButtonType.submit, classes = "kcol-menu-btn") {
+            attributes["aria-label"] = "Manage this bucket"
+            attributes["title"] = "Rename or remove this bucket"
+            +"⋯"
+        }
+    }
+}
+
+/**
+ * The dashed `+ Add bucket` box at the end of the board's run of columns (Stage 74).
+ *
+ * A GET form onto this page as `?laneadd=1`, opening the page's one bucket popup — the same shape the backlog's
+ * head button gives, with one difference the picture dictates: on this page the columns *are* the board, so the
+ * offer to add one sits at the end of their run rather than in the page head. It opens a form rather than being
+ * one, because the name it asks for is refused by four rules (blank, too long, already on this board, outside the
+ * category's catalogue unless the reader is management) and a box on the board has nowhere to print which of them
+ * stopped it.
+ */
+private fun DIV.laneAddBucketForm(projectId: Int) {
+    form(action = "/app/projects/$projectId", method = FormMethod.get, classes = "lane-add-box") {
+        attributes["data-live-target"] = "#projectLaneModal"
+        input(type = InputType.hidden, name = "laneadd") { value = "1" }
+        button(type = ButtonType.submit, classes = "lane-add-box-btn") { +"+ Add bucket" }
+    }
+}
+
+/**
+ * The `▸/▾ Completed N` line under a column's live cards (Stage 80).
+ *
+ * The prototype the board was copied from keeps this open-or-closed in the browser's session, which is fine for a
+ * demo and would be a second source of truth here: this page renders its columns from the request, and a card the
+ * reader cannot see is a card the page has to know about when it draws the next one. So the answer is carried in
+ * the URL as `?showdone=<lane id>`, repeated once per expanded column, and this control is a GET form that posts
+ * **the set as it will be after the click** — this column in it when it is shut, out of it when it is open, every
+ * other open column carried along. [app.js] fetches that URL and swaps `#projectBoard`, so the line the reader
+ * pressed re-renders in the state they asked for and the rest of the board does not move; without scripts the
+ * same form loads the same page and the same block comes back open.
+ *
+ * Only columns with a finished card in them reach here, so the count is never zero and a column nobody can expand
+ * prints no line to try.
+ */
+private fun DIV.laneDoneToggle(projectId: Int, lanes: List<ProjectBucket>, laneId: Int, done: Int, open: Set<Int>) {
+    val expanded = laneId in open
+    val next = if (expanded) open - laneId else open + laneId
+    form(action = "/app/projects/$projectId", method = FormMethod.get, classes = "kcol-done-toggle") {
+        attributes["data-live-target"] = "#projectBoard"
+        lanes.map { it.id }.filter { it in next }.forEach { id ->
+            input(type = InputType.hidden, name = "showdone") { value = "$id" }
+        }
+        button(type = ButtonType.submit, classes = "kdone-btn") {
+            attributes["title"] = if (expanded) {
+                "Hide the $done completed ${if (done == 1) "card" else "cards"} in this column"
+            } else {
+                "Show the $done completed ${if (done == 1) "card" else "cards"} in this column"
+            }
+            +("${if (expanded) "▾" else "▸"} Completed $done")
+        }
+    }
+}
+
+/**
+ * The six hues a bucket can be given, drawn as a row of swatches to choose one of (Stage 80).
+ *
+ * **A slot, never a colour**, and this is the whole of why the row is six boxes rather than a colour box: the
+ * hues live in app.css ([mn.murray.pts.domain.BUCKET_DOT_COLOURS] is the count Kotlin agrees with it on), so
+ * what a reader picks is *which of them* this column wears and a posted value can only ever be `0` to
+ * [BUCKET_DOT_COLOURS]. Nothing here can paint a column a colour the theme cannot carry, and a value a hand-built
+ * POST invents is read back as no answer at all by [mn.murray.pts.domain.colourSlotOf].
+ *
+ * Since **Stage 83** there is one caller: the rename half of a project board's bucket popup
+ * ([mn.murray.pts.laneManageBody]), where a reader is changing a column already in front of them. Creation no
+ * longer asks — neither the `+ Add bucket` half nor Settings' catalogue add line draws this row — because a new
+ * bucket takes the shade of its place in the run and a reader who wants another one recolours the column after
+ * it exists, from the same popup this row lives in.
+ *
+ * The radio is left **visible** rather than hidden behind its swatch, because the row is the one control on these
+ * forms whose whole meaning is the picture: hiding the input and styling the label by `:checked` would need the
+ * stylesheet to carry a state the server cannot see, and a reader tabbing through six identical-looking boxes
+ * with no focus ring on any of them has no answer to which they are on. [current] is that answer — the slot the
+ * lane already wears, or the slot a new column would wear by position — and the caller resolves it through
+ * [mn.murray.pts.domain.effectiveColourSlot] so the row agrees with the dot on the column.
+ */
+fun FlowContent.bucketColourPicker(current: Int, fieldName: String = "colour") {
+    div("colour-row") {
+        span("colour-caption") { +"Colour" }
+        BUCKET_COLOUR_NAMES.forEachIndexed { slot, hue ->
+            label("colour-opt") {
+                input(type = InputType.radio, name = fieldName) {
+                    attributes["value"] = "$slot"
+                    checked = slot == current
+                    attributes["aria-label"] = hue
+                }
+                span(bucketDotClass(slot)) { }
+            }
+        }
     }
 }
 
@@ -553,8 +838,8 @@ private fun DIV.laneKanban(
  * underneath does not move. Nothing here needs to be seen: no button, no label, hidden so it costs no
  * layout and no tab stop, and a card's id is written into its field by the click.
  *
- * It posts nothing. `edit=0` — the value it renders with, and what a board with no opener leaves the
- * route to default — names no card, and [TaskService.editableBy] answers with the plain board.
+ * It posts nothing. `edit=0` — the value it renders with, and what a board with no card on it leaves the
+ * route to default — names no card, and [TaskService.openableBy] answers with the plain board.
  */
 private fun DIV.taskEditOpener(back: String, projectId: Int) {
     form(action = taskRedirect(back, projectId), method = FormMethod.get, classes = "card-edit-opener") {
@@ -569,11 +854,14 @@ private fun DIV.taskEditOpener(back: String, projectId: Int) {
  * One task card. Two affordances, from two different rights:
  *
  * **Opens** — [data-task-card] carries the task id, which is all the opener needs to ask this page for that
- * card's editor — for a manager and for the person the card is assigned to. A card with no control inside it
- * therefore does one thing: opens.
+ * card's editor — for **every reader**, since Stage 86. A card with no control inside it therefore does one
+ * thing: opens. What it opens is as much as the reader may do with it: management and the card's own assignee
+ * get the form they always had, and anybody else gets the same popup with every field greyed, the plan and the
+ * log to read and no save (see [TaskForm.viewOnly]). The user asked for exactly this — *non-management can click
+ * a card and see the task but not modify it* — and it is the read half of the project board being shared.
  *
  * **Drags** — `draggable="true"`, the only attribute [kanban.js] looks for when it picks a drag source — for
- * whoever may move the card between this board's columns. On the status board that is still the pair who open
+ * whoever may move the card between this board's columns. On the status board that is still the pair who write
  * it, because a card's owner walking their own work from Not started to Done is the thing that page is for.
  * On a project's lane board it is [mayDrag] and nothing else (Stage 49): the lanes are the project's own
  * structure, so filing a card inside them belongs to the accounts that may write onto the project — management
@@ -581,9 +869,27 @@ private fun DIV.taskEditOpener(back: String, projectId: Int) {
  * nullable rather than defaulted to the mover rule because the caller knows which board it is: a board that
  * says nothing about `mayDrag` drags exactly as it always did.
  *
+ * **Reading a card is not dragging it.** Before Stage 86 the two shared one flag (`opens`), because the only
+ * reader who could click a card was one who could write it; the widen would have handed every colleague the
+ * drag and the arrows as a side effect, which is a write. They are separate now: clicking is every reader's,
+ * moving and walking stay `canManage || mine` or the board's own mover. (**Stage 103** took the arrows out, so
+ * what is left of "walking" on a lane board is the holder's single ✓ Done / ↺ Reopen button.)
+ *
  * Below those two affordances sits the card's one number — the percentage its own steps add up to — and
  * nothing else. The steps themselves are not on a card: a board is where work is read, and the tick boxes
  * are in the editor this card opens, beside the plan they belong to. See [modalSteps].
+ *
+ * Above them the card has two lines of its own, and which two depend on the board it sits on (**Stage 78**).
+ * On a **project's lane board** the card is its title, then its priority/due/percentage line, then a foot line
+ * carrying the stage it has reached — dot and word, the same idiom the priority beside it uses — at the left and
+ * its holder's avatar at the right, and the whole card wears that stage's tint. There is no code chip: the
+ * project's page is already one project's worth of cards, and the picture this board is built to has none. On a
+ * **status board** the card keeps its identification chip on the top line and prints no stage word, because the
+ * column it stands in *is* that word, and the avatar stays on the meta line where it has always been. Since
+ * **Stage 88** that chip names the card's **project** by its code (`S-01`) rather than the card's own `T-00012`
+ * number, because "which project is this work for" is the question a run of cards from every project at once
+ * asks; an Other-task card — which has no project — names its **bucket** instead, so the reader can see where it
+ * is filed without opening it. Only a card with neither (a legacy row) falls back to its task number.
  */
 private fun DIV.taskCard(
     task: TaskItem,
@@ -593,23 +899,62 @@ private fun DIV.taskCard(
     mayDrag: Boolean? = null,
 ) {
     val mine = task.assignee == session.employeeNumber
-    val opens = canManage || mine
-    val draggable = mayDrag ?: opens
-    // A lane board tints a card only once it is done. The other palettes would be printing a status this
-    // page has decided not to show, and a yellow card with no column to read it against is a colour nobody
-    // can decode; green-when-finished is the one that still means something without a legend.
-    div(if (laneBoard && task.isOpen) "kcard" else "kcard ${statusSlug(task.status)}") {
+    // The move affordances — the drag on a status board and the ✓ Done button under a lane board's card — belong
+    // to the pair that writes the card: management and its holder. Since Stage 86 opening is everybody's, so the
+    // window this flag no longer gates is the *reading* of it; see [TaskForm.viewOnly] for what a stranger's
+    // popup is.
+    val canMove = canManage || mine
+    val draggable = mayDrag ?: canMove
+    // Every card wears its stage's tint, on every board (**Stage 78**). A status board has done this since the
+    // slug went on the node, and its five columns made the cost obvious: a column of five cards all in progress
+    // paints the same amber five times. On a lane board that is no longer a repetition of the heading — the
+    // heading names a *phase*, and the tint is the one thing on the card that says where the work itself has
+    // got to, read from across the room before any word is. The word is printed too, on the foot line below.
+    // Since Stage 95 the backlog board's cards are in this set as well — the two boards cut cards by the same five
+    // statuses and a stage that is amber here and slate there reads as two different facts.
+    div("kcard ${statusSlug(task.status)}") {
         attributes["data-id"] = "${task.id}"
         if (draggable) attributes["draggable"] = "true"
-        if (opens) {
-            // The id is all the opener needs to ask this page for the card's editor. The tab stop and the
-            // label are so a reader who is not using a mouse reaches the same popup on the card they are
-            // standing on — a click target that cannot be focused is only half an affordance.
-            attributes["data-task-card"] = "${task.id}"
-            attributes["tabindex"] = "0"
-            attributes["aria-label"] = "Open ${task.title}"
+        // The id is all the opener needs to ask this page for the card's editor. The tab stop and the label are
+        // so a reader who is not using a mouse reaches the same popup on the card they are standing on — a
+        // click target that cannot be focused is only half an affordance.
+        attributes["data-task-card"] = "${task.id}"
+        attributes["tabindex"] = "0"
+        attributes["aria-label"] = "Open ${task.title}"
+        // The card's identification chip, on its own top line, on a **status board** only (Stage 78). That page
+        // is a run of cards from every project at once, so one fact has to tell the cards apart — since Stage 88
+        // that fact is the **project's code** (`S-01`), because the reader's question there is which world this
+        // work belongs to, not which row it is. Since **Stage 104 that code is also a way in**: the chip is the
+        // card's own link to `/app/projects/<id>`, the same page the code names, so a reader working down a long
+        // column no longer has to open the card, read the project line in it and go find the board. The link is
+        // a plain `<a>` and nothing more — `task-modal.js` already steps aside from a click inside an `<a>` on a
+        // card (the rule that keeps a card's own buttons from reopening it), so the popup stays shut and the drag
+        // source is untouched, and a reader with no scripts follows the href like anybody. The card itself still
+        // opens on a click anywhere else.
+        //
+        // A card of no project (an Other task) has no project code and wears its **bucket** instead, which is the
+        // same fact for that half of the board: where the work is filed — and it stays a label, because a bucket
+        // is a column of a board that has no page of its own. A legacy row with neither keeps the task number it
+        // has always printed, also unlinked. A project's lane board is one project's work and its picture starts
+        // each card at its title, so no chip is printed there — the project is the page the reader is on.
+        if (!laneBoard) {
+            div("kcard-top") {
+                when {
+                    task.projectCode.isNotBlank() && task.projectId > 0 ->
+                        // `classes =` named, not `a("tcode")`: kotlinx's one-argument `a` is the *href* overload,
+                        // and the chip would come out wearing no class at all.
+                        a(classes = "tcode") {
+                            href = "/app/projects/${task.projectId}"
+                            attributes["title"] = "Open project ${task.projectCode}"
+                            attributes["aria-label"] = "Open project ${task.projectCode} on the Projects board"
+                            +task.projectCode
+                        }
+                    task.projectCode.isNotBlank() -> span("tcode") { +task.projectCode }
+                    task.isBacklog && task.bucket.isNotBlank() -> span("tcode bucket-chip") { +task.bucket }
+                    else -> span("tcode") { +taskCode(task.id) }
+                }
+            }
         }
-        span("tcode") { +taskCode(task.id) }
         div("ktitle") { +task.title }
         // The card's live region: its meta line, swapped on its own. A step ticked in the popup moves the
         // percentage printed here, and one response carrying both blocks is what keeps the number from
@@ -618,6 +963,7 @@ private fun DIV.taskCard(
         // It stops short of the whole `.kcard` on purpose: that node is the drag source `kanban.js` binds
         // `dragstart` to, and replacing it would leave the card undraggable until the next reload. The
         // move buttons sit outside for the same reason — they carry their own bound listeners.
+        val holder = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
         div("kbody") {
             id = cardBodyRegion(task.id)
             div("kmeta") {
@@ -627,57 +973,52 @@ private fun DIV.taskCard(
                 // has no plan, which is unmeasured rather than 0% done. Anyone who can see the card sees
                 // this, including management, who read a board for exactly this number.
                 task.progressPercent?.let { span("kpct") { +"$it%" } }
-                val a = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
-                if (a != null) span("avatar xs") { attributes["title"] = a.name; +initials(a.name) }
+                // On a status board the holder rides on this line, where they have always stood. On a lane
+                // board they drop to the foot line below, beside the stage word the picture pairs them with.
+                if (!laneBoard && holder != null) {
+                    span("avatar xs") { attributes["title"] = holder.name; +initials(holder.name) }
+                }
             }
         }
-        // The arrows stay for a non-manager assignee, who cannot set Status in the popup at all: that
-        // field is management's, and a card's column must never depend on JavaScript being available. A
-        // manager moves a card by dragging it between columns, or by changing Status in the editor they
-        // open from it, so their cards carry no standing buttons.
+        // A lane board's foot line: the stage the card has reached, as a dot and a word — the same idiom the
+        // priority above it is drawn with — and the holder's avatar at the far right. The stage word is printed
+        // here and nowhere else on this page because the columns name a **phase**, not a stage (Stage 75), so
+        // the board would otherwise say nothing at all about how far its cards have got. A status board prints
+        // no such line: its column head already *is* the word, and repeating it under every card in the column
+        // is two places for one fact.
+        if (laneBoard) {
+            div("kmeta kfoot") {
+                span("kstat ${statusSlug(task.status)}") { +task.status }
+                if (holder != null) span("avatar xs") { attributes["title"] = holder.name; +initials(holder.name) }
+            }
+        }
+        // **Stage 103 retired the prev/next arrows.** On a status board a column is changed by dragging the card
+        // into another column — which both status boards have taken since Stage 58, and which Stage 94 made work
+        // through a live-region swap — so the two buttons underneath the card were a second way to the same write
+        // that nobody reached for while the board answered the mouse. They are gone from Assigned tasks and from
+        // the shared Other tasks board together: one card, one answer, not one board keeping a control the other
+        // retired.
         //
-        // On a project's lane board there is no status to walk, so the same reader gets one button instead
-        // of two: the card is either open, and this closes it, or completed, and this reopens it. The status
-        // itself is still what decides that — it just no longer decides the column, and no status word is
-        // printed. `kanban.js` posts the `.kmove-btn` to `/app/tasks/status` either way, so this costs no
-        // script and no route.
+        // What remains is the **lane** board's single button, and it is a different act rather than the same one
+        // with fewer keys: a project's columns name a *phase*, not a stage, so there is no Completed column to
+        // drag into. The reader who cannot set Status in the popup gets the one move that still matters — done, or
+        // not done yet. `kanban.js` posts the `.kmove-btn` to `/app/tasks/status` exactly as it always did, so
+        // this costs no script and no route.
         //
-        // This hangs on **opens**, not on the drag flag, and deliberately so (Stage 49): finishing your own
-        // card is the one board move an owner keeps, because a status is a fact about the work rather than a
-        // place on somebody's board. A reader whose card cannot be dragged therefore still carries the button —
-        // which is also what keeps Stage 48's promise that a card has somewhere to go: the drag out of Unsorted
-        // is management's now, and this is the line the owner has instead.
-        if (opens && !canManage) {
-            if (laneBoard) {
-                div("kmove") {
-                    button(type = ButtonType.button, classes = if (task.isOpen) "kmove-btn next" else "kmove-btn") {
-                        attributes["data-id"] = "${task.id}"
-                        attributes["data-status"] = if (task.isOpen) "Completed" else "Not started"
-                        attributes["title"] = if (task.isOpen) "Mark this task done" else "Reopen this task"
-                        +(if (task.isOpen) "✓ Done" else "↺ Reopen")
-                    }
-                }
-            } else {
-                val idx = TASK_STATUSES.indexOf(task.status).coerceAtLeast(0)
-                val prev = TASK_STATUSES.getOrNull(idx - 1)
-                val next = TASK_STATUSES.getOrNull(idx + 1)
-                div("kmove") {
-                    if (prev != null) {
-                        button(type = ButtonType.button, classes = "kmove-btn") {
-                            attributes["data-id"] = "${task.id}"
-                            attributes["data-status"] = prev
-                            attributes["title"] = "Move to $prev"
-                            +"← $prev"
-                        }
-                    }
-                    if (next != null) {
-                        button(type = ButtonType.button, classes = "kmove-btn next") {
-                            attributes["data-id"] = "${task.id}"
-                            attributes["data-status"] = next
-                            attributes["title"] = "Move to $next"
-                            +"$next →"
-                        }
-                    }
+        // This hangs on the **holder** (`mine`), not on the drag flag, and deliberately so (Stage 49): finishing
+        // your own card is the one board move an owner keeps, because a status is a fact about the work rather
+        // than a place on somebody's board.
+        //
+        // It used to hang on `opens`, which then meant *may write this card*. Since Stage 86 every card opens for
+        // everybody, so that flag would have put a Done button on every colleague's card — the one thing this
+        // widen must not do. The condition is the holder, spelled out.
+        if (mine && !canManage && laneBoard) {
+            div("kmove") {
+                button(type = ButtonType.button, classes = if (task.isOpen) "kmove-btn next" else "kmove-btn") {
+                    attributes["data-id"] = "${task.id}"
+                    attributes["data-status"] = if (task.isOpen) "Completed" else "Not started"
+                    attributes["title"] = if (task.isOpen) "Mark this task done" else "Reopen this task"
+                    +(if (task.isOpen) "✓ Done" else "↺ Reopen")
                 }
             }
         }
@@ -711,9 +1052,7 @@ private const val PROJECT_COMPANIONS = "#project-progress"
  * change; `back` and `projectId` say where to return to, and both are server-rendered from the page
  * the card was drawn on — never typed — so an edit opened from a project page goes back there.
  * [edit] is the card's own id in every popup form, which is what brings the popup back up on the same
- * card after a step is ticked, added or taken off, and [showAllBuckets] is the backlog's wide view —
- * a step written from the editor must not answer on a board that has hidden the columns the reader
- * opened (Stage 40's rule, one field per form rather than a re-read address bar).
+ * card after a step is ticked, added or taken off.
  */
 private fun kotlinx.html.FORM.checklistFields(
     taskId: Int,
@@ -721,7 +1060,6 @@ private fun kotlinx.html.FORM.checklistFields(
     back: String,
     projectId: Int,
     edit: Int = 0,
-    showAllBuckets: Boolean = false,
 ) {
     input(type = InputType.hidden, name = "taskId") { value = "$taskId" }
     input(type = InputType.hidden, name = "itemId") { value = "$itemId" }
@@ -730,17 +1068,15 @@ private fun kotlinx.html.FORM.checklistFields(
         value = "${if (back == BACK_PROJECT) projectId else 0}"
     }
     input(type = InputType.hidden, name = "edit") { value = "$edit" }
-    if (showAllBuckets) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
 }
 
-/** The hidden fields a note form carries: which card, which note, which page to return to, and the board's view. */
+/** The hidden fields a note form carries: which card, which note, and which page to return to. */
 private fun kotlinx.html.FORM.noteFields(
     taskId: Int,
     noteId: Int,
     back: String,
     projectId: Int,
     edit: Int,
-    showAllBuckets: Boolean = false,
 ) {
     input(type = InputType.hidden, name = "taskId") { value = "$taskId" }
     input(type = InputType.hidden, name = "noteId") { value = "$noteId" }
@@ -749,7 +1085,6 @@ private fun kotlinx.html.FORM.noteFields(
         value = "${if (back == BACK_PROJECT) projectId else 0}"
     }
     input(type = InputType.hidden, name = "edit") { value = "$edit" }
-    if (showAllBuckets) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
 }
 
 /**
@@ -770,7 +1105,6 @@ fun DIV.taskFormModal(
     state: TaskForm,
     back: String,
     fixedProject: Project? = null,
-    showAllBuckets: Boolean = false,
 ) {
     val v = state.values
     val projectNames = DemoData.projects.map { it.name }
@@ -790,7 +1124,7 @@ fun DIV.taskFormModal(
     // Where a step or a note sent from inside this popup returns to. On a project page that is the
     // page itself, so a card moved off it still comes back to the board it was opened from.
     val pageProjectId = if (back == BACK_PROJECT) fixedProject?.id ?: carriedProjectId else 0
-    // The four fields a non-manager reads but cannot write. The service takes them from the stored row
+    // The fields a non-manager reads but cannot write. The service takes them from the stored row
     // rather than from this form, so greying them is presentation, never the check. A create by the
     // account a project names as its manager is the one case that writes a full card without being
     // management, so it follows [TaskForm.mayWriteCard] rather than `canEditAll`.
@@ -818,7 +1152,7 @@ fun DIV.taskFormModal(
     }
     // A lane this picker does not list is still the card's lane: a project's extra sub-categories are offered on
     // that project's board only, so the same card opened from the general board would otherwise show a choice it
-    // never made. It prints after the six, the way it prints after them on the board.
+    // never made. It prints after the three, the way it prints after them on the board.
     val laneNames = state.laneChoices +
         listOfNotNull(currentLane?.takeIf { it !in state.laneChoices })
     // Which half of the form the card is filed under. A popup that offers the choice ships **both** and leaves
@@ -830,6 +1164,25 @@ fun DIV.taskFormModal(
     val showProject = !state.showsBacklog
     val printColumn = showColumn || state.mayRefile
     val printProject = showProject || state.mayRefile
+    // **Stage 87: a card that is already on a project does not print its Project and Sub-category pickers on
+    // an edit.** Where the card sits is a fact of the row, and the one control that changes it is the drag on
+    // the board behind this popup — so the two drop-downs only repeated the page, and the popup now opens on
+    // the fields the reader came for. The project still rides along as a hidden field below: the save form has
+    // to name the world it writes to, and a field that never printed must not be read as "the first project".
+    //
+    // The pair stays wherever it is still an answer to give: on a **create**, which has no row to read one
+    // off; on a **backlog** card, whose "where it lives" picker only needs it at the moment the reader moves
+    // the card onto a project (it is drawn in that half, under the same `hidden` the picker switches); and on
+    // a row that arrived before every card named a project, which is the one card a picker can fix.
+    val projectIsTheRows: Boolean =
+        state.isEdit && !state.isBacklog && !state.task?.project.isNullOrBlank()
+    // A refusal about either field prints under the field, so the fields come back with it: a page that
+    // said nothing, or said it over a picker that was not there, would be the silent refusal this app does
+    // not have. The only way a project card's save is refused here is a hand-built or stale form — the
+    // popup posts the row's own project — and the pickers are then exactly what fixes it.
+    val projectRefused: Boolean =
+        state.error(TaskField.PROJECT) != null || state.error(TaskField.LANE) != null
+    val printProjectFields = printProject && (!projectIsTheRows || projectRefused)
     div("modal") {
         id = "taskModal"
         if (state.isOpen) attributes["style"] = "display:block"
@@ -838,8 +1191,27 @@ fun DIV.taskFormModal(
                 attributes["data-modal-close"] = "true"
                 +"×"
             }
-            h3 { if (state.isEdit) +"Edit task ${taskCode(state.taskId)}" else +"New task" }
-            if (readOnly) {
+            // The heading names what the popup is, and since Stage 86 that is not always an editor: a reader
+            // who may write nothing in it is looking at the **task**, so it says so rather than offering them
+            // an edit they are not being given.
+            h3 {
+                when {
+                    !state.isEdit -> +"New task"
+                    state.viewOnly -> +"Task ${taskCode(state.taskId)}"
+                    else -> +"Edit task ${taskCode(state.taskId)}"
+                }
+            }
+            if (state.viewOnly) {
+                // Said before the fields, for the same reason the owner's line is: greyed inputs with no
+                // sentence beside them read as a page that is broken. It also says what *is* theirs here —
+                // the plan and the log, to read — so the popup does not look like an empty refusal.
+                p("modal-scope") {
+                    +(
+                        "This task belongs to ${memberName(v.assigneeEmpNo)}. You can read its plan and its log; " +
+                            "its fields belong to management and to the person it is assigned to."
+                        )
+                }
+            } else if (readOnly) {
                 p("modal-scope") {
                     +if (state.isBacklog) {
                         // The column is management's here as well since Stage 49, so this reads the same as an
@@ -848,8 +1220,10 @@ fun DIV.taskFormModal(
                         "The dates and the priority are yours to set. The title, the column, the person it is " +
                             "assigned to and the status belong to management."
                     } else {
-                        "The dates and the priority are yours to set. The title, the project, the sub-category, " +
-                            "the person it is assigned to and the status belong to management."
+                        // Stage 87 took the project and the sub-category off this popup, so the line names only
+                        // what is still printed above it.
+                        "The dates and the priority are yours to set. The title, the person it is assigned " +
+                            "to and the status belong to management."
                     }
                 }
             }
@@ -868,10 +1242,16 @@ fun DIV.taskFormModal(
                 input(type = InputType.hidden, name = "taskId") { value = "${state.taskId}" }
                 input(type = InputType.hidden, name = "back") { value = back }
                 input(type = InputType.hidden, name = "projectId") { value = "$carriedProjectId" }
-                // The backlog's wide view rides along with the save, because a save is the one card write that
-                // loads a whole page rather than swapping a block: without it, changing a card's status on a
-                // board the reader had opened up to all its columns would answer by hiding them again.
-                if (showAllBuckets) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
+                // *(**Stage 40** had a third field here — `allbuckets`, so a save from the backlog's wide view
+                // did not answer by hiding the columns the reader had opened. **Stage 97** took the wide view
+                // out, and the field with it; the save's board is named by `back` alone.)*
+                // The card's project, carried where the picker no longer prints (Stage 87): the save still has
+                // to name the world it writes to, and [mn.murray.pts.service.TaskService.updateAssigned] reads
+                // the posted name as the card's own answer. Server-rendered from the row, never typed. A
+                // refusal draws the picker instead, which is where its message belongs.
+                if (projectIsTheRows && !projectRefused) {
+                    input(type = InputType.hidden, name = "project") { value = selectedProject }
+                }
                 div("form-grid") {
                     div("field full") {
                         label { +"Task" }
@@ -976,7 +1356,7 @@ fun DIV.taskFormModal(
                             state.error(TaskField.COLUMN)?.let { p("field-err") { +it } }
                         }
                     }
-                    if (printProject) {
+                    if (printProjectFields) {
                         div("field full") {
                             if (!showProject) attributes["hidden"] = "hidden"
                             if (state.mayRefile) attributes["data-board-half"] = "project"
@@ -1047,6 +1427,10 @@ fun DIV.taskFormModal(
                         label { +"Start date" }
                         input(type = InputType.date, name = "started") {
                             id = "taskStarted"
+                            // The three fields that describe the reader's own day (Stage 23) are management's,
+                            // a create-writer's, and the assignee's — not a stranger's, since Stage 86 put
+                            // everybody else in this popup to read it. See [TaskForm.mayBookTime].
+                            disabled = !state.mayBookTime
                             value = v.started
                         }
                         state.error(TaskField.START)?.let { p("field-err") { +it } }
@@ -1055,6 +1439,7 @@ fun DIV.taskFormModal(
                         label { +"Due date" }
                         input(type = InputType.date, name = "due") {
                             id = "taskDue"
+                            disabled = !state.mayBookTime
                             value = v.due
                         }
                         state.error(TaskField.DUE)?.let { p("field-err") { +it } }
@@ -1064,6 +1449,7 @@ fun DIV.taskFormModal(
                         select {
                             name = "priority"
                             id = "taskPriority"
+                            disabled = !state.mayBookTime
                             TASK_PRIORITIES.forEach { choice ->
                                 option {
                                     value = choice
@@ -1093,15 +1479,20 @@ fun DIV.taskFormModal(
                         }
                         state.error(TaskField.STATUS)?.let { p("field-err") { +it } }
                     }
-                    // The sub-category the card sits in on its project's board (V7), and since Stage 48 the field
-                    // a card on a project **has** to answer: every project's board is the same six, so this picker
-                    // prints on the general board too, and a card cannot be left on no lane of it. There is no
-                    // *Unsorted* choice to make — the column is where the cards that arrived before this rule rest,
-                    // and a row that came from there opens on the placeholder below until somebody files it. Like
-                    // title, project and status it is a field that moves a card about the board, so a plain account
-                    // reads it greyed and the service takes the stored value instead: see
-                    // [mn.murray.pts.service.TaskService.updateAssigned].
-                    if (printProject) {
+                    // The sub-category the card sits in on its project's board (V7), drawn wherever the Project
+                    // picker is (see [printProjectFields]): a **create** has to answer it because every project's
+                    // board opens with the same three, and a card cannot be left on no lane of it; a **backlog**
+                    // card answers it at the moment its "where it lives" picker moves it onto a project, which is
+                    // the same crossing that needs the project above. An **edit** of a card already on a project
+                    // no longer prints it (Stage 87): the column is a fact of the row, and the board behind the
+                    // popup files a card by dragging it. A board that has renamed one of them stops accepting
+                    // that name, because the name is resolved against the lanes this card's project actually
+                    // has (Stage 75). There is no *Unsorted* choice to make — the column is where the cards that
+                    // arrived before this rule rest, and a row that came from there opens on the placeholder
+                    // below until somebody files it. Like title, project and status it is a field that moves a
+                    // card about the board, so a plain account reads it greyed where it prints and the service
+                    // takes the stored value instead: see [mn.murray.pts.service.TaskService.updateAssigned].
+                    if (printProjectFields) {
                         div("field") {
                             if (!showProject) attributes["hidden"] = "hidden"
                             if (state.mayRefile) attributes["data-board-half"] = "project"
@@ -1135,24 +1526,32 @@ fun DIV.taskFormModal(
                     }
                 }
                 state.error(TaskField.PERMISSION)?.let { p("field-err") { +it } }
+                // **Stage 86:** a reader who may write nothing on this card is given no save button, and the
+                // action that closes the popup says *Close* rather than *Cancel* — there is nothing to cancel.
+                // The form is still a form, with every input in it disabled: pressing Enter somewhere posts
+                // nothing, and a hand-built POST is refused by the service whatever this page offers.
                 div("modal-actions") {
-                    button(type = ButtonType.submit, classes = "submit") {
-                        if (state.isEdit) +"Save task" else +"Create task"
+                    if (!state.viewOnly) {
+                        button(type = ButtonType.submit, classes = "submit") {
+                            if (state.isEdit) +"Save task" else +"Create task"
+                        }
                     }
                     button(type = ButtonType.button, classes = "ghost-btn") {
                         attributes["data-modal-close"] = "true"
-                        +"Cancel"
+                        +if (state.viewOnly) "Close" else "Cancel"
                     }
                 }
             }
             // The plan and its boxes both live here now. Management gets the section because they write it;
             // the person a card belongs to gets it because the tick boxes they used to work down on the card
             // are in here — a card that no longer carries steps is only a quiet card if somewhere still
-            // lets its owner tick them. [mayTick] already contains `canEditAll`, and it is the same set of
-            // readers `TaskService.editableBy` hands a card to, so nobody sees this list without a box.
-            if (state.isEdit && state.mayTick) modalSteps(state, back, pageProjectId, showAllBuckets)
-            // A note is somebody reporting on the work, which both the reporter and management may do.
-            if (state.isEdit) modalNotes(state, back, pageProjectId, showAllBuckets)
+            // lets its owner tick them. **Any other reader gets it too since Stage 86**, drawn stopped: a plan
+            // is part of what the card *is*, so the popup a stranger opens without it would be a popup that
+            // hides the work. [TaskForm.mayTick] is what decides between the two readings (see [modalSteps]).
+            if (state.isEdit) modalSteps(state, back, pageProjectId)
+            // A note is somebody reporting on the work, which both the reporter and management may do; the log
+            // is everybody's to read, and [modalNotes] is where the box is drawn on [TaskForm.mayNote].
+            if (state.isEdit) modalNotes(state, back, pageProjectId)
         }
     }
     // Open/close, and moving the card menu onto the clicked card. External because CSP allows only
@@ -1165,15 +1564,16 @@ fun DIV.taskFormModal(
  *
  * A tick is working the plan, so it is offered to management and to the person the card belongs to
  * ([TaskForm.mayTick], which is [mn.murray.pts.service.TaskService.toggleChecklistItem]'s rule read back as
- * presentation). Writing the plan — a step added, a step taken off — stays management's alone, so the × and
- * the *New step…* line are drawn on [TaskForm.canEditAll] and a reader who may only tick sees a list with
- * boxes and nothing else. Nobody is offered a box the route would refuse.
+ * presentation). **Since Stage 89** the *New step…* line follows the same line ([TaskForm.mayAddStep]): the
+ * owner of the work adds to its plan, exactly as management does. Taking a step off stays management's alone,
+ * so the × is drawn on [TaskForm.canEditAll] and an owner sees a list with boxes and an add line but no ×.
+ * Nobody is offered a control the route would refuse.
  *
- * A row is the box itself, as it was on the card: the route flips what the row already says, so nothing here
- * has to know which way it is going, and the whole row is a `label` so clicking the word works as well as
- * clicking the square. There is no read-only spelling of a step left anywhere in the app — the ✓/· mark went
- * with the card's own list, and every reader who reaches this section may tick it, so a second rendering
- * would be a branch nothing can reach.
+ * **Since Stage 86 there is a third reader here: somebody who may write nothing at all.** The section is drawn
+ * for them too (the plan is part of what the card is, and a popup that opened without it would hide the work),
+ * in its stopped reading — every row a [stepRowLocked] square, no ×, no *New step…* line. So there are two
+ * reasons a row is drawn stopped and they read differently: a *Completed* card whose plan is settled, and a
+ * card that belongs to somebody else. Both keep the same `.chk-row`, the same square and the same struck label.
  *
  * Every one of these forms re-renders **this** block (`data-live-target`) rather than the page, and names its
  * companions (`data-live-extra`): the card out on the board, whose percentage the tick just moved, and the
@@ -1185,11 +1585,19 @@ private fun DIV.modalSteps(
     state: TaskForm,
     back: String,
     projectId: Int,
-    showAllBuckets: Boolean,
 ) {
     val task = state.task ?: return
     val region = "task-steps-${task.id}"
     val companions = "$PROJECT_COMPANIONS,#${cardBodyRegion(task.id)}"
+    // Which of the two stopped readings a row gets, or null when it is a box the reader may work. The status
+    // is asked first because it is the service's own order: `toggleChecklistItem` refuses a finished card
+    // before it looks at who is asking, so a colleague reading somebody's completed card hears the archive
+    // reason it would give management rather than a permission it never reached.
+    val lockedReason = when {
+        !task.isOpen -> "This card is Completed, so its steps are settled — move the card back to change them"
+        !state.mayTick -> "This card belongs to somebody else, so its plan is yours to read and not to work"
+        else -> null
+    }
     div("modal-checklist") {
         id = region
         div("chk-head") {
@@ -1213,26 +1621,77 @@ private fun DIV.modalSteps(
                 }
             }
         }
+        // The second reading of the same list, for two reasons since Stage 86 (see [lockedReason]): a card in
+        // *Completed*, whose plan the service ticked and whose boxes it refuses, and a card that belongs to
+        // somebody else. The rows keep the same `.chk-row`, the same square and the same struck label, only
+        // stopped and explained — a plan is still worth reading when it is not yours to work. The way to
+        // change a finished card's steps is to move the card back out of *Completed*, which puts each step
+        // where it stood.
         task.checklist.forEach { item ->
             div("chk-row") {
-                form(action = "/app/tasks/checklist/toggle", method = FormMethod.post, classes = "chk-toggle") {
-                    attributes["data-live-target"] = "#$region"
-                    attributes["data-live-extra"] = companions
-                    checklistFields(task.id, item.id, back, projectId, state.taskId, showAllBuckets)
-                    label("chk-box") {
-                        attributes["for"] = "chk-${item.id}"
-                        input(type = InputType.checkBox, name = "done") {
-                            id = "chk-${item.id}"
-                            checked = item.done
-                            attributes["data-autosubmit"] = ""
-                        }
-                        span(if (item.done) "chk-label done" else "chk-label") { +item.label }
-                    }
+                if (lockedReason != null) {
+                    stepRowLocked(item, lockedReason)
+                } else {
+                    stepTickForm(item, task, region, companions, state, back, projectId)
                 }
-                stepRemoveForm(item, task, region, companions, state, back, projectId, showAllBuckets)
+                stepRemoveForm(item, task, region, companions, state, back, projectId)
             }
         }
-        if (state.canEditAll) stepAddForm(task, region, companions, back, projectId, showAllBuckets)
+        if (state.mayAddStep) stepAddForm(task, region, companions, back, projectId)
+    }
+}
+
+/**
+ * One step an open card's owner or management may tick: the box itself, as a form that flips what the row
+ * already says, so nothing here has to know which way it is going. The whole row is a `label`, so clicking
+ * the word works as well as clicking the square, and `data-autosubmit` ([app.js]) posts it the moment it
+ * changes — see [modalSteps] for the regions this repaints.
+ */
+private fun kotlinx.html.DIV.stepTickForm(
+    item: ChecklistItem,
+    task: TaskItem,
+    region: String,
+    companions: String,
+    state: TaskForm,
+    back: String,
+    projectId: Int,
+) {
+    form(action = "/app/tasks/checklist/toggle", method = FormMethod.post, classes = "chk-toggle") {
+        attributes["data-live-target"] = "#$region"
+        attributes["data-live-extra"] = companions
+        checklistFields(task.id, item.id, back, projectId, state.taskId)
+        label("chk-box") {
+            attributes["for"] = "chk-${item.id}"
+            input(type = InputType.checkBox, name = "done") {
+                id = "chk-${item.id}"
+                checked = item.done
+                attributes["data-autosubmit"] = ""
+            }
+            span(if (item.done) "chk-label done" else "chk-label") { +item.label }
+        }
+    }
+}
+
+/**
+ * One step of a card this reader may not work, drawn stopped rather than clickable — the same object as
+ * [stepTickForm]'s row with the form taken out from under it, and [reason] on its `title`. It says what the row
+ * holds rather than assuming the tick: [mn.murray.pts.service.TaskService] ticks a card's whole plan on the way
+ * into *Completed*, while a step written onto a finished card lands unticked like any other (Stage 101) — so a
+ * settled plan may carry one row that is not struck through, and this square shows it the way it stands.
+ *
+ * [reason] is the sentence that says why — a settled plan on a *Completed* card, or (Stage 86) a card that
+ * belongs to somebody else. The square is the same square either way, because what the reader is looking at is
+ * a plan, not a permission.
+ */
+private fun kotlinx.html.DIV.stepRowLocked(item: ChecklistItem, reason: String) {
+    div("chk-box locked") {
+        attributes["title"] = reason
+        input(type = InputType.checkBox) {
+            id = "chk-${item.id}"
+            checked = item.done
+            disabled = true
+        }
+        span(if (item.done) "chk-label done" else "chk-label") { +item.label }
     }
 }
 
@@ -1249,13 +1708,12 @@ private fun kotlinx.html.DIV.stepRemoveForm(
     state: TaskForm,
     back: String,
     projectId: Int,
-    showAllBuckets: Boolean,
 ) {
     if (!state.canEditAll) return
     form(action = "/app/tasks/checklist/remove", method = FormMethod.post, classes = "step-remove") {
         attributes["data-live-target"] = "#$region"
         attributes["data-live-extra"] = companions
-        checklistFields(task.id, item.id, back, projectId, state.taskId, showAllBuckets)
+        checklistFields(task.id, item.id, back, projectId, state.taskId)
         button(type = ButtonType.submit, classes = "x-btn") {
             attributes["data-confirm"] = "Remove this step from the card?"
             attributes["aria-label"] = "Remove step: ${item.label}"
@@ -1264,17 +1722,19 @@ private fun kotlinx.html.DIV.stepRemoveForm(
     }
 }
 
-/** The *New step…* line: one field, appended to this card's plan in the order it was typed. There is
- * deliberately no button — a form whose only writable field is this one submits on Enter by the browser's
- * own implicit-submission rule, and a second way to add a step would be a second thing to aim at the same
- * route. The note box underneath keeps its button because a textarea takes Enter for a new line. */
+/** The *New step…* line: one field, appended to this card's plan in the order it was typed. Drawn for
+ * management and, since Stage 89, for the person the card is assigned to — [TaskForm.mayAddStep] is that
+ * rule and it is the same one the route checks.
+ *
+ * There is deliberately no button — a form whose only writable field is this one submits on Enter by the
+ * browser's own implicit-submission rule, and a second way to add a step would be a second thing to aim at
+ * the same route. The note box underneath keeps its button because a textarea takes Enter for a new line. */
 private fun kotlinx.html.DIV.stepAddForm(
     task: TaskItem,
     region: String,
     companions: String,
     back: String,
     projectId: Int,
-    showAllBuckets: Boolean,
 ) {
     form(action = "/app/tasks/checklist/add", method = FormMethod.post, classes = "section-add") {
         attributes["data-live-target"] = "#$region"
@@ -1283,7 +1743,6 @@ private fun kotlinx.html.DIV.stepAddForm(
         input(type = InputType.hidden, name = "back") { value = back }
         input(type = InputType.hidden, name = "projectId") { value = "$projectId" }
         input(type = InputType.hidden, name = "edit") { value = "${task.id}" }
-        if (showAllBuckets) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
         input(type = InputType.text, name = "label") {
             id = "stepAdd-${task.id}"
             placeholder = "New step…"
@@ -1301,8 +1760,19 @@ private fun kotlinx.html.DIV.stepAddForm(
  * point of the shape: [TaskNote.author] stores the employee number and is read back here as a person,
  * falling back to the number if the account has since left the roster. Only management can take an entry
  * off, which is why the × is rendered on [TaskForm.canEditAll] and the box is not.
+ *
+ * **The box and management's Delete task share one foot row (Stage 72).** Writing a note and taking the
+ * whole card off are the two things a person does at the end of this panel, and the popup is the only place
+ * either happens, so the delete lives here rather than back out on the board where a click opens a card. It
+ * sits at the far right of the *Add note* line — the destructive action kept away from the button that adds
+ * to the log, and reachable from the card it destroys.
+ *
+ * **Stage 86:** the log is readable by everybody the card opens for, so the foot row is drawn only for a
+ * reader who may write in it — the box on [TaskForm.mayNote] and the delete on [TaskForm.canEditAll]. A
+ * stranger's popup is a list of entries and nothing under it; an empty foot row over a card that belongs to
+ * somebody else would be the shape of a box they are not being given.
  */
-private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int, showAllBuckets: Boolean) {
+private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int) {
     val task = state.task ?: return
     val region = "task-notes-${task.id}"
     div("modal-notes") {
@@ -1321,7 +1791,7 @@ private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int, showAl
                 if (state.canEditAll) {
                     form(action = "/app/tasks/notes/remove", method = FormMethod.post, classes = "note-remove") {
                         attributes["data-live-target"] = "#$region"
-                        noteFields(task.id, note.id, back, projectId, task.id, showAllBuckets)
+                        noteFields(task.id, note.id, back, projectId, task.id)
                         button(type = ButtonType.submit, classes = "x-btn") {
                             attributes["data-confirm"] = "Delete this note? A log entry removed here is gone for everybody."
                             attributes["aria-label"] = "Delete this note"
@@ -1331,29 +1801,84 @@ private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int, showAl
                 }
             }
         }
-        form(action = "/app/tasks/notes/add", method = FormMethod.post, classes = "section-add note-add") {
-            attributes["data-live-target"] = "#$region"
-            input(type = InputType.hidden, name = "taskId") { value = "${task.id}" }
-            input(type = InputType.hidden, name = "back") { value = back }
-            input(type = InputType.hidden, name = "projectId") { value = "$projectId" }
-            input(type = InputType.hidden, name = "edit") { value = "${task.id}" }
-            if (showAllBuckets) input(type = InputType.hidden, name = "allbuckets") { value = "1" }
-            textArea(rows = "3") {
-                // Written as attributes because kotlinx.html's textArea takes rows/cols as parameters
-                // and leaves the rest of the group to the attribute map; `name` is what the route reads.
-                attributes["name"] = "body"
-                id = "noteAdd-${task.id}"
-                attributes["placeholder"] = "What changed, what is holding it up…"
-                attributes["maxlength"] = "${TaskService.NOTE_MAX}"
-                attributes["required"] = "required"
+        // A reader who may write neither a note nor the card's delete gets no foot row at all (and
+        // [mayNote] is implied by [canEditAll], so this is the one test the row needs).
+        if (!state.mayNote) return@div
+        div("note-foot") {
+            if (state.mayNote) {
+                form(action = "/app/tasks/notes/add", method = FormMethod.post, classes = "section-add note-add") {
+                    attributes["data-live-target"] = "#$region"
+                    input(type = InputType.hidden, name = "taskId") { value = "${task.id}" }
+                    input(type = InputType.hidden, name = "back") { value = back }
+                    input(type = InputType.hidden, name = "projectId") { value = "$projectId" }
+                    input(type = InputType.hidden, name = "edit") { value = "${task.id}" }
+                    textArea(rows = "3") {
+                        // Written as attributes because kotlinx.html's textArea takes rows/cols as parameters
+                        // and leaves the rest of the group to the attribute map; `name` is what the route reads.
+                        attributes["name"] = "body"
+                        id = "noteAdd-${task.id}"
+                        attributes["placeholder"] = "What changed, what is holding it up…"
+                        attributes["maxlength"] = "${TaskService.NOTE_MAX}"
+                        attributes["required"] = "required"
+                    }
+                    button(type = ButtonType.submit, classes = "submit btn-sm") { +"Add note" }
+                }
             }
-            button(type = ButtonType.submit, classes = "submit btn-sm") { +"Add note" }
+            // A form cannot live inside the note form, so the two are siblings and the row lays them out.
+            // **Stage 84 put the permanent delete back on a project card**: the popup's foot offers management's
+            // **Delete task** in either world, exactly as it did before Stage 81's archive button replaced it.
+            // Archiving is still how a card enters this project's Archive, but its trigger is removing the bucket
+            // the card stands in (Stage 81), not a button on the card — so a live card's one destructive answer is
+            // the delete, and the Archive panel keeps Restore / Delete permanently for what the bucket took away.
+            if (state.canEditAll) taskDeleteForm(task, back, projectId)
+        }
+    }
+}
+
+/**
+ * Management's **Delete task** — the card, its plan and its log, gone.
+ *
+ * The route has been here since Stage 17 (`POST /app/assigned-tasks/delete`, [mn.murray.pts.service.TaskService.deleteAssigned])
+ * and has always refused anybody but management; what it never had was a control pointing at it, because
+ * Stage 35 took the card menu out and the popup was never the menu. This is that control, and it is drawn on
+ * [TaskForm.canEditAll] — which is management's flag and the same line the route checks, so nobody is ever
+ * offered a button that would do nothing. A project's own manager is not management (see [TaskForm]), and
+ * neither is the person a card belongs to.
+ *
+ * It posts no `edit`, unlike every other form in this panel: those come back as the popup still open on the
+ * card, and there is no card to be open on here. `back` and `projectId` are server-rendered so the board the
+ * reader was looking at is the board they land on. *(**Stage 40** sent `allbuckets` beside them for the same
+ * reason; **Stage 97** retired the wide view, and a narrowed backlog rides `back` as `other:<id>` instead.)
+ * The confirm names the card, because the one thing a delete cannot be is a misclick.
+ *
+ * **Since Stage 84 this is every card's button again.** Stage 81 had replaced it on a project card with the
+ * **Archive task** button (`/app/tasks/archive`); Stage 84 took that button off the popup at the user's request and
+ * put the delete back in its place, in both worlds. The page still archives — removing a bucket sends its cards to
+ * the project's Archive (Stage 81) — and the Archive panel still destroys an archived card permanently; what a live
+ * project card offers is the one destructive answer it offered before Stage 81. The right is unchanged and still
+ * management's alone: a project's own manager is not management, and neither is the card's assignee.
+ */
+private fun kotlinx.html.DIV.taskDeleteForm(task: TaskItem, back: String, projectId: Int) {
+    form(action = "/app/assigned-tasks/delete", method = FormMethod.post, classes = "opener-form task-del") {
+        input(type = InputType.hidden, name = "taskId") { value = "${task.id}" }
+        input(type = InputType.hidden, name = "back") { value = back }
+        input(type = InputType.hidden, name = "projectId") { value = "$projectId" }
+        button(type = ButtonType.submit, classes = "ghost-btn btn-sm danger") {
+            attributes["data-confirm"] =
+                "Delete ${task.title}? Its steps and its notes go with it. This cannot be undone."
+            +"Delete task"
         }
     }
 }
 
 /** The name behind a note, or its employee number once the account is no longer on the roster. */
-private fun noteAuthor(employeeNumber: String): String =
+private fun noteAuthor(employeeNumber: String): String = memberName(employeeNumber)
+
+/**
+ * The person behind an employee number, or the number once the account is off the roster — a name for a
+ * sentence, where [memberLabel] is a line for a picker.
+ */
+private fun memberName(employeeNumber: String): String =
     DemoData.team.firstOrNull { it.employeeNumber == employeeNumber }?.name ?: employeeNumber
 
 /** The roster line a picker shows for one person, in the same shape [optGroupPerMember] uses. */
@@ -1539,7 +2064,12 @@ internal fun statusDot(status: String): String = when (status) {
     else -> "d-gray"
 }
 
-private fun statusSlug(status: String): String = when (status) {
+/**
+ * The card's tint for a status. internal because the backlog board paints its cards with it too (Stage 95),
+ * exactly as [statusDot] is shared with the dots that name the same five hues: one mapping, so a stage cannot
+ * be amber on one board and grey on another.
+ */
+internal fun statusSlug(status: String): String = when (status) {
     "In progress" -> "s-inprogress"
     "On hold" -> "s-onhold"
     "Blocked" -> "s-blocked"

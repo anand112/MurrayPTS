@@ -92,33 +92,57 @@ object Buckets : Table("buckets") {
  *
  * [position] is the append counter the checklist, notes, to-do items and buckets use, so two lanes added
  * in the same second still print in the order they were written.
+ *
+ * [colourSlot] (V17) is that lane's own place in the stylesheet's six-hue cycle, or null for *wear the colour of
+ * my position*, which is what every lane written before Stage 80 does and what a board whose manager has never
+ * opened the colour picker still looks like.
  */
 object ProjectBuckets : Table("project_buckets") {
     val id = integer("id").autoIncrement()
     val projectId = integer("project_id").references(Projects.id, onDelete = ReferenceOption.CASCADE)
     val name = text("name")
     val position = integer("position").default(0)
+    val colourSlot = integer("colour_slot").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
 /**
  * The extra lanes a project **category** adds to a new board (V12) — the catalogue Settings edits and
- * [mn.murray.pts.service.ProjectService.create] appends after the six standard ones.
+ * [mn.murray.pts.service.ProjectService.create] appends after the three phases a board opens with.
  *
  * Not rows of [ProjectBuckets] with a project id left blank: that table is a board, its rows are what a
  * card is filed against, and a template standing in it would be a lane somebody could drag a card onto.
  * Nothing points here from `tasks` — a created project's lanes are ordinary [ProjectBuckets] rows, and if
  * the catalogue changes afterwards the board does not, which is the whole point of a default.
  *
- * [type] is a category LABEL as PROJECT_TYPES spells it, and [position] counts from 6 because the six
- * standard lanes hold 0..5 on a fresh board.
+ * [type] is a category LABEL as PROJECT_TYPES spells it, and [position] counts from 3 because the three phase
+ * lanes hold 0..2 on a fresh board. [colourSlot] (V17) is the hue this offer carries onto the board it seeds —
+ * null for the positional shade, which is every row Settings wrote before Stage 80 and every row it writes
+ * until somebody picks one.
  */
 object TypeDefaultBuckets : Table("type_default_buckets") {
     val id = integer("id").autoIncrement()
     val type = text("type")
     val name = text("name")
     val position = integer("position").default(0)
+    val colourSlot = integer("colour_slot").nullable()
     override val primaryKey = PrimaryKey(id)
+}
+
+/**
+ * The project categories management edits on Settings (V14) — the list `PROJECT_TYPES` used to be.
+ *
+ * [code] is the letter, and it is the primary key rather than a column beside an id: a project number is
+ * `<letter>-<tail>`, so two categories sharing a letter would hand out the same number to two projects.
+ * [name] is the label `projects.type` stores, and there is no foreign key from that column to this one —
+ * rows imported from the legacy JSON can carry a label this table has never seen, and the boards print
+ * those with their raw text rather than dropping them.
+ */
+object ProjectTypes : Table("project_types") {
+    val code = text("code")
+    val name = text("name")
+    val position = integer("position").default(0)
+    override val primaryKey = PrimaryKey(code)
 }
 
 object Tasks : Table("tasks") {
@@ -143,14 +167,42 @@ object Tasks : Table("tasks") {
     val projectBucketId = integer("project_bucket_id")
         .references(ProjectBuckets.id, onDelete = ReferenceOption.SET_NULL).nullable()
     val started = text("started").default("")
+    /**
+     * Whether this card is off every board, in the Archive (V18).
+     *
+     * A flag on the row rather than a copy of the row, on purpose: the card's plan ([TaskChecklistItems]) and its
+     * log ([TaskNotes]) hang off this id, and the promise the archive panel makes — *restore it as it left* — only
+     * holds if those children were never moved. Existing rows read false, so upgrading changes no board.
+     */
+    val archived = bool("archived").default(false)
+    /**
+     * Which lane the card was filed in when it was archived, remembered as a **bare integer with no foreign key**
+     * (V18).
+     *
+     * It cannot be a reference: on the path that matters most — a bucket removed from the board — the lane row is
+     * deleted, and an FK column would be nulled by `ON DELETE SET NULL` in the same breath that the archive is
+     * created, destroying exactly the memory it exists to keep. So this is a snapshot and restore reads it as a
+     * hint: that lane still on the project means the card goes back into it; gone means the project's first lane.
+     */
+    val archivedLaneId = integer("archived_lane_id").nullable()
+    /** The archived lane's *name*, for the panel's "was in X" line after that row is gone (V18). */
+    val archivedLane = text("archived_lane").nullable()
+    /** The day the card left the board, `yyyy-MM-dd`, the format every date in this app prints (V18). */
+    val archivedOn = text("archived_on").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 
 /**
  * The tickable steps under one task card (V5). Management writes the list, the assignee works
- * down it; the task's own `status` column stays the only thing that moves a card between columns.
+ * down it — and since Stage 89 adds to it too; the task's own `status` column stays the only thing
+ * that moves a card between columns.
  * `label` rather than `text` because the latter is a type keyword, and `position` is the append
  * counter used by [TodoItems] and [Buckets] too. Cascade with the card: no orphaned steps.
+ *
+ * [preCompleted] is V15's memory: where this step stood the moment before the card was moved into
+ * **Completed**, which ticks the whole plan. NULL means no completion is outstanding — the ordinary
+ * state of a step on a card that is being worked — so it is nullable rather than defaulting to false,
+ * because false would be a claim that the step was unticked when somebody finished the card.
  */
 object TaskChecklistItems : Table("task_checklist_items") {
     val id = integer("id").autoIncrement()
@@ -158,6 +210,7 @@ object TaskChecklistItems : Table("task_checklist_items") {
     val label = text("label")
     val done = bool("done").default(false)
     val position = integer("position").default(0)
+    val preCompleted = bool("pre_completed").nullable()
     override val primaryKey = PrimaryKey(id)
 }
 

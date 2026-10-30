@@ -78,6 +78,24 @@ class AuthServiceTest {
     }
 
     @Test
+    fun `username letter case and surrounding spaces do not change login but password case does`(@TempDir dir: File) {
+        freshDb(dir).use {
+            seedUser("EMP0100", "Case Test", "MixedPass42!")
+            listOf("emp0100", "EmP0100", "EMP0100", "  emp0100  ").forEachIndexed { index, typed ->
+                val result = AuthService.authenticate(typed, "MixedPass42!", ip = "10.3.0.${index + 1}")
+                assertTrue(result is AuthResult.Success, "username spelling $typed was refused")
+                val success = result as AuthResult.Success
+                assertEquals("EMP0100", success.user.employeeNumber)
+                assertEquals("EMP0100", AuthService.resolve(success.token)?.employeeNumber)
+            }
+            assertTrue(
+                AuthService.authenticate("emp0100", "mixedpass42!", ip = "10.3.1.1") is AuthResult.Failure,
+                "lowercasing the username must not lowercase the password",
+            )
+        }
+    }
+
+    @Test
     fun `changing the password revokes existing sessions`(@TempDir dir: File) {
         freshDb(dir).use {
             seedUser("E200", "Bob", "first")

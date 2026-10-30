@@ -26,8 +26,8 @@
                                          it there, this script never touches it
 
    A card's status is no longer this file's business: management drags the card or sets Status in the
-   popup, an assignee has the arrows on their own card, and both go through /app/tasks/status and
-   kanban.js as they always did.
+   popup, and both go through /app/tasks/status and kanban.js as they always did. (The arrows an
+   assignee used to have on their own card were retired in Stage 103.)
 
    So three jobs are left: turn a click on a card into a request for its editor, hide the popup again,
    and give the keyboard to the popup when it lands — which it can only notice, because a node swapped in
@@ -162,7 +162,10 @@
     var card = e.target.closest('[data-task-card]');
     if (!card) return;
     // Not the controls on the card: a tick box, a move arrow or the × on a step is clicked for what it
-    // does, and opening an editor over the card would hide the very thing that just changed.
+    // does, and opening an editor over the card would hide the very thing that just changed. Since **Stage 104**
+    // this line also carries the card's own project chip — an `<a href="/app/projects/…">` on a status board —
+    // which is followed, not opened over; the same rule that keeps a button from restarting its own request is
+    // what lets the chip be a link without a handler of its own.
     if (e.target.closest('button, a, input, select, textarea, label')) return;
     openEditor(card);
   });

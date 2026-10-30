@@ -12,7 +12,7 @@ import mn.murray.pts.db.TeamMembers
 import mn.murray.pts.db.TypeDefaultBuckets
 import mn.murray.pts.domain.Bucket
 import mn.murray.pts.domain.ChecklistItem
-import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
+import mn.murray.pts.domain.PROJECT_BUCKET_MAX
 import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.Project
 import mn.murray.pts.domain.ProjectBucket
@@ -297,6 +297,7 @@ object ProjectBucketRepository {
         projectId = r[ProjectBuckets.projectId],
         name = r[ProjectBuckets.name],
         position = r[ProjectBuckets.position],
+        colourSlot = r[ProjectBuckets.colourSlot],
     )
 
     /** This project's lanes, in the order the board prints them. */
@@ -319,40 +320,80 @@ object ProjectBucketRepository {
     fun namesOf(projectId: Int): Set<String> = ofProject(projectId).map { it.name }.toSet()
 
     /**
+     * How many cards are filed in each of this project's lanes, keyed by lane id. A lane with nothing in it
+     * is absent rather than zero, so a caller that only wants the occupied ones can read [Map.containsKey].
+     *
+     * Archived cards are left out (V18). Since a lane's removal now archives its work instead of refusing it, this
+     * count is no longer the reason a bucket cannot come off — it is the number the popup prints in the sentence
+     * that says what *will* happen, "its N cards go to Archive". Either way an archived card must not be counted as
+     * standing in a column: it left the board, and a card that counts twice, once here and once in the archive
+     * panel, is a card a reader will try to find on the column it is not on. [mn.murray.pts.repository.TaskRepository.archiveLane]
+     * already nulls its lane, so this clause is a second gate over the same fact rather than the only one.
+     */
+    fun cardCounts(projectId: Int): Map<Int, Int> = transaction {
+        Tasks.selectAll().where { (Tasks.projectId eq projectId) and (Tasks.archived eq false) }
+            .mapNotNull { it[Tasks.projectBucketId] }
+            .groupingBy { it }
+            .eachCount()
+    }
+
+    /**
      * One of this project's lanes by name, or null. Exact and case-sensitive on purpose: the popup posts a lane
-     * by its name (Stage 48) because the six sub-categories carry the same name on every project, so a name is
-     * the one answer a form on the general board can post without first being told that project's lane ids. A
-     * name that is not on this project — renamed while the popup was open, borrowed from another board, or
-     * hand-typed — is a refusal, never a near miss.
+     * by its name (Stage 48) because a form on the general board is not told this project's lane ids, and the
+     * three phases every board opens with are the names it can offer without them. Looking the name up **here**
+     * rather than trusting it is what makes Stage 75's editable board safe: a name that is not on this project —
+     * renamed while the popup was open, taken off it, borrowed from another board, or hand-typed — is a refusal,
+     * never a near miss.
      */
     fun findByName(projectId: Int, name: String): ProjectBucket? =
         ofProject(projectId).firstOrNull { it.name == name }
 
-    private fun insertRow(projectId: Int, name: String, position: Int): Int = transaction {
+    /**
+     * Rename one lane in place (Stage 74), and report whether a row answered.
+     *
+     * By id, never by name: the cards filed in the lane point at `tasks.project_bucket_id`, so a rename moves
+     * the column's heading and nothing else — every card on it stays where it was, with no data to re-file.
+     *
+     * This says nothing to the category's catalogue (`type_default_buckets`), and that is the point. A project's
+     * manager renaming **QA hold** to **QA Hold** on their board is not a decision about what every future
+     * project of that category is offered; the bucket that reaches the catalogue is a bucket *added*, which
+     * [mn.murray.pts.service.TaskService.saveLanes] does and this does not.
+     */
+    fun rename(id: Int, name: String): Boolean = transaction {
+        ProjectBuckets.update({ ProjectBuckets.id eq id }) { it[ProjectBuckets.name] = name } > 0
+    }
+
+    private fun insertRow(projectId: Int, name: String, position: Int, colourSlot: Int? = null): Int = transaction {
         ProjectBuckets.insert {
             it[ProjectBuckets.projectId] = projectId
             it[ProjectBuckets.name] = name
             it[ProjectBuckets.position] = position
+            it[ProjectBuckets.colourSlot] = colourSlot
         } get ProjectBuckets.id
     }
 
     /**
-     * Give a freshly created project the six standard sub-categories, in [DEFAULT_PROJECT_BUCKETS] order.
+     * Add one lane to the end of this project's board. Returns the new id.
      *
-     * The shape a board starts from: six lanes, positions 0..5, no name skipped. Called in the same breath as
-     * the project insert, which is why a project never has to be given a board before it can hold a card — and
-     * the tests use it for the same reason, when they only want a board to exist. V10 handed the same six to
-     * every project that predates the list, so this and that migration are the only two places a board comes
-     * from, and a lane picker never has to ask which project a card is going to before it can list them.
+     * [colourSlot] is the hue the reader picked for this column (Stage 80), or null for the positional shade it
+     * has always worn — which is what every path that does not ask the question passes, from a create popup's
+     * tick-list to a catalogue seeding a board.
      */
-    fun seedDefaults(projectId: Int): List<Int> =
-        DEFAULT_PROJECT_BUCKETS.mapIndexed { idx, name -> insertRow(projectId, name, idx) }
-
-    /** Add one lane to the end of this project's board. Returns the new id. */
-    fun insert(projectId: Int, name: String): Int = transaction {
+    fun insert(projectId: Int, name: String, colourSlot: Int? = null): Int = transaction {
         val maxPos = ProjectBuckets.selectAll().where { ProjectBuckets.projectId eq projectId }
             .map { it[ProjectBuckets.position] }.maxOrNull() ?: -1
-        insertRow(projectId, name, maxPos + 1)
+        insertRow(projectId, name, maxPos + 1, colourSlot)
+    }
+
+    /**
+     * Change one lane's colour on its own (Stage 80), and report whether a row answered.
+     *
+     * Kept apart from [rename] because the popup sends both fields in one post and the service has to be able to
+     * say which of the two actually moved: a rename that lands writes the name, a colour that lands writes this,
+     * and a post that changes neither is the reader pressing the button for nothing rather than a failure.
+     */
+    fun setColour(id: Int, colourSlot: Int?): Boolean = transaction {
+        ProjectBuckets.update({ ProjectBuckets.id eq id }) { it[ProjectBuckets.colourSlot] = colourSlot } > 0
     }
 
     /** Take a lane off the board. Its cards keep existing; their `project_bucket_id` goes null by FK. */
@@ -360,69 +401,140 @@ object ProjectBucketRepository {
 }
 
 /**
- * The catalogue of **extra** lanes each project category adds to a new board (V12).
+ * The catalogue of buckets each project category is made of (V12).
  *
  * Sits beside [ProjectBucketRepository] as a template sits beside a board: this object is what Settings
  * edits and what [mn.murray.pts.service.ProjectService.create] reads when a project is being born, and its
- * rows are never what a card is filed against — the lanes written onto a board by [seedExtras] are ordinary
- * `project_buckets` rows from that moment on. Changing a default here therefore cannot reach a live board,
- * which is the behaviour the panel promises: a default shapes the *next* project of its category.
+ * rows are never what a card is filed against — the lanes written onto a board by [seedBoard] are ordinary
+ * `project_buckets` rows from that moment on.
+ *
+ * **Since Stage 100 this table is the whole board, not a set of extras.** A new project opens with exactly
+ * the rows listed here for its category, in this order; the three phases are no longer added by the code, so a
+ * category that wants them lists them and a category whose list is empty cannot make a project. A row here is
+ * also read in one more place: Settings' add ([mn.murray.pts.service.BucketDefaultsService.add]) writes the row
+ * and then walks every project of the category, putting the column on the boards that do not carry it yet
+ * ([seedOne]). A row's *removal* still cannot touch a live board — that asymmetry is the panel's rule, not an
+ * accident: a bucket somebody added is a column they asked for, a bucket somebody took off the list is one they
+ * stopped asking new projects to have.
  */
 object TypeDefaultBucketRepository {
 
-    /** This category's extra lanes, in the order they will be appended to a board. */
+    /** This category's buckets, in the order a new board is cut from them. */
     fun of(type: String): List<ProjectBucket> = transaction {
         TypeDefaultBuckets.selectAll().where { TypeDefaultBuckets.type eq type }
             .orderBy(TypeDefaultBuckets.position to SortOrder.ASC, TypeDefaultBuckets.id to SortOrder.ASC)
-            .map { ProjectBucket(id = it[TypeDefaultBuckets.id], projectId = 0, name = it[TypeDefaultBuckets.name], position = it[TypeDefaultBuckets.position]) }
+            .map { ProjectBucket(id = it[TypeDefaultBuckets.id], projectId = 0, name = it[TypeDefaultBuckets.name], position = it[TypeDefaultBuckets.position], colourSlot = it[TypeDefaultBuckets.colourSlot]) }
     }
 
     fun find(id: Int): ProjectBucket? = transaction {
         TypeDefaultBuckets.selectAll().where { TypeDefaultBuckets.id eq id }.firstOrNull()?.let {
-            ProjectBucket(id = it[TypeDefaultBuckets.id], projectId = 0, name = it[TypeDefaultBuckets.name], position = it[TypeDefaultBuckets.position])
+            ProjectBucket(id = it[TypeDefaultBuckets.id], projectId = 0, name = it[TypeDefaultBuckets.name], position = it[TypeDefaultBuckets.position], colourSlot = it[TypeDefaultBuckets.colourSlot])
         }
     }
 
     /** The names already offered for this category — the duplicate check an add has to make. */
     fun namesOf(type: String): Set<String> = of(type).map { it.name }.toSet()
 
-    /** Append one lane to this category's set. The six standard lanes hold 0..5, so extras count from 6. */
-    fun insert(type: String, name: String): Int = transaction {
+    /**
+     * Every category's buckets in one read, each list in the order a new board is cut from it.
+     *
+     * One caller: the create-project popup (Stage 104), which prints what each category would open with, so
+     * management can see before they press Create which columns the board gets from Settings and which are the
+     * ones they are typing here. Reading it category by category would be one query per category for a block
+     * drawn on every Projects page management opens.
+     */
+    fun allByType(): Map<String, List<ProjectBucket>> = transaction {
+        TypeDefaultBuckets.selectAll()
+            .orderBy(
+                TypeDefaultBuckets.type to SortOrder.ASC,
+                TypeDefaultBuckets.position to SortOrder.ASC,
+                TypeDefaultBuckets.id to SortOrder.ASC,
+            )
+            .groupBy({ it[TypeDefaultBuckets.type] }) {
+                ProjectBucket(
+                    id = it[TypeDefaultBuckets.id],
+                    projectId = 0,
+                    name = it[TypeDefaultBuckets.name],
+                    position = it[TypeDefaultBuckets.position],
+                    colourSlot = it[TypeDefaultBuckets.colourSlot],
+                )
+            }
+    }
+
+    /**
+     * Append one bucket to this category's list. An empty list starts its run at 0 (Stage 100): there is no
+     * fixed opening set above it any more, so the first row a category is given is its board's first column.
+     *
+     * [colourSlot] (Stage 80) is the hue management picked for this offer, and it is the shade the board a new
+     * project of this category gets for that column — [seedBoard] carries it onto the lane it writes. Null is
+     * the positional shade, which is every default written before Stage 80.
+     */
+    fun insert(type: String, name: String, colourSlot: Int? = null): Int = transaction {
         val maxPos = TypeDefaultBuckets.selectAll().where { TypeDefaultBuckets.type eq type }
-            .map { it[TypeDefaultBuckets.position] }.maxOrNull() ?: DEFAULT_PROJECT_BUCKETS.size - 1
+            .map { it[TypeDefaultBuckets.position] }.maxOrNull() ?: -1
         TypeDefaultBuckets.insert {
             it[TypeDefaultBuckets.type] = type
             it[TypeDefaultBuckets.name] = name
             it[TypeDefaultBuckets.position] = maxPos + 1
+            it[TypeDefaultBuckets.colourSlot] = colourSlot
         } get TypeDefaultBuckets.id
     }
 
     fun delete(id: Int): Int = transaction { TypeDefaultBuckets.deleteWhere { TypeDefaultBuckets.id eq id } }
 
     /**
-     * Give a freshly created project of [type] its category's extra lanes, after [ProjectBucketRepository.seedDefaults]
-     * has written the six. Returns the new lane ids in board order; a category with no defaults writes nothing and
-     * the board is exactly the six it was before this table existed.
+     * Cut a freshly created project's board from [type]'s list, in catalogue order.
+     *
+     * Since Stage 100 [mn.murray.pts.service.ProjectService.create] passes this category's **whole catalogue**
+     * ([namesOf]) and nothing else, so a new board holds exactly the rows Settings › Project bucket settings
+     * lists for it — the same set [mn.murray.pts.service.BucketDefaultsService.add] puts on the boards that
+     * already exist. The [chosen] parameter is what makes that a set rather than a copy: a caller that wants
+     * only some of the catalogue names can hand those, and a name the catalogue does not know is written anyway
+     * (last, in the order it was posted) because it belongs to the project rather than to the category.
+     *
+     * The board order is the catalogue order, not the order the form posted them in — a lane's `position` is a
+     * fact about the set, and two people starting the same kind of project should get the same board out of
+     * it. Each one is appended through [ProjectBucketRepository.insert], so the lanes number from 0 with no gap.
      */
-    fun seedExtras(projectId: Int, type: String): List<Int> {
-        val extras = of(type)
-        if (extras.isEmpty()) return emptyList()
-        return transaction {
-            extras.map { lane ->
-                ProjectBuckets.insert {
-                    it[ProjectBuckets.projectId] = projectId
-                    it[ProjectBuckets.name] = lane.name
-                    it[ProjectBuckets.position] = lane.position
-                } get ProjectBuckets.id
-            }
-        }
+    fun seedBoard(projectId: Int, type: String, chosen: Set<String>): List<Int> {
+        val fromCatalogue = of(type).filter { lane -> chosen.any { it.equals(lane.name, ignoreCase = true) } }
+        // Name and colour travel together from here, because since Stage 80 a default's hue is part of what it
+        // offers: the board gets the shade management set on Settings, and a name the catalogue does not know —
+        // a bucket typed on the create form and left this project's own — has no shade to inherit.
+        val lanes: List<Pair<String, Int?>> = fromCatalogue.map { it.name to it.colourSlot } +
+            chosen.filter { name -> fromCatalogue.none { it.name.equals(name, ignoreCase = true) } }
+                .map { it to (null as Int?) }
+        if (lanes.isEmpty()) return emptyList()
+        return transaction { lanes.map { (name, colourSlot) -> ProjectBucketRepository.insert(projectId, name, colourSlot) } }
     }
+
+    /**
+     * Put one named bucket of this category's catalogue on a board that does not carry it yet. Returns the new
+     * lane id, or null when this category offers no such bucket, which is the caller's refusal, never an
+     * invented lane.
+     *
+     * Two callers, one rule: Settings' add walks the category's projects with this (Stage 98), and a project
+     * page's picker uses it for a bucket the form named but the board did not hold. The caller is responsible
+     * for the duplicate check — a board that already carries the name should not be given a second column.
+     *
+     * The lane wears the catalogue's colour when that default has one (Stage 80), which is what makes the shade
+     * on a Settings row the shade on the board it seeded rather than an accident of position.
+     */
+    fun seedOne(projectId: Int, type: String, name: String): Int? =
+        of(type).firstOrNull { it.name.equals(name.trim(), ignoreCase = true) }
+            ?.let { ProjectBucketRepository.insert(projectId, it.name, it.colourSlot) }
 }
 
 object TaskRepository {
 
-    private fun projectNames(): Map<Int, String> =
-        Projects.selectAll().associate { it[Projects.id] to it[Projects.name] }
+    /**
+     * A project as a task's chip needs it: the name every board groups by, and the code that says which world a
+     * card on a cross-project board came from (Stage 88). Read once per board, like every name map here.
+     */
+    private data class ProjectLabel(val name: String, val code: String)
+
+    private fun projectLabels(): Map<Int, ProjectLabel> =
+        Projects.selectAll().associate { it[Projects.id] to ProjectLabel(it[Projects.name], it[Projects.code]) }
 
     private fun bucketNames(): Map<Int, String> =
         Buckets.selectAll().associate { it[Buckets.id] to it[Buckets.name] }
@@ -453,39 +565,136 @@ object TaskRepository {
 
     private fun map(
         r: ResultRow,
-        projectNames: Map<Int, String>,
+        projectLabels: Map<Int, ProjectLabel>,
         bucketNames: Map<Int, String>,
         projectBucketNames: Map<Int, String>,
         checklists: Map<Int, List<ChecklistItem>>,
         notes: Map<Int, List<TaskNote>>,
-    ) = TaskItem(
-        title = r[Tasks.title],
-        project = r[Tasks.projectId]?.let { projectNames[it] } ?: "",
-        due = r[Tasks.due],
-        priority = r[Tasks.priority],
-        assignee = r[Tasks.assigneeEmpNo] ?: "",
-        status = r[Tasks.status],
-        id = r[Tasks.id],
-        bucketId = r[Tasks.bucketId] ?: 0,
-        bucket = r[Tasks.bucketId]?.let { bucketNames[it] } ?: "",
-        kind = r[Tasks.kind],
-        projectBucket = r[Tasks.projectBucketId]?.let { projectBucketNames[it] } ?: "",
-        projectBucketId = r[Tasks.projectBucketId] ?: 0,
-        started = r[Tasks.started],
-        checklist = checklists[r[Tasks.id]] ?: emptyList(),
-        notes = notes[r[Tasks.id]] ?: emptyList(),
-    )
+    ): TaskItem {
+        val label = r[Tasks.projectId]?.let { projectLabels[it] }
+        return TaskItem(
+            title = r[Tasks.title],
+            project = label?.name ?: "",
+            due = r[Tasks.due],
+            priority = r[Tasks.priority],
+            assignee = r[Tasks.assigneeEmpNo] ?: "",
+            status = r[Tasks.status],
+            id = r[Tasks.id],
+            bucketId = r[Tasks.bucketId] ?: 0,
+            bucket = r[Tasks.bucketId]?.let { bucketNames[it] } ?: "",
+            kind = r[Tasks.kind],
+            projectBucket = r[Tasks.projectBucketId]?.let { projectBucketNames[it] } ?: "",
+            projectBucketId = r[Tasks.projectBucketId] ?: 0,
+            started = r[Tasks.started],
+            projectId = r[Tasks.projectId] ?: 0,
+            checklist = checklists[r[Tasks.id]] ?: emptyList(),
+            notes = notes[r[Tasks.id]] ?: emptyList(),
+            archived = r[Tasks.archived],
+            archivedLaneId = r[Tasks.archivedLaneId] ?: 0,
+            archivedLane = r[Tasks.archivedLane] ?: "",
+            archivedOn = r[Tasks.archivedOn] ?: "",
+            projectCode = label?.code ?: "",
+        )
+    }
 
+    /**
+     * Every card of one board, **except the archived ones**.
+     *
+     * The flag is filtered here rather than at each page because this is the one funnel every board, pill,
+     * calendar row, Team count and roll-up reads through ([mn.murray.pts.service.TaskService.assigned] and
+     * [mn.murray.pts.service.TaskService.other] are its only callers on the view side), and an archived card has
+     * to be invisible to *all* of them at once: a card that left the board but still counted on the sidebar pill,
+     * or still got a due-date mail, would be work that looks unfinished and cannot be started. The archive's own
+     * read is [findArchived], and the popup's read is [findById], which deliberately does not filter — restoring
+     * a card means being able to find it.
+     */
     fun findByKind(kind: String): List<TaskItem> = transaction {
-        val pn = projectNames(); val bn = bucketNames(); val pbn = projectBucketNames()
+        val pn = projectLabels(); val bn = bucketNames(); val pbn = projectBucketNames()
         val cl = checklistsByTask(); val nt = notesByTask()
-        Tasks.selectAll().where { Tasks.kind eq kind }.orderBy(Tasks.id to SortOrder.ASC).map {
-            map(it, pn, bn, pbn, cl, nt)
+        Tasks.selectAll().where { (Tasks.kind eq kind) and (Tasks.archived eq false) }
+            .orderBy(Tasks.id to SortOrder.ASC).map {
+                map(it, pn, bn, pbn, cl, nt)
+            }
+    }
+
+    /**
+     * This project's archived cards, newest archive first (V18).
+     *
+     * Scoped to a project because the panel that prints it is opened from that project's header, the same way the
+     * prototype it comes from filters its archive list by the project being looked at. [checklist] and [notes] come
+     * back with the cards, which is the point of the flag design: an archived card is the same row with the same
+     * children, so the panel's rows can show a card's plan and log exactly as they stood the day it left.
+     */
+    fun findArchived(projectId: Int): List<TaskItem> = transaction {
+        val pn = projectLabels(); val bn = bucketNames(); val pbn = projectBucketNames()
+        val cl = checklistsByTask(); val nt = notesByTask()
+        Tasks.selectAll().where { (Tasks.projectId eq projectId) and (Tasks.archived eq true) }
+            .orderBy(Tasks.archivedOn to SortOrder.DESC, Tasks.id to SortOrder.DESC).map {
+                map(it, pn, bn, pbn, cl, nt)
+            }
+    }
+
+    /**
+     * Put one card in the Archive, remembering the lane it came from.
+     *
+     * [laneId] / [laneName] are the card's own lane at the moment of the call, snapshotted by the caller rather than
+     * read here so a card whose column is about to be deleted is archived under the name its reader can still see
+     * on the screen. The card's `project_bucket_id` is cleared in the same statement: an archived card that still
+     * pointed at a lane would be counted by [ProjectBucketRepository.cardCounts] as work held in that column, which
+     * is exactly the claim a column's removal has to stop making once its cards are archived.
+     */
+    fun archive(id: Int, laneId: Int?, laneName: String, day: String): Boolean = transaction {
+        Tasks.update({ Tasks.id eq id }) {
+            it[Tasks.archived] = true
+            it[Tasks.archivedLaneId] = laneId
+            it[Tasks.archivedLane] = laneName
+            it[Tasks.archivedOn] = day
+            it[Tasks.projectBucketId] = null
+        } > 0
+    }
+
+    /**
+     * Archive every card filed in one lane, in one statement, and report how many went (V18).
+     *
+     * This is what a removed bucket does to the work in it: the column and its cards go together, so the cards never
+     * fall through to the `ON DELETE SET NULL` clause that would otherwise leave them un-filed on an Unsorted column
+     * nobody chose. Filtered on `archived eq false` so a card cannot be archived twice — a second write would move
+     * its "was in X" snapshot to a lane it has not stood in since the first removal.
+     */
+    fun archiveLane(laneId: Int, laneName: String, day: String): Int = transaction {
+        Tasks.update({ (Tasks.projectBucketId eq laneId) and (Tasks.archived eq false) }) {
+            it[Tasks.archived] = true
+            it[Tasks.archivedLaneId] = laneId
+            it[Tasks.archivedLane] = laneName
+            it[Tasks.archivedOn] = day
+            it[Tasks.projectBucketId] = null
         }
     }
 
+    /**
+     * Bring one card back off the Archive and file it in [laneId] (V18), clearing the snapshot with the flag.
+     *
+     * The snapshot is cleared rather than kept for history: [archivedLaneId] exists to answer "where did this card
+     * go back", and once the card has gone back the answer is on the board as `project_bucket_id`. Leaving a stale
+     * snapshot behind would be a second, quieter truth about the same card.
+     */
+    fun restore(id: Int, laneId: Int?): Boolean = transaction {
+        Tasks.update({ Tasks.id eq id }) {
+            it[Tasks.archived] = false
+            it[Tasks.archivedLaneId] = null
+            it[Tasks.archivedLane] = null
+            it[Tasks.archivedOn] = null
+            it[Tasks.projectBucketId] = laneId
+        } > 0
+    }
+
+    /** How many of this project's cards are sitting in the Archive — the number on the header's button. */
+    fun archivedCount(projectId: Int): Int = transaction {
+        Tasks.selectAll().where { (Tasks.projectId eq projectId) and (Tasks.archived eq true) }.count().toInt()
+    }
+
     fun findById(id: Int): TaskItem? = transaction {
-        val pn = projectNames(); val bn = bucketNames(); val pbn = projectBucketNames()
+        val pn = projectLabels(); val bn = bucketNames(); val pbn = projectBucketNames()
         val cl = checklistsByTask(); val nt = notesByTask()
         Tasks.selectAll().where { Tasks.id eq id }.firstOrNull()?.let { map(it, pn, bn, pbn, cl, nt) }
     }
@@ -603,6 +812,11 @@ object TaskRepository {
  * board render; written one step at a time here, because a tick and an added step are both single
  * statements and never a read-modify-write of the list. Deleting a card removes its steps through
  * the FK's own cascade, so there is no cleanup call to forget.
+ *
+ * [finishAll] and [restoreAll] are the two halves of one rule — a card that is finished has a plan
+ * that is all ticked, and a card pulled back out of *Completed* gets the plan it had before. They
+ * loop over the card's rows writing one statement per step because the memory each write has to keep
+ * is that step's own previous value; see [TaskChecklistItems.preCompleted].
  */
 object ChecklistRepository {
 
@@ -627,7 +841,16 @@ object ChecklistRepository {
             .orderBy(TaskChecklistItems.position to SortOrder.ASC).map(::map)
     }
 
-    /** Append one step below the ones already on the card. */
+    /**
+     * Append one step below the ones already on the card, **unticked**.
+     *
+     * There is no "start it done" argument (Stage 101): writing a line is saying the work is still to do,
+     * so the row is written with `done = false` and the tick is a separate write ([setDone], or [finishAll]
+     * when the card is moved into *Completed*). A step written onto a card that is already finished used to
+     * arrive ticked, which read the card's status back as a claim about a line its owner had just noticed;
+     * it now lands the way every other line does. It also carries no completion memory, so [restoreAll]
+     * leaves it exactly as it was written.
+     */
     fun insert(taskId: Int, label: String): Int = transaction {
         val maxPos = TaskChecklistItems.selectAll().where { TaskChecklistItems.taskId eq taskId }
             .map { it[TaskChecklistItems.position] }.maxOrNull() ?: -1
@@ -642,6 +865,51 @@ object ChecklistRepository {
     /** Returns false when the step is gone, so a tick on a deleted card cannot look like a success. */
     fun setDone(itemId: Int, done: Boolean): Boolean = transaction {
         TaskChecklistItems.update({ TaskChecklistItems.id eq itemId }) { it[TaskChecklistItems.done] = done } > 0
+    }
+
+    /**
+     * Tick every step on one card, having first stored where each one stood in [TaskChecklistItems.preCompleted].
+     * This is the completion half of the plan rule in [mn.murray.pts.service.TaskService.updateStatus], and it
+     * is deliberately a per-row write rather than one bulk `SET done = 1`: the memory has to be each step's own
+     * previous value, which a single statement could not carry.
+     *
+     * Returns how many steps it touched, which is 0 for a card nobody has planned — a finished card with no
+     * plan is not a card with an empty plan to restore later.
+     */
+    fun finishAll(taskId: Int): Int = transaction {
+        val steps = TaskChecklistItems.selectAll().where { TaskChecklistItems.taskId eq taskId }
+            .map { it[TaskChecklistItems.id] to it[TaskChecklistItems.done] }
+        steps.forEach { (itemId, was) ->
+            TaskChecklistItems.update({ TaskChecklistItems.id eq itemId }) {
+                it[preCompleted] = was
+                it[done] = true
+            }
+        }
+        steps.size
+    }
+
+    /**
+     * Put a card's steps back exactly as they were before [finishAll] ticked them, and forget the
+     * memory so the next completion takes a fresh one. Only the steps that carry a memory move, so a
+     * step added while the card was finished — which carries none — stays exactly as it was written
+     * (unticked, since Stage 101) rather than being moved to a state it never had.
+     *
+     * Returns how many steps it moved. Zero is the ordinary answer for a card whose steps were all
+     * unticked when it was finished, and for one that was never finished at all.
+     */
+    fun restoreAll(taskId: Int): Int = transaction {
+        val remembered = TaskChecklistItems.selectAll().where { TaskChecklistItems.taskId eq taskId }
+            .mapNotNull { row ->
+                val was = row[TaskChecklistItems.preCompleted] ?: return@mapNotNull null
+                row[TaskChecklistItems.id] to was
+            }
+        remembered.forEach { (itemId, was) ->
+            TaskChecklistItems.update({ TaskChecklistItems.id eq itemId }) {
+                it[done] = was
+                it[preCompleted] = null
+            }
+        }
+        remembered.size
     }
 
     fun delete(itemId: Int): Boolean = transaction {

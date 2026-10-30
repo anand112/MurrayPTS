@@ -48,7 +48,7 @@ class ProjectCategoriesMigrationTest {
             conn.createStatement().use { st ->
                 st.executeUpdate(
                     "INSERT INTO projects (code, name, status, progress, due, type, created_at, updated_at) " +
-                        "VALUES ('$code', '$name', 'Ongoing', 40, '2026-12-15', '$type', '2026-01-01', '2026-01-01')"
+                        "VALUES ('$code', '$name', 'In progress', 40, '2026-12-15', '$type', '2026-01-01', '2026-01-01')"
                 )
             }
         }
@@ -127,12 +127,12 @@ class ProjectCategoriesMigrationTest {
                 conn.createStatement().use { st ->
                     st.executeUpdate(
                         "INSERT INTO projects (code, name, status, progress, due, type, client, start_date, revenue, created_at, updated_at) " +
-                            "VALUES ('E-07', 'Frontier Survey', 'Ongoing', 10, '2027-01-01', 'Engineering', 'ERM', '2026-09-01', 1250000.0, '2026-09-01', '2026-09-01')"
+                            "VALUES ('E-07', 'Frontier Survey', 'In progress', 10, '2027-01-01', 'Engineering', 'ERM', '2026-09-01', 1250000.0, '2026-09-01', '2026-09-01')"
                     )
                     // A hand-edited category nobody mapped: it must show up on the board, not be guessed at.
                     st.executeUpdate(
                         "INSERT INTO projects (code, name, status, progress, due, type, created_at, updated_at) " +
-                            "VALUES ('Z-01', 'Odd Job', 'Ongoing', 0, '', 'Rail siding works', '2026-09-01', '2026-09-01')"
+                            "VALUES ('Z-01', 'Odd Job', 'In progress', 0, '', 'Rail siding works', '2026-09-01', '2026-09-01')"
                     )
                 }
             }

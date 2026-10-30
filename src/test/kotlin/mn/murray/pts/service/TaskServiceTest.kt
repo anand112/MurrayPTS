@@ -20,6 +20,8 @@ import mn.murray.pts.repository.ProjectBucketRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TaskRepository
 import mn.murray.pts.repository.TeamRepository
+import mn.murray.pts.repository.TypeDefaultBucketRepository
+import mn.murray.pts.seedOpeningThree
 import org.jetbrains.exposed.sql.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -66,12 +68,12 @@ class TaskServiceTest {
         TeamRepository.upsert(Member("EMP0001", "Munkhtsetseg", "Operations", "Project Manager"))
         TeamRepository.upsert(Member("EMP0002", "Bat-Erdene", "Workshop", "Engineer"))
         val id = ProjectRepository.insert(
-            code = "S-01", name = haulRoad, status = "Ongoing", progress = 0,
+            code = "S-01", name = haulRoad, status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "2027-03-30", type = "Site projects",
         )
-        // Stage 48: every project board carries the six, and a project card has to name one of them, so the
-        // harness seeds them the way [ProjectService.create] does — before any card is written.
-        ProjectBucketRepository.seedDefaults(id)
+        // Stage 48, re-cut by Stage 75 and left alone by Stage 100: this board holds the three phases the cards
+        // below name, written here because the harness inserts the project row itself.
+        seedOpeningThree(id)
     }
 
     @AfterEach
@@ -80,9 +82,10 @@ class TaskServiceTest {
     /**
      * The form a card is written with.
      *
-     * [lane] is the **name** the popup posts (Stage 48), because that is what the field carries: the six
-     * sub-categories are the same six on every project, so a name is the answer a form can post without
-     * knowing this project's lane ids. It defaults to one of them so the tests about everything else — dates,
+     * [lane] is the **name** the popup posts (Stage 48), because that is what the field carries: the three phases
+     * are what every project's board opens with, so a name is the answer a form can post without knowing this
+     * project's lane ids — and it is resolved against that board, which is what makes an edited column refuse its
+     * old name (Stage 75). It defaults to one of them so the tests about everything else — dates,
      * assignees, plans — describe a card that is actually filed, and a test that wants the other answers says
      * so: `lane = null` is a form that posted no field at all (a greyed select), and `lane = ""` is the
      * placeholder a reader left chosen.
@@ -95,7 +98,7 @@ class TaskServiceTest {
         due: String = "2026-11-12",
         priority: String = "High",
         status: String = "Not started",
-        lane: String? = "Site projects",
+        lane: String? = "Production",
     ) = TaskDraft(
         title = title, projectName = project, assigneeEmpNo = assignee,
         started = started, due = due, priority = priority, status = status,
@@ -297,23 +300,44 @@ class TaskServiceTest {
         assertEquals("Choose a priority from the list.", result.error(TaskField.PRIORITY))
     }
 
-    // --- who may open the editor -------------------------------------------------------------
+    // --- who may open the popup (Stage 86) -----------------------------------------------------
 
     @Test
-    fun `management opens any card, an owner only their own, and a typed id opens nothing`() {
+    fun `any reader opens a project card, and a typed id opens nothing`() {
         val mine = TaskService.create(draft(), "EMP0001", true).taskId!!
         val theirs = TaskService.create(
             draft(title = "Plan the shutdown", assignee = "EMP0001"), "EMP0001", true
         ).taskId!!
-        assertNotNull(TaskService.editableBy(mine, "EMP0002", canManage = false))
-        assertNull(TaskService.editableBy(theirs, "EMP0002", canManage = false))
+        assertNotNull(TaskService.openableBy(mine, "EMP0002", canManage = false))
+        // **Stage 86**: a colleague's project card is on a board every account may read, so it opens for
+        // anybody — read-only, which is the popup's rule ([mn.murray.pts.TaskForm.viewOnly]) and not this
+        // one's. The writes inside it are still refused by their own rules, below.
+        assertNotNull(TaskService.openableBy(theirs, "EMP0002", canManage = false))
+        assertNotNull(TaskService.openableBy(mine, "EMP9999", canManage = false), "a signed-in stranger")
         // A manager reading their own card is a worker on it, so the assignment alone is enough too.
-        assertNotNull(TaskService.editableBy(theirs, "EMP0001", canManage = false))
-        assertNotNull(TaskService.editableBy(mine, "EMP0001", canManage = true))
-        // A card visible on a shared project page is not the reader's to open, and a hand-typed
-        // `?edit=` for a card that has gone comes back as the plain page.
-        assertNull(TaskService.editableBy(mine, "EMP9999", canManage = false))
-        assertNull(TaskService.editableBy(404, "EMP0001", canManage = true))
+        assertNotNull(TaskService.openableBy(theirs, "EMP0001", canManage = false))
+        assertNotNull(TaskService.openableBy(mine, "EMP0001", canManage = true))
+        // A hand-typed `?edit=` for a card that has gone comes back as the plain page.
+        assertNull(TaskService.openableBy(404, "EMP0001", canManage = true))
+    }
+
+    @Test
+    fun `a backlog card opens only for management and its holder`() {
+        // The Other tasks board is not a shared board: since Stage 51 a non-manager's view of it is their own
+        // cards, so somebody else's card there is not theirs to open, whatever `?edit=` claims.
+        val site = backlog("Site works")
+        val card = TaskService.createBacklog(
+            backlogDraft(column = site, assignee = "EMP0001"), "EMP0001", canManage = true
+        ).taskId!!
+        assertNotNull(TaskService.openableBy(card, "EMP0001", canManage = false), "its holder")
+        assertNotNull(TaskService.openableBy(card, "EMP0002", canManage = true), "management")
+        assertNull(TaskService.openableBy(card, "EMP0002", canManage = false), "a colleague's backlog card")
+        // Reading is not writing: the colleague is refused the save even though the popup now has readers the
+        // editor never had (the popup's own rule, checked again here because a hand-built POST is the way this
+        // gets tested).
+        val save = TaskService.updateAssigned(card, backlogDraft(column = site, title = "Rewritten"), "EMP0002", false)
+        assertNull(save.taskId, "a stranger wrote a backlog card")
+        assertNotNull(save.errors[TaskField.PERMISSION], "the refusal did not name the permission")
     }
 
     // --- deleting ------------------------------------------------------------------------
@@ -401,13 +425,16 @@ class TaskServiceTest {
     }
 
     @Test
-    fun `a normal account cannot write the list, even on their own card`() {
+    fun `the assignee adds to their own plan, a stranger does not, and neither takes a step off`() {
         val id = TaskService.create(draft(), "EMP0001", true).taskId!!
         val step = TaskService.addChecklistItem(id, "Manager step", "EMP0001", true)!!
-        assertNull(TaskService.addChecklistItem(id, "My own step", "EMP0002", false))
-        assertFalse(TaskService.removeChecklistItem(step, "EMP0002", false))
-        assertEquals(listOf("Manager step"), ChecklistRepository.itemsOf(id).map { it.label })
-        // …but they do work the list management wrote for them.
+        // Stage 89: the person doing the work plans their own card, alongside management.
+        assertNotNull(TaskService.addChecklistItem(id, "My own step", "EMP0002", false))
+        // …a colleague who can see the card is still refused, and the list stays management's to shorten.
+        assertNull(TaskService.addChecklistItem(id, "Somebody else's step", "EMP9999", false))
+        assertFalse(TaskService.removeChecklistItem(step, "EMP0002", false), "the owner struck a line off")
+        assertEquals(listOf("Manager step", "My own step"), ChecklistRepository.itemsOf(id).map { it.label })
+        // The whole list, whoever wrote each line, is the owner's to work down.
         assertTrue(TaskService.toggleChecklistItem(step, "EMP0002", false))
     }
 
@@ -467,6 +494,135 @@ class TaskServiceTest {
         assertNull(ChecklistRepository.find(step), "the step outlived its card")
         // A tick on the row that used to hang off it cannot report success.
         assertFalse(TaskService.toggleChecklistItem(step, "EMP0002", false))
+    }
+
+    // --- finishing a card moves its plan, and reopening it puts the plan back ----------------
+
+    /** A card's plan, written the way management writes one: the labels, in the order they were typed. */
+    private fun plan(taskId: Int, vararg labels: String): List<Int> =
+        labels.map { TaskService.addChecklistItem(taskId, it, "EMP0001", true)!! }
+
+    /** What the card's steps read, in append order — the shape a restore is judged on. */
+    private fun ticks(taskId: Int): List<Boolean> = ChecklistRepository.itemsOf(taskId).map { it.done }
+
+    @Test
+    fun `moving a card into Completed ticks every step and moving it back restores where each stood`() {
+        val id = TaskService.create(draft(status = "In progress"), "EMP0001", true).taskId!!
+        val steps = plan(id, "Set out the haul road", "Compact the sub-base", "Survey the start line")
+        // Two of the three worked, the third not: the exact shape a restore has to come back to.
+        steps.take(2).forEach { assertTrue(TaskService.toggleChecklistItem(it, "EMP0002", false)) }
+        assertEquals(listOf(true, true, false), ticks(id))
+
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0002", false))
+        val finished = TaskRepository.findById(id)!!
+        assertEquals(3, finished.checklistDone, "the finish left a step of the plan unticked")
+        assertEquals(100, finished.progressPercent, "a completed card does not read as finished")
+
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0002", false))
+        assertEquals(listOf(true, true, false), ticks(id), "the plan did not come back as it was")
+    }
+
+    @Test
+    fun `the popup's status picker ticks and restores the plan exactly like the drag does`() {
+        val id = TaskService.create(draft(), "EMP0001", true).taskId!!
+        plan(id, "First", "Second")
+        assertTrue(TaskService.toggleChecklistItem(ChecklistRepository.itemsOf(id).last().id, "EMP0001", true))
+
+        // The same card, saved back with a different status — what the **Status** picker posts.
+        TaskService.updateAssigned(id, draft(status = "Completed"), "EMP0001", true)
+        assertEquals(listOf(true, true), ticks(id), "a save into Completed left the plan alone")
+
+        TaskService.updateAssigned(id, draft(status = "Blocked"), "EMP0001", true)
+        assertEquals(listOf(false, true), ticks(id), "a save out of Completed did not put the plan back")
+    }
+
+    @Test
+    fun `a second completion remembers the plan as it stood the second time`() {
+        val id = TaskService.create(draft(), "EMP0001", true).taskId!!
+        val steps = plan(id, "First", "Second")
+        // Finished with nothing ticked, then reopened: both steps come back unticked.
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertEquals(listOf(false, false), ticks(id), "the first restore remembered the wrong thing")
+
+        // Work one step, finish again, reopen: the memory has to be the plan as it stands *now*.
+        assertTrue(TaskService.toggleChecklistItem(steps.first(), "EMP0001", true))
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertEquals(listOf(true, false), ticks(id), "the second completion re-used the first snapshot")
+    }
+
+    @Test
+    fun `no box moves on a finished card, whichever account reaches for it`() {
+        val id = TaskService.create(draft(), "EMP0001", true).taskId!!
+        val steps = plan(id, "First", "Second")
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertFalse(TaskService.toggleChecklistItem(steps.first(), "EMP0001", true), "management unticked a finished card")
+        assertFalse(TaskService.toggleChecklistItem(steps.first(), "EMP0002", false), "its owner unticked a finished card")
+        assertEquals(listOf(true, true), ticks(id), "a refused tick still moved the row")
+        // And the way back to working the plan is the one this rule promises: move the card out.
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertEquals(listOf(false, false), ticks(id))
+    }
+
+    @Test
+    fun `a step added to a finished card lands unticked, and the next finish ticks it`() {
+        val id = TaskService.create(draft(status = "Completed"), "EMP0001", true).taskId!!
+        // Stage 101: the add line writes work still to do whatever column the card is in. A card created
+        // straight into Completed arrives with no plan; the line written afterwards is not a receipt.
+        val late = TaskService.addChecklistItem(id, "Added after the fact", "EMP0001", true)!!
+        assertFalse(ChecklistRepository.find(late)!!.done, "a step added to a finished card ticked itself")
+        assertEquals(0, TaskRepository.findById(id)!!.progressPercent, "the late step counted as done")
+
+        // The same from the person the card belongs to, which is the path the reader reported.
+        val own = TaskService.addChecklistItem(id, "Owner's own step", "EMP0002", false)!!
+        assertFalse(ChecklistRepository.find(own)!!.done, "the owner's new step ticked itself")
+
+        // Reopening has nothing to restore on either step — neither was ever remembered — so both come
+        // back exactly as they were written.
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertFalse(ChecklistRepository.find(late)!!.done, "a restore moved a step that had no earlier state")
+
+        // The completion rule itself is untouched: the finish ticks the plan the card actually has, and the
+        // next reopen puts each step back where it stood — unticked.
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertTrue(ChecklistRepository.find(late)!!.done, "the finish left a step of the plan unticked")
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertFalse(ChecklistRepository.find(late)!!.done)
+        assertFalse(ChecklistRepository.find(own)!!.done, "the owner's step came back ticked")
+    }
+
+    @Test
+    fun `a save that leaves the status alone leaves the plan alone`() {
+        val id = TaskService.create(draft(status = "In progress"), "EMP0001", true).taskId!!
+        val steps = plan(id, "First", "Second")
+        assertTrue(TaskService.toggleChecklistItem(steps.first(), "EMP0001", true))
+        assertEquals(listOf(true, false), ticks(id))
+        // An ordinary due-date edit carries the card's own status back through the popup, and must not
+        // re-snapshot the plan on its way — the memory a later restore needs is the one a real finish writes.
+        TaskService.updateAssigned(id, draft(status = "In progress", due = "2026-11-20"), "EMP0001", true)
+        assertEquals(listOf(true, false), ticks(id), "a save that changed no status moved the plan")
+        // The owner's save reads its status back from the row, so a plan cannot be moved by a field that is
+        // greyed on their popup — even one a hand-built POST fills in.
+        TaskService.updateAssigned(id, draft(status = "Completed", due = "2026-11-25"), "EMP0002", false)
+        assertEquals("In progress", TaskRepository.findById(id)!!.status, "a non-manager finished a card")
+        assertEquals(listOf(true, false), ticks(id), "a status nobody moved still ticked the plan")
+        // And the memory the real finish writes is the one the no-op saves left alone.
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", true))
+        assertEquals(listOf(true, false), ticks(id), "the untouched memory was overwritten")
+    }
+
+    @Test
+    fun `a card with no steps finishes and reopens with nothing to remember`() {
+        val id = TaskService.create(draft(), "EMP0001", true).taskId!!
+        assertTrue(TaskService.updateStatus(id, "Completed", "EMP0001", true))
+        assertNull(TaskRepository.findById(id)!!.progressPercent, "an empty plan read as a finished one")
+        assertTrue(TaskService.updateStatus(id, "Not started", "EMP0001", true))
+        assertTrue(ChecklistRepository.itemsOf(id).isEmpty())
+        // A step written afterwards is an ordinary step on an ordinary card: unticked.
+        assertNotNull(TaskService.addChecklistItem(id, "Planned after the reopen", "EMP0001", true))
+        assertFalse(ChecklistRepository.itemsOf(id).single().done)
     }
 
     // --- the running log under a card ---------------------------------------------------------
@@ -598,8 +754,8 @@ class TaskServiceTest {
 
     @Test
     fun `a project nothing can measure keeps the number stored on its row`() {
-        val unplanned = Project(id = 7, code = "F-01", name = "Office redecorating", status = "Ongoing", progress = 40, manager = "", due = "")
-        val measured = Project(id = 8, code = "F-02", name = haulRoad, status = "Ongoing", progress = 40, manager = "", due = "")
+        val unplanned = Project(id = 7, code = "F-01", name = "Office redecorating", status = "In progress", progress = 40, manager = "", due = "")
+        val measured = Project(id = 8, code = "F-02", name = haulRoad, status = "In progress", progress = 40, manager = "", due = "")
         val board = mapOf(haulRoad to 75)
         assertEquals(40, TaskService.displayedProgress(unplanned, board), "a project with no plan lost its own figure")
         assertEquals(75, TaskService.displayedProgress(measured, board), "the stored number still won where the checklists measured")
@@ -623,41 +779,41 @@ class TaskServiceTest {
     private fun haulRoadId(): Int = ProjectRepository.findAll().first { it.name == haulRoad }.id
 
     /**
-     * This project's six lanes, seeded the way [ProjectService.create] seeds a project it just wrote.
+     * This project's lanes, seeded the way [ProjectService.create] seeds a project it just wrote.
      *
      * Seeded on first use rather than in [setUp] so the rules above stay about what they test: none of them
      * reads a lane row, and the cards they write name a lane by **name**, which is what the popup posts.
      */
     private fun lanes(): List<ProjectBucket> {
         val id = haulRoadId()
-        if (TaskService.lanesOf(id).isEmpty()) ProjectBucketRepository.seedDefaults(id)
+        if (TaskService.lanesOf(id).isEmpty()) seedOpeningThree(id)
         return TaskService.lanesOf(id)
     }
 
     /** A second project with a board of its own, for the rules that have to tell two sets of lanes apart. */
     private fun otherProject(): Int {
         val id = ProjectRepository.findAll().firstOrNull { it.name == bay }?.id ?: ProjectRepository.insert(
-            code = "M-09", name = bay, status = "Ongoing", progress = 0,
+            code = "M-09", name = bay, status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "2027-03-30", type = "Manufacturing",
         )
-        if (TaskService.lanesOf(id).isEmpty()) ProjectBucketRepository.seedDefaults(id)
+        if (TaskService.lanesOf(id).isEmpty()) seedOpeningThree(id)
         return id
     }
 
     @Test
-    fun `a project starts with the six shared lanes and an extra is appended to its own board`() {
+    fun `a project starts with the three phase lanes and an extra is appended to its own board`() {
         assertEquals(DEFAULT_PROJECT_BUCKETS, lanes().map { it.name })
         val added = TaskService.addLane(haulRoadId(), "Haul", "EMP0001", canManage = true)
         assertTrue(added.added, "a lane name nobody objected to was refused")
-        // Stage 48: the six are the same six on every board, and a lane a project adds itself rides at the end
-        // of them rather than replacing one.
+        // Stage 48, re-cut by Stage 75: the three phases are what every board opens with, and a lane a project
+        // adds itself rides at the end of them rather than replacing one.
         assertEquals(
             DEFAULT_PROJECT_BUCKETS + "Haul",
             TaskService.lanesOf(haulRoadId()).map { it.name },
         )
         // The order is the order of the columns on the board, so a new lane lands at the right end.
-        assertEquals(listOf(0, 1, 2, 3, 4, 5, 6), TaskService.lanesOf(haulRoadId()).map { it.position })
-        // Somebody else's board is untouched: an extra lane belongs to one project, even though the six do not.
+        assertEquals(listOf(0, 1, 2, 3), TaskService.lanesOf(haulRoadId()).map { it.position })
+        // Somebody else's board is untouched: an extra lane belongs to one project, even though the phases do not.
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(otherProject()).map { it.name })
     }
 
@@ -674,9 +830,9 @@ class TaskServiceTest {
         // behind do not become a second column of the same thing.
         assertEquals(
             LaneError.DUPLICATE,
-            TaskService.addLane(id, " site PROJECTS ", "EMP0001", canManage = true).error,
+            TaskService.addLane(id, " proDUCTION ", "EMP0001", canManage = true).error,
         )
-        assertEquals(6, TaskService.lanesOf(id).size, "a refused lane wrote a column anyway")
+        assertEquals(3, TaskService.lanesOf(id).size, "a refused lane wrote a column anyway")
     }
 
     @Test
@@ -693,19 +849,20 @@ class TaskServiceTest {
 
     @Test
     fun `a new card lands in the lane its form names, and the project's manager drags it from there`() {
-        val fabrication = lanes().first()
+        val engineering = lanes().first()
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
-        // Stage 48: the card is filed where the form said. A name is what the popup posts, because the six are
-        // the same six on every board, and this is the answer the general board's popup gives.
-        val named = lanes().first { it.name == "Site projects" }
+        // Stage 48, re-cut by Stage 75: the card is filed where the form said. A name is what the popup posts,
+        // because the three phases are what every board opens with, and this is the answer the general board's
+        // popup gives — resolved against *this* project, which is what lets a renamed column refuse its old name.
+        val named = lanes().first { it.name == "Production" }
         assertEquals(named.id, TaskRepository.findById(id)!!.projectBucketId, "the lane the form named was not kept")
         // Stage 49: the mover is the account that may write onto this project, and EMP0001 is that account with
         // no elevated role at all — the project names them as its manager.
-        assertTrue(TaskService.moveToLane(id, fabrication.id, "EMP0001", canManage = false))
+        assertTrue(TaskService.moveToLane(id, engineering.id, "EMP0001", canManage = false))
         val moved = TaskRepository.findById(id)!!
-        assertEquals(fabrication.id, moved.projectBucketId)
+        assertEquals(engineering.id, moved.projectBucketId)
         assertEquals(
-            "Fabrication/Manufacturing",
+            "Engineering",
             moved.projectBucket,
             "the board cannot name the column the card is in",
         )
@@ -730,9 +887,10 @@ class TaskServiceTest {
     @Test
     fun `a lane name that is not on this project's board is refused`() {
         lanes()
-        // The six carry the same names on every board, so a name cannot borrow one project's standard column
-        // from another; only a lane a project added for itself can be foreign, and that is the case the lookup
-        // has to catch. The check is made against the project the form resolved to, never against the name.
+        // The three phases open every board under the same names, so a name cannot borrow one project's column
+        // from another — the lookup resolves it against the project the form resolved to, never against the name.
+        // Since Stage 75 a board's own manager can rename or remove one of them, which makes a name that is not
+        // on *this* board an ordinary case rather than a curiosity, and this is the check that catches it.
         val extra = TaskService.addLane(otherProject(), "Haul", "EMP0001", canManage = true).bucket!!
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
         val refused = TaskService.updateAssigned(id, draft(lane = extra.name), "EMP0001", canManage = true)
@@ -746,15 +904,15 @@ class TaskServiceTest {
 
     @Test
     fun `a stranger cannot file a card, nor file one on somebody else's lane`() {
-        val fabrication = lanes().first()
+        val engineering = lanes().first()
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
         val whereItStarted = TaskRepository.findById(id)!!.projectBucketId
         TeamRepository.upsert(Member("EMP0003", "Naran", "Survey", "Surveyor"))
-        assertFalse(TaskService.moveToLane(id, fabrication.id, "EMP0003", canManage = false))
+        assertFalse(TaskService.moveToLane(id, engineering.id, "EMP0003", canManage = false))
         // **The card's own assignee is one of those strangers now** (Stage 49). They work this card — its dates,
         // its priority, its own Done button — but which lane of the project it sits in is a statement about the
         // project's plan, and the account that owns the plan is the one that gets to change it.
-        assertFalse(TaskService.moveToLane(id, fabrication.id, "EMP0002", canManage = false))
+        assertFalse(TaskService.moveToLane(id, engineering.id, "EMP0002", canManage = false))
         // A lane of another project is not a place on this card's board, even for management: the lane id a
         // drop posts is the browser's word for where the card went, and the board it came from is checkable.
         val foreign = TaskService.lanesOf(otherProject()).first()
@@ -768,10 +926,10 @@ class TaskServiceTest {
         // The two halves of [mayAddTasks] read the same way here as they do on the page's `+ Add task` lines:
         // management anywhere, and on this board the one account `projects.manager_emp_no` names — whatever the
         // card itself says about who is doing the work.
-        val fabrication = lanes().first()
+        val engineering = lanes().first()
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
-        assertTrue(TaskService.moveToLane(id, fabrication.id, "EMP0001", canManage = false))
-        assertEquals(fabrication.id, TaskRepository.findById(id)!!.projectBucketId)
+        assertTrue(TaskService.moveToLane(id, engineering.id, "EMP0001", canManage = false))
+        assertEquals(engineering.id, TaskRepository.findById(id)!!.projectBucketId)
         // A project that names nobody is management's board alone. `null` rather than a blank, because the
         // column is a key into the roster and SQLite's foreign keys read "" as a person who is not in it.
         ProjectRepository.setManager(projectId(), null)
@@ -781,64 +939,64 @@ class TaskServiceTest {
 
     @Test
     fun `the Unsorted column is not somewhere a card can be sent`() {
-        val fabrication = lanes().first()
+        val engineering = lanes().first()
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
         // Asked of a mover (Stage 49), so the refusal below is about the column and not about the caller.
-        assertTrue(TaskService.moveToLane(id, fabrication.id, "EMP0001", canManage = false))
+        assertTrue(TaskService.moveToLane(id, engineering.id, "EMP0001", canManage = false))
         // The column is still printed for the cards that arrived before this rule, and it is the state a legacy
         // row reads as — but a drag onto it would take a card off every column on the board, so it is refused.
         assertFalse(TaskService.moveToLane(id, 0, "EMP0001", canManage = false))
-        assertEquals(fabrication.id, TaskRepository.findById(id)!!.projectBucketId, "a refused drag un-filed the card")
+        assertEquals(engineering.id, TaskRepository.findById(id)!!.projectBucketId, "a refused drag un-filed the card")
     }
 
     @Test
     fun `a save that says nothing about a lane leaves the card where it is`() {
-        val fabrication = lanes().first()
-        val id = TaskService.create(draft(lane = fabrication.name), "EMP0001", canManage = true).taskId!!
+        val engineering = lanes().first()
+        val id = TaskService.create(draft(lane = engineering.name), "EMP0001", canManage = true).taskId!!
         // An assignee's popup greys the lane, and a disabled select posts nothing at all: absent is not the same
         // answer as the empty option, and a due date saved there must not clear the card's column.
         val result = TaskService.updateAssigned(
             id, draft(due = "2026-11-30", lane = null), "EMP0002", canManage = false,
         )
         assertEquals(id, result.taskId, "${result.errors}")
-        assertEquals(fabrication.id, TaskRepository.findById(id)!!.projectBucketId)
+        assertEquals(engineering.id, TaskRepository.findById(id)!!.projectBucketId)
         // Their form names no project either; both answers come back from the row.
         val theirs = TaskService.updateAssigned(
             id, draft(project = bay, status = "Blocked", lane = null), "EMP0002", canManage = false,
         )
         assertEquals(id, theirs.taskId, "${theirs.errors}")
-        assertEquals(fabrication.id, TaskRepository.findById(id)!!.projectBucketId, "an owner refiled their own card")
+        assertEquals(engineering.id, TaskRepository.findById(id)!!.projectBucketId, "an owner refiled their own card")
     }
 
     @Test
     fun `management moves a card to the lane the popup names`() {
         val lanes = lanes()
-        val repair = lanes.first { it.name == "Repair/Maintenance" }
+        val procurement = lanes.first { it.name == "Procurement" }
         val id = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
-        val moved = TaskService.updateAssigned(id, draft(lane = repair.name), "EMP0001", canManage = true)
+        val moved = TaskService.updateAssigned(id, draft(lane = procurement.name), "EMP0001", canManage = true)
         assertEquals(id, moved.taskId, "${moved.errors}")
-        assertEquals(repair.id, TaskRepository.findById(id)!!.projectBucketId)
+        assertEquals(procurement.id, TaskRepository.findById(id)!!.projectBucketId)
         // Leaving the field alone is not the same as naming the placeholder: an edit that posts no lane keeps the
         // card where it stands, because the board it is on did not change.
         val untouched = TaskService.updateAssigned(id, draft(priority = "Low", lane = null), "EMP0001", true)
         assertEquals(id, untouched.taskId, "${untouched.errors}")
-        assertEquals(repair.id, TaskRepository.findById(id)!!.projectBucketId, "a save moved a card nobody redirected")
+        assertEquals(procurement.id, TaskRepository.findById(id)!!.projectBucketId, "a save moved a card nobody redirected")
     }
 
     @Test
     fun `a card handed to another project is filed on the new board, not left in a lane of the old one`() {
-        val fabrication = lanes().first()
-        val id = TaskService.create(draft(lane = fabrication.name), "EMP0001", canManage = true).taskId!!
+        val engineering = lanes().first()
+        val id = TaskService.create(draft(lane = engineering.name), "EMP0001", canManage = true).taskId!!
         val bayId = otherProject()
-        // Both boards print the six, so a name is the whole answer: the card lands in the new project's own
-        // column of that name, which is a different row from the one it left.
+        // Both boards open with the same three phases, so a name is the whole answer: the card lands in the new
+        // project's own column of that name, which is a different row from the one it left.
         val result = TaskService.updateAssigned(id, draft(project = bay), "EMP0001", canManage = true)
         assertEquals(id, result.taskId, "${result.errors}")
         val card = TaskRepository.findById(id)!!
         assertEquals(bay, card.project)
-        assertEquals("Site projects", card.projectBucket, "the card kept a lane of the board it left")
+        assertEquals("Production", card.projectBucket, "the card kept a lane of the board it left")
         assertNotNull(ProjectBucketRepository.find(card.projectBucketId))
-        assertTrue(card.projectBucketId != fabrication.id, "the card still points at the column it arrived from")
+        assertTrue(card.projectBucketId != engineering.id, "the card still points at the column it arrived from")
         // And a form that changes the project without naming a column is refused rather than filed under nothing:
         // the stored lane belongs to the board the card is leaving, so there is nothing here to keep.
         val refused = TaskService.updateAssigned(
@@ -862,9 +1020,19 @@ class TaskServiceTest {
         assertEquals(0, card!!.projectBucketId, "the card still points at a column that is gone")
     }
 
-    // --- relieving a board of a lane (Stage 31, bounded by Stage 48) ---------------------------------
+    // --- relieving a board of a lane (Stage 31; a control again since Stage 74; the floor gone since 75) -----
+    //
+    // Stage 35 took the × off a column head and Stage 52 took the columns themselves off a project page, so
+    // between those two this service answered only a hand-built POST. Stage 74 gives a board its buckets back as
+    // columns and puts a `⋯` on each one, whose popup asks for exactly two writes: this rename and this removal.
+    // The rules below are still what they pin — the answer a POST gets, and the schema's promise that
+    // dropping a lane never deletes the work filed in it. What **Stage 75** changes is which lanes these rules
+    // cover: the three a board opens with are now ordinary columns, so every one of them is removable while it
+    // holds nothing, and the only floor left is the one lane a board cannot do without. Where the reachable picker
+    // is *narrower* than the service (a bucket with cards in it does not come off at all, because the reader's
+    // board has no column for an un-filed card to be hidden in), the tests for that are in the group after these.
 
-    /** This board's six, plus one lane the project added for itself — the removable half. */
+    /** This board's opening lanes, plus one the project added for itself. */
     private fun extraLane(id: Int = haulRoadId()): ProjectBucket =
         TaskService.addLane(id, "Haul", "EMP0001", canManage = true).bucket!!
 
@@ -873,30 +1041,41 @@ class TaskServiceTest {
         val id = haulRoadId()
         val haul = extraLane()
         // The whole right-hand side of the service: the name goes, and the board is the board minus one.
-        assertNull(TaskService.removeLane(id, haul.id, "EMP0001", canManage = false), "the manager's own lane refused")
+        assertTrue(
+            TaskService.removeLane(id, haul.id, "EMP0001", canManage = false).ok,
+            "the manager's own lane refused",
+        )
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
         // The columns keep the positions they were given rather than being renumbered: the order on the board
         // is what it always was, only with the extra one gone.
-        assertEquals(listOf(0, 1, 2, 3, 4, 5), TaskService.lanesOf(id).map { it.position })
+        assertEquals(listOf(0, 1, 2), TaskService.lanesOf(id).map { it.position })
         // Somebody else's board is untouched, as with every other lane rule.
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(otherProject()).map { it.name })
     }
 
     @Test
-    fun `the six sub-categories cannot be taken off a board`() {
+    fun `a lane the board opened with can be taken off like any other`() {
         val id = haulRoadId()
-        // Stage 48 made these the structure rather than a starting suggestion: every project card has to be
-        // filed in one of them, so a board missing one could not hold the cards the popup offers to file. The
-        // refusal is the same for the project's own manager and for management, and it comes before the lane is
-        // looked at the board for, so nothing is half-done.
-        lanes().forEach { lane ->
-            assertEquals(LaneError.STANDARD, TaskService.removeLane(id, lane.id, "EMP0001", canManage = false))
-            assertEquals(LaneError.STANDARD, TaskService.removeLane(id, lane.id, "EMP0001", canManage = true))
-        }
-        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name }, "a refusal took a column")
-        // A name that happens to match the domain's, written by hand, is still the standard lane it is: the rule
-        // reads the name, not how the row arrived.
-        assertNotNull(ProjectBucketRepository.find(lanes().first().id))
+        // Stage 48 made the six a structure rather than a starting suggestion and refused these by a rule of
+        // their own, checked before the lane was even looked at the board for. **Stage 75 retired that rule**:
+        // a project's board is its own business, the popup files a card against the lanes this board has, and a
+        // manager who says this project has no **Engineering** has said something about this project. What stops
+        // a removal now is work and the last column, not the name — and the same for the project's own manager
+        // and for management, which is what the two calls below are for.
+        val engineering = lanes().first()
+        assertTrue(TaskService.removeLane(id, engineering.id, "EMP0001", canManage = false).ok)
+        assertTrue(
+            TaskService.removeLane(id, TaskService.lanesOf(id).last().id, "EMP0001", canManage = true).ok,
+            "management was refused an opening lane",
+        )
+        assertEquals(listOf("Procurement"), TaskService.lanesOf(id).map { it.name }, "a removal took two columns")
+        // A name the board no longer carries is not somewhere a card can be filed — the refusal the old floor
+        // protected is now just the ordinary "not on this board" answer, and it goes to the field, not the page.
+        val stale = TaskService.create(draft(lane = "Engineering"), "EMP0001", canManage = true)
+        assertNull(stale.taskId, "a card was filed in a column this board took off")
+        assertEquals(TaskField.LANE, stale.errors.keys.first())
+        // Somebody else's board keeps all three: taking a phase off one project is not a company-wide edit.
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(otherProject()).map { it.name })
     }
 
     @Test
@@ -905,13 +1084,13 @@ class TaskServiceTest {
         val haul = extraLane()
         // The same right that names a lane, so a control nobody may use is never printed: EMP0002 works a card
         // here and EMP0003 is an account with nothing to do with this project, and neither can empty a column.
-        assertEquals(LaneError.DENIED, TaskService.removeLane(id, haul.id, "EMP0002", canManage = false))
-        assertEquals(LaneError.DENIED, TaskService.removeLane(id, haul.id, "EMP0003", canManage = false))
-        assertEquals(7, TaskService.lanesOf(id).size, "a refused removal took a column anyway")
+        assertEquals(LaneError.DENIED, TaskService.removeLane(id, haul.id, "EMP0002", canManage = false).error)
+        assertEquals(LaneError.DENIED, TaskService.removeLane(id, haul.id, "EMP0003", canManage = false).error)
+        assertEquals(4, TaskService.lanesOf(id).size, "a refused removal took a column anyway")
         // Management may, from any project's board; this project's own manager may with no elevated role at all.
-        assertNull(TaskService.removeLane(id, haul.id, "EMP0002", canManage = true))
+        assertTrue(TaskService.removeLane(id, haul.id, "EMP0002", canManage = true).ok)
         val second = extraLane()
-        assertNull(TaskService.removeLane(id, second.id, "EMP0001", canManage = false))
+        assertTrue(TaskService.removeLane(id, second.id, "EMP0001", canManage = false).ok)
     }
 
     @Test
@@ -922,50 +1101,549 @@ class TaskServiceTest {
         val foreign = ProjectBucketRepository.ofProject(bayId).first()
         // The form posts a lane id, and an id is the browser's word for a column, not proof of one: a lane of
         // another project's board is not on this one, however much the person posting it may manage both.
-        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, foreign.id, "EMP0001", canManage = true))
-        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, 4242, "EMP0001", canManage = true))
-        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, 0, "EMP0001", canManage = true))
+        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, foreign.id, "EMP0001", canManage = true).error)
+        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, 4242, "EMP0001", canManage = true).error)
+        assertEquals(LaneError.NO_LANE, TaskService.removeLane(id, 0, "EMP0001", canManage = true).error)
         // A project that is gone has no board to relieve either, and that is read before the lane is.
-        assertEquals(LaneError.NO_PROJECT, TaskService.removeLane(4242, haul.id, "EMP0001", canManage = true))
+        assertEquals(LaneError.NO_PROJECT, TaskService.removeLane(4242, haul.id, "EMP0001", canManage = true).error)
         assertNotNull(ProjectBucketRepository.find(foreign.id), "a refused removal deleted the borrowed lane")
         assertNotNull(ProjectBucketRepository.find(haul.id), "a refused removal deleted the lane it aimed at")
-        assertEquals(7, TaskService.lanesOf(id).size)
+        assertEquals(4, TaskService.lanesOf(id).size)
         assertEquals(DEFAULT_PROJECT_BUCKETS.size, TaskService.lanesOf(bayId).size)
     }
 
     @Test
-    fun `removing a lane un-files its cards instead of taking them with it`() {
+    fun `removing a lane puts its cards in the archive with the lane they stood in`() {
         val id = haulRoadId()
         val haul = extraLane()
         val card = TaskService.create(draft(lane = haul.name), "EMP0001", canManage = true).taskId!!
-        assertNull(TaskService.removeLane(id, haul.id, "EMP0001", canManage = false))
+        // Stage 81: the column and the work in it leave together. The card is not deleted and not un-filed —
+        // it is flagged archived with the column's id and name remembered, which is what the project's archive
+        // panel prints and the only thing Restore has to read.
+        val removal = TaskService.removeLane(id, haul.id, "EMP0001", canManage = false)
+        assertTrue(removal.ok, "the manager's own lane refused")
+        assertEquals(1, removal.archived, "the removal did not say how much work went with the column")
         val left = TaskRepository.findById(card)
         assertNotNull(left, "the lane went and took the card with it")
-        assertEquals(0, left!!.projectBucketId, "the card still names a column that is gone")
-        // Un-filing is all that happens to it: still this project's card, still the same work, still somebody's.
+        assertTrue(left!!.archived, "the card stayed on a board that no longer has its column")
+        assertEquals(haul.id, left.archivedLaneId, "the archived card does not remember its column")
+        assertEquals(haul.name, left.archivedLane)
+        assertEquals(0, left.projectBucketId, "the card still points at a column that is gone")
+        // Off the board means off every read the board is made of: not a card, not a count, not an alert.
+        assertEquals(0, ProjectBucketRepository.cardCounts(id).values.sum(), "an archived card still counted as work")
+        assertTrue(TaskService.assigned().none { it.id == card }, "an archived card stayed on the board")
+        assertTrue(TaskService.archived(id).any { it.id == card }, "the card is in no archive")
+        // And this is all that happens to it: still this project's card, still the same work, still somebody's.
         assertEquals("Spread base course", left.title)
         assertEquals(haulRoad, left.project)
         assertEquals("EMP0002", left.assignee)
-        // Which is the one state the board prints as Unsorted, and the popup opens it on that placeholder —
-        // see [moveToLane]: the column shows the card, it is not somewhere a card can be sent.
+        // Restore has no column to return to — the lane row has gone — so the card lands in the board's first
+        // column rather than on an Unsorted one nobody chose. The lane it *did* come from is still named in the
+        // panel's row above, which is the whole worth of the snapshot.
+        assertEquals("Engineering", TaskService.restoreCard(card, id, "EMP0001", canManage = false))
+        val back = TaskRepository.findById(card)!!
+        assertFalse(back.archived)
+        assertEquals(lanes().first().id, back.projectBucketId, "the restored card landed on no column")
+        assertEquals("", back.archivedLane, "the restore left the snapshot behind")
     }
 
     @Test
+    fun `an archived card comes back to its own lane when the lane is still on the board`() {
+        val id = haulRoadId()
+        val production = lanes().first { it.name == "Production" }
+        val card = TaskService.create(draft(lane = production.name), "EMP0001", canManage = true).taskId!!
+        // Stage 81's other way into the archive: the card alone, with its column left standing. Nothing about the
+        // row moves except the flag, so the lane it names is still there to go home to.
+        assertTrue(TaskService.archiveCard(card, "EMP0001", canManage = false))
+        assertTrue(TaskRepository.findById(card)!!.archived)
+        assertEquals("Production", TaskRepository.findById(card)!!.archivedLane)
+        assertEquals(production.id, TaskRepository.findById(card)!!.archivedLaneId)
+        assertEquals("Production", TaskService.restoreCard(card, id, "EMP0001", canManage = false))
+        assertEquals(production.id, TaskRepository.findById(card)!!.projectBucketId, "the card did not go home")
+        // A second restore of a card already back is nothing, not a move to the first column.
+        assertNull(TaskService.restoreCard(card, id, "EMP0001", canManage = false))
+        assertEquals(production.id, TaskRepository.findById(card)!!.projectBucketId)
+    }
+
+    @Test
+    fun `archiving a card is the board's right, not its assignee's`() {
+        val id = haulRoadId()
+        val card = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
+        // The same line that takes a column off the board: management, or this project's manager. An assignee
+        // may work the card but does not put it away, and an account with no part in the project may not either.
+        assertFalse(TaskService.archiveCard(card, "EMP0002", canManage = false), "a card's assignee archived it")
+        assertFalse(TaskService.archiveCard(card, "EMP0003", canManage = false), "a stranger archived the card")
+        assertFalse(TaskRepository.findById(card)!!.archived, "a refused archive wrote anyway")
+        // Management is the other half of the right, from any project's board.
+        assertTrue(TaskService.archiveCard(card, "EMP0002", canManage = true), "management was refused")
+        // And the project's own manager, with no elevated role, is the same right at no elevation.
+        val second = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
+        assertTrue(TaskService.archiveCard(second, "EMP0001", canManage = false))
+        // Backlog cards never enter a project's archive: the Other tasks board is cut by status and has no project
+        // page to hold the panel, so management's Delete task stays its answer there.
+        val site = backlog("Site works")
+        val backlog = TaskService.createBacklog(backlogDraft(column = site), "EMP0001", canManage = true).taskId!!
+        assertFalse(TaskService.archiveCard(backlog, "EMP0001", canManage = true), "a backlog card was archived")
+        // A card already archived is not archived a second time: a second write would move its snapshot.
+        assertFalse(TaskService.archiveCard(second, "EMP0001", canManage = true))
+    }
+
+    @Test
+    fun `only an archived card of this project can be deleted for good, and only by the board's right`() {
+        val id = haulRoadId()
+        val card = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
+        val note = TaskService.addNote(card, "Compaction passed", "EMP0002", false)!!
+        val step = TaskService.addChecklistItem(card, "Set out", "EMP0001", true)!!
+        // A live card is not reachable from the archive panel, and a route handed one by hand must not delete it.
+        assertFalse(TaskService.deleteArchived(card, id, "EMP0001", canManage = true), "a live card was deleted")
+        assertNotNull(TaskRepository.findById(card))
+        assertTrue(TaskService.archiveCard(card, "EMP0001", canManage = false))
+        // The right is the archive's own: an assignee or a stranger may not destroy what the board put away.
+        assertFalse(TaskService.deleteArchived(card, id, "EMP0002", canManage = false))
+        assertFalse(TaskService.deleteArchived(card, id, "EMP0003", canManage = false))
+        assertFalse(TaskService.deleteArchived(card, otherProject(), "EMP0001", canManage = true), "another project's panel")
+        assertNotNull(TaskRepository.findById(card), "a refused delete took the card")
+        // The panel's Delete permanently does exactly that, children and all — the FKs cascade, as they always have.
+        assertTrue(TaskService.deleteArchived(card, id, "EMP0001", canManage = false))
+        assertNull(TaskRepository.findById(card), "the deleted card survived")
+        assertNull(NoteRepository.find(note), "the card's log outlived it")
+        assertNull(ChecklistRepository.find(step), "the card's plan outlived it")
+    }
+
+    @Test
+    fun `a card in the archive cannot be opened, saved or deleted from the board`() {
+        val id = haulRoadId()
+        val card = TaskService.create(draft(), "EMP0001", canManage = true).taskId!!
+        assertTrue(TaskService.archiveCard(card, "EMP0001", canManage = true))
+        // No popup: a card in the Archive is not a card on a board, even for the account that draws that board,
+        // so a hand-typed `?edit=` comes back as the ordinary page rather than as an editor for put-away work.
+        assertNull(TaskService.openableBy(card, "EMP0001", canManage = true))
+        assertNull(TaskService.openableBy(card, "EMP0002", canManage = false))
+        // No write through a hand-built save either, and no permanent delete outside the panel: the panel's two
+        // buttons are the only pair of answers an archived card has.
+        val save = TaskService.updateAssigned(card, draft(title = "Rewritten"), "EMP0001", canManage = true)
+        assertNull(save.taskId, "an archived card took a save")
+        assertNotNull(save.errors[TaskField.PERMISSION], "the refusal did not name the Archive")
+        assertFalse(TaskService.deleteAssigned(card, "EMP0001", canManage = true), "the board deleted a put-away card")
+        assertEquals("Spread base course", TaskRepository.findById(card)!!.title, "a refused write changed the row")
+        // Restore is the one way back, and the card opens again once it is on the board.
+        assertNotNull(TaskService.restoreCard(card, id, "EMP0001", canManage = false))
+        assertNotNull(TaskService.openableBy(card, "EMP0001", canManage = true))
+    }
+    @Test
     fun `a board keeps its last lane`() {
         val id = haulRoadId()
-        // With the six standing there is no way down to one lane through the service, and that is the point of
-        // LaneError.STANDARD — which is why it is checked before the count. So the shared rows are taken out
-        // behind its back, the shape a hand-edited board would be, and the one lane left standing is an extra.
-        lanes().forEach { ProjectBucketRepository.delete(it.id) }
-        val last = ProjectBucketRepository.insert(id, "Tendering")
-        // A project page with no lanes at all falls back to the five status columns, which is the shape Stage 30
-        // decided that page does not have — and the in-place swap would have no lane area to swap. So one stays.
-        assertEquals(LaneError.LAST_LANE, TaskService.removeLane(id, last, "EMP0001", canManage = false))
-        assertEquals(LaneError.LAST_LANE, TaskService.removeLane(id, last, "EMP0001", canManage = true))
-        assertEquals(listOf("Tendering"), TaskService.lanesOf(id).map { it.name }, "the final lane was removed anyway")
+        // **Since Stage 75 this is reachable through the service alone**: the three a board opens with are
+        // ordinary columns, so a manager who does not want them can take the board down to one. That is the
+        // shape the rule guards, and it is the only floor left now LaneError.STANDARD is gone.
+        TaskService.lanesOf(id).drop(1).forEach { lane ->
+            assertTrue(
+                TaskService.removeLane(id, lane.id, "EMP0001", canManage = false).ok,
+                "${lane.name} refused to come off its board",
+            )
+        }
+        val last = TaskService.lanesOf(id).single()
+        // One stays, because a project page with no lanes at all would have nothing to be a lane board with and
+        // would fall back to the five status columns — the shape Stage 75 took off that page for good.
+        assertEquals(LaneError.LAST_LANE, TaskService.removeLane(id, last.id, "EMP0001", canManage = false).error)
+        assertEquals(LaneError.LAST_LANE, TaskService.removeLane(id, last.id, "EMP0001", canManage = true).error)
+        assertEquals(listOf("Engineering"), TaskService.lanesOf(id).map { it.name }, "the final lane was removed anyway")
         // And the lane that stands is still a lane a card can be filed in.
-        val card = TaskService.create(draft(lane = "Tendering"), "EMP0001", canManage = true).taskId!!
-        assertEquals(last, TaskRepository.findById(card)!!.projectBucketId)
+        val card = TaskService.create(draft(lane = "Engineering"), "EMP0001", canManage = true).taskId!!
+        assertEquals(last.id, TaskRepository.findById(card)!!.projectBucketId)
+    }
+
+    // --- one column's own name (Stage 32's rules, a control again since Stage 74) -----------------------
+    //
+    // Stage 74's `⋯` asks for a rename of a single bucket, which is a different ask from the picker underneath
+    // the board: that one posts the whole set of **names** and this one posts one name for one id. The rules here
+    // are therefore read one lane at a time, and the two answers a popup cannot reach — a blank and an over-long
+    // name — are still answered here, because a field's `required` and `maxlength` are a courtesy and this is the
+    // rule.
+
+    @Test
+    fun `an extra bucket takes a new name without its cards moving`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        val card = TaskService.create(draft(lane = haul.name), "EMP0001", canManage = true).taskId!!
+        val renamed = TaskService.renameLane(id, haul.id, "Haulage", "EMP0001", canManage = false)
+        assertTrue(renamed.ok, "this project's own manager was refused their own column: ${renamed.message}")
+        // The row's name goes and its id stays, which is the whole difference between a rename and a remove with
+        // an add after it: a card is filed by the column's id, so the work never left.
+        assertEquals("Haulage", ProjectBucketRepository.find(haul.id)?.name, "the rename landed on another row")
+        assertEquals(haul.id, TaskRepository.findById(card)!!.projectBucketId, "a rename un-filed the card in it")
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Haulage"), TaskService.lanesOf(id).map { it.name })
+        // Another board's columns are not this rename's business, however much the same account manages both.
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(otherProject()).map { it.name })
+    }
+
+    @Test
+    fun `a lane the board opened with takes a new name, and the cards in it keep their filing`() {
+        val id = haulRoadId()
+        val engineering = lanes().first()
+        val card = TaskService.create(draft(lane = engineering.name), "EMP0001", canManage = true).taskId!!
+        // Stage 48 refused these by a rule of their own, because the general board's popup filed a card by the six
+        // names and a column that changed its word would stop answering that post. **Stage 75 retired the rule**:
+        // the popup files a card against the lanes of *this* project, and the cards already filed are addressed by
+        // id, so a heading is this board's own business — the project's own manager may retitle it.
+        val renamed = TaskService.renameLane(id, engineering.id, "Design", "EMP0001", canManage = false)
+        assertTrue(renamed.ok, "an opening lane was refused a new name: ${renamed.message}")
+        assertEquals("Design", ProjectBucketRepository.find(engineering.id)?.name, "the rename landed on another row")
+        assertEquals(engineering.id, TaskRepository.findById(card)!!.projectBucketId, "a rename un-filed its own card")
+        assertEquals(listOf("Design", "Procurement", "Production"), TaskService.lanesOf(id).map { it.name })
+        // What the rename does change is the word a form can file by: a popup drawn before it, or a reader typing
+        // the phase they always use, is refused at the Lane field rather than filing the card in the wrong column.
+        val stale = TaskService.create(draft(lane = "Engineering"), "EMP0001", canManage = true)
+        assertNull(stale.taskId, "a renamed column still took a card by its old name")
+        assertEquals("Choose which part of this project the card is on.", stale.error(TaskField.LANE))
+    }
+
+    @Test
+    fun `a board has one column per name and a column renamed to itself is not a clash`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        assertTrue(TaskService.renameLane(id, haul.id, "Haulage", "EMP0001", canManage = false).ok)
+        // Compared trimmed and ignoring case, against the board's *other* columns: a second column with the same
+        // word on it would be two answers to one question, and the picker below cannot tick one name twice.
+        val clash = TaskService.renameLane(id, haul.id, "Engineering", "EMP0001", canManage = false)
+        assertEquals(LaneError.DUPLICATE, clash.error, "a bucket was renamed onto a name this board already has")
+        assertTrue(clash.message!!.contains("already has a bucket"), "the refusal says: ${clash.message}")
+        val second = extraLane()
+        assertEquals(LaneError.DUPLICATE, TaskService.renameLane(id, second.id, " haulage ", "EMP0001", canManage = false).error)
+        // And a column asked for the name it already wears is a save that writes nothing, not a clash with itself:
+        // the popup's Rename button on a field nobody edited must not answer *this board already has that bucket*.
+        val itself = TaskService.renameLane(id, haul.id, " haulAGE ", "EMP0001", canManage = false)
+        assertTrue(itself.ok, "a column renamed to its own name was refused: ${itself.message}")
+        assertEquals("Haulage", ProjectBucketRepository.find(haul.id)?.name, "the no-op rewrote the spelling")
+        assertEquals(5, TaskService.lanesOf(id).size)
+        // **Since Stage 75 a phase name is a name like any other.** Until then a rename onto one was refused by a
+        // rule of its own, whether or not the board still carried it; the clash above is now only the
+        // one-column-per-name rule reading this board, so a word the manager has taken off stops guarding itself
+        // and another column may wear it.
+        val engineering = TaskService.lanesOf(id).first { it.name == "Engineering" }
+        assertTrue(TaskService.removeLane(id, engineering.id, "EMP0001", canManage = false).ok)
+        assertTrue(
+            TaskService.renameLane(id, second.id, "Engineering", "EMP0001", canManage = false).ok,
+            "a phase name the board took off still guarded itself",
+        )
+        assertEquals(4, TaskService.lanesOf(id).size, "the freed name wrote a column of its own")
+    }
+
+    @Test
+    fun `a name that is empty, too long, or aimed at no column here is refused in its own words`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        val blank = TaskService.renameLane(id, haul.id, "   ", "EMP0001", canManage = true)
+        assertEquals(LaneError.BLANK, blank.error)
+        assertTrue(blank.message!!.contains("Give the bucket a name."), "the refusal says: ${blank.message}")
+        val tooLong = TaskService.renameLane(id, haul.id, "x".repeat(PROJECT_BUCKET_MAX + 1), "EMP0001", canManage = true)
+        assertEquals(LaneError.TOO_LONG, tooLong.error)
+        assertTrue(
+            tooLong.message!!.contains("$PROJECT_BUCKET_MAX characters"),
+            "the refusal does not say the limit: ${tooLong.message}",
+        )
+        // A lane id is the browser's word for a column, not proof that one is on this board: another project's
+        // column, one that has gone, and a project that is not there are each refused before a write, and the
+        // board they aimed at stands exactly as it did.
+        val foreign = ProjectBucketRepository.ofProject(otherProject()).first()
+        assertEquals(LaneError.NO_LANE, TaskService.renameLane(id, foreign.id, "Haulage", "EMP0001", canManage = true).error)
+        assertEquals(LaneError.NO_LANE, TaskService.renameLane(id, 4242, "Haulage", "EMP0001", canManage = true).error)
+        assertEquals(LaneError.NO_PROJECT, TaskService.renameLane(4242, haul.id, "Haulage", "EMP0001", canManage = true).error)
+        assertEquals("Haul", ProjectBucketRepository.find(haul.id)?.name, "a refused rename wrote anyway")
+        assertNotNull(ProjectBucketRepository.find(foreign.id), "a refused rename touched the borrowed column")
+    }
+
+    @Test
+    fun `only management or this project's manager may retitle a column`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        // The same right as the picker and the dashed box, which is [mn.murray.pts.service.TaskService.mayEditLanes]
+        // and is what Stage 74 draws its two openers on: EMP0002 works a card here and EMP0003 has nothing to do
+        // with the project, so neither sees a `⋯` and neither can post one.
+        assertEquals(LaneError.DENIED, TaskService.renameLane(id, haul.id, "Haulage", "EMP0002", canManage = false).error)
+        assertEquals(LaneError.DENIED, TaskService.renameLane(id, haul.id, "Haulage", "EMP0003", canManage = false).error)
+        assertEquals("Haul", ProjectBucketRepository.find(haul.id)?.name, "a refused rename wrote anyway")
+        assertTrue(TaskService.renameLane(id, haul.id, "Haulage", "EMP0002", canManage = true).ok, "management was refused")
+        assertTrue(TaskService.renameLane(id, haul.id, "Tipping", "EMP0001", canManage = false).ok, "the manager was refused")
+        assertEquals("Tipping", ProjectBucketRepository.find(haul.id)?.name)
+    }
+
+    @Test
+    fun `retitling a column on one board does not retitle the category`() {
+        val id = haulRoadId()
+        // The one difference Stage 74's rename keeps from the picker's typed add (Stage 73): an add by management
+        // writes the name on this board **and** in `${type}`'s catalogue, because it is inventing a bucket. A
+        // rename changes one board's column, and the catalogue is Settings' to change — so the category keeps
+        // offering the old name to the next project, and this board shows the new one as its own extra.
+        TypeDefaultBucketRepository.insert("Site projects", "Dewatering")
+        val onBoard = ProjectBucketRepository.insert(id, "Dewatering")
+        assertTrue(TaskService.renameLane(id, onBoard, "Pump-out", "EMP0001", canManage = false).ok)
+        assertTrue(TypeDefaultBucketRepository.namesOf("Site projects").contains("Dewatering"), "the catalogue followed")
+        assertFalse(TypeDefaultBucketRepository.namesOf("Site projects").contains("Pump-out"), "the rename widened it")
+        assertEquals("Pump-out", ProjectBucketRepository.find(onBoard)?.name, "the board kept the old name")
+    }
+
+    // --- the whole-board save (Stage 73) ------------------------------------------------------------
+
+    /**
+     * One press of a board's bucket save: the ticked **names**, the one name typed in the add box, and who pressed
+     * it. Since **Stage 79** the page's caller is the `+ Add bucket` form inside the column popup, which posts the
+     * board's whole set as hidden fields plus its one new name — and the create popup reaches the same rules
+     * through [mn.murray.pts.service.ProjectService.create]. By default the presser is this project's own manager
+     * without an elevated role, which is the reader Stage 73 was asked for; [manage] is what management looks like
+     * to the same call.
+     *
+     * [forType] is Stage 77's tick under the add box — *also offer it to new projects of this type*. Off by
+     * default, because off is the answer the form means almost every time: the name stays this board's column
+     * and the category is not told.
+     */
+    private fun ticked(
+        id: Int,
+        vararg names: String,
+        typed: String = "",
+        by: String = "EMP0001",
+        manage: Boolean = false,
+        forType: Boolean = false,
+    ) = TaskService.saveLanes(id, names.toList(), typed, by, manage, alsoForType = forType)
+
+    @Test
+    fun `a bucket ticked from the category joins the board and an empty unticked one leaves it`() {
+        val id = haulRoadId()
+        extraLane()                                        // "Haul", holding nothing: the board's spare
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        // **The tick-list is the whole board** (Stage 75): a real press posts every bucket the project is to keep,
+        // the three it opened with included, because those three are lanes like any other now and not a floor
+        // the form is silent about.
+        val saved = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), "Commissioning")   // and Haul left off
+        assertTrue(saved.ok, "the picker refused a save nothing objected to: ${saved.message}")
+        assertEquals(
+            DEFAULT_PROJECT_BUCKETS + listOf("Commissioning"), TaskService.lanesOf(id).map { it.name },
+            "the board did not become the list that was ticked",
+        )
+        // The sentence says what the panel cannot show: how many buckets the project has of its own.
+        assertTrue(saved.message!!.contains("4 buckets on this project"), "the answer names nothing: ${saved.message}")
+        // The opening lanes keep 0..2 and the bucket the picker added takes the position the removed one left
+        // behind, so the columns on the board are in the order they were written and nothing is renumbered.
+        assertEquals((0..3).toList(), TaskService.lanesOf(id).map { it.position })
+    }
+
+    @Test
+    fun `a bucket that still holds cards is unticked with them, and they go to the archive`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        val card = TaskService.create(draft(lane = haul.name), "EMP0001", canManage = true).taskId!!
+        // **Stage 81 withdrew the refusal Stage 73 wrote here.** An occupied column is no longer something the
+        // reader must empty by hand first: the column and its cards leave together, which is the prototype's
+        // third answer, and the sentence says where the work went. Commissioning is also asked for, so this is
+        // one press doing both halves of the picker.
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        val saved = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), "Commissioning")   // Haul left off
+        assertTrue(saved.ok, "an occupied bucket was refused its untick: ${saved.message}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Commissioning"), TaskService.lanesOf(id).map { it.name })
+        assertTrue(
+            saved.message!!.contains("1 card went to Archive"),
+            "the answer does not say where the work went: ${saved.message}",
+        )
+        // The card is off the board and in this project's archive, with the column it came from remembered.
+        assertEquals(0, ProjectBucketRepository.cardCounts(id).values.sum(), "archived work still counted as held")
+        val archived = TaskService.archived(id).single()
+        assertEquals(card, archived.id)
+        assertEquals("Haul", archived.archivedLane)
+        assertEquals(0, archived.projectBucketId, "the archived card still points at a column")
+    }
+
+    @Test
+    fun `an empty bucket unticked beside an occupied one takes the occupied one's work to the archive`() {
+        val id = haulRoadId()
+        // Two buckets come off this press, the first holding nothing and the second holding a card. The count is
+        // taken over both, so the reader is told about the work rather than about the first column it looked at.
+        extraLane()                                                  // "Haul", position 3, holding nothing
+        val dewatering = TaskService.addLane(id, "Dewatering", "EMP0001", canManage = true).bucket!!
+        val card = TaskService.create(draft(lane = "Dewatering"), "EMP0001", canManage = true).taskId!!
+        val saved = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray())
+        assertTrue(saved.ok, "a press taking two buckets off was refused: ${saved.message}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
+        assertTrue(
+            saved.message!!.contains("1 card went to Archive"),
+            "the sentence does not count the work it took off: ${saved.message}",
+        )
+        assertEquals(dewatering.id, TaskRepository.findById(card)!!.archivedLaneId)
+        assertEquals("Dewatering", TaskRepository.findById(card)!!.archivedLane)
+    }
+
+    @Test
+    fun `the three a board opens with are the picker's to untick, and one lane always stays`() {
+        val id = haulRoadId()
+        // Stage 73 could not offer these: the six were a floor, so posting one as a *bucket* was refused as
+        // BAD_NAME and a tick-list that left one out did not take it off. **Stage 75 retired the floor**, and
+        // this is the form a project's manager uses to act on that — an untick of an opening lane is the
+        // ordinary answer, refused only while the lane holds work or is the last one standing.
+        val saved = ticked(id, "Procurement", "Production")
+        assertTrue(saved.ok, "the picker refused an untick of an opening lane: ${saved.message}")
+        assertEquals(listOf("Procurement", "Production"), TaskService.lanesOf(id).map { it.name })
+        assertTrue(
+            saved.message!!.contains("2 buckets on this project"),
+            "the answer does not count the board it wrote: ${saved.message}",
+        )
+        // Down to one, the same press works; a press that ticks nothing is the one press the picker refuses, and
+        // it refuses it for the reason a column's `⋯` does — a board with no columns is not a bucket board.
+        assertTrue(ticked(id, "Production").ok, "the picker refused to leave one bucket standing")
+        val none = ticked(id)
+        assertEquals(LaneError.LAST_LANE, none.error, "a picker with nothing ticked emptied the board")
+        assertTrue(
+            none.message!!.contains("at least one bucket"),
+            "the refusal does not say what is left: ${none.message}",
+        )
+        assertEquals(listOf("Production"), TaskService.lanesOf(id).map { it.name }, "a refused press moved a column")
+    }
+
+    @Test
+    fun `a name the category does not know is this project's own column`() {
+        val id = haulRoadId()
+        // Stage 77's half of the ask: "every project has their own buckets created". A project's own manager names
+        // a column the type has never heard of and gets it **unticked** — the box under the add field is off by
+        // default, and off means the board is the only thing that changes. The old outright refusal is withdrawn:
+        // a manager who cannot name a column for their own board has no board left to manage.
+        val saved = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), typed = "Dewatering")
+        assertTrue(saved.ok, "the project's manager was refused a project-local bucket: ${saved.message}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Dewatering"), TaskService.lanesOf(id).map { it.name })
+        assertTrue(
+            TypeDefaultBucketRepository.namesOf("Site projects").isEmpty(),
+            "an unticked add widened the Site projects catalogue",
+        )
+        // And the answer says so: the sentence keeps the widening clause back when nothing joined the catalogue,
+        // because telling a reader they changed every future project of the type when they did not is the wrong
+        // receipt for the press.
+        assertTrue(
+            !saved.message!!.contains("catalogue"),
+            "the answer claims a press that never ticked the box widened the category: ${saved.message}",
+        )
+        // Management gets the same project-local answer from the same page, and no more: the tick, not the role,
+        // is what reaches the catalogue.
+        val byManagement = ticked(
+            id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), typed = "Weld repair", manage = true,
+        )
+        assertTrue(byManagement.ok, "management was refused a project-local bucket: ${byManagement.message}")
+        assertFalse(
+            TypeDefaultBucketRepository.namesOf("Site projects").contains("Weld repair"),
+            "management's unticked add widened the catalogue on its own",
+        )
+        // Somebody with no right here still cannot reshape the board at all — the tick made a project-local name
+        // legal, it did not make the picker public.
+        val denied = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), typed = "Snag list", by = "EMP0002")
+        assertEquals(LaneError.DENIED, denied.error, "an assignee added a bucket with the new rule")
+    }
+
+    @Test
+    fun `the tick under the add box offers a new name to every future project of the type`() {
+        val id = haulRoadId()
+        // On, the name goes on this board *and* into the category's defaults — which is how the catalogue grows
+        // out of real work rather than out of a Settings form nobody fills in.
+        val saved = ticked(
+            id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), typed = "Dewatering", manage = true, forType = true,
+        )
+        assertTrue(saved.ok, "management's tick was refused: ${saved.message}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Dewatering"), TaskService.lanesOf(id).map { it.name })
+        assertTrue(TypeDefaultBucketRepository.namesOf("Site projects").contains("Dewatering"))
+        assertTrue(
+            saved.message!!.contains("added to the Site projects catalogue"),
+            "the answer hides that it also changed the next project: ${saved.message}",
+        )
+    }
+
+    @Test
+    fun `a tick from a caller who is not management is refused and writes nothing`() {
+        val id = haulRoadId()
+        // The tick is drawn for management only, so a hand-built post carrying it from this project's manager who
+        // is not management is a refusal at the field rather than a box that quietly writes nothing — the same
+        // sentence the create popup gives, and the board is left exactly as it stood.
+        val refused = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), typed = "Dewatering", forType = true)
+        assertEquals(LaneError.CATALOGUE_DENIED, refused.error, "a project manager widened the catalogue")
+        assertTrue(
+            refused.message!!.contains("Only management"),
+            "the refusal does not say whose tick it is: ${refused.message}",
+        )
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name }, "the refused name reached the board")
+        assertFalse(
+            TypeDefaultBucketRepository.namesOf("Site projects").contains("Dewatering"),
+            "the refused name reached the catalogue",
+        )
+    }
+
+    @Test
+    fun `a phase name put back on a board is an ordinary bucket, not a catalogue write`() {
+        val id = haulRoadId()
+        // A manager may take **Engineering** off and put it back. Since Stage 100 nothing about that name is
+        // special — a category that wants it lists it, and Settings may or may not — so putting it back on the
+        // board is the same press as putting back any bucket the manager typed: no elevated say, and no write to
+        // the category's list unless the form's tick asks for one.
+        assertTrue(ticked(id, "Procurement", "Production").ok, "the manager could not take a phase off")
+        val back = ticked(id, " engineering ", "Procurement", "Production")
+        assertTrue(back.ok, "a phase lane the board took off could not be put back: ${back.message}")
+        // It lands at the right end of the run, like any bucket the picker adds. The spelling is the form's,
+        // trimmed, because this project's category lists no such row for the word to be spelled from — a name the
+        // catalogue does know comes back in the catalogue's spelling, which another case covers.
+        assertEquals(
+            listOf("Procurement", "Production", "engineering"), TaskService.lanesOf(id).map { it.name },
+            "the reopened lane did not come back as the form typed it",
+        )
+        assertFalse(
+            TypeDefaultBucketRepository.namesOf("Site projects").contains("Engineering"),
+            "a phase name was written into the category's catalogue",
+        )
+        assertTrue(
+            !back.message!!.contains("catalogue"),
+            "the answer claims the press widened the category: ${back.message}",
+        )
+    }
+
+    @Test
+    fun `a picker pressed by somebody with no right here changes nothing`() {
+        val id = haulRoadId()
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        // EMP0002 works a card on this board and is neither management nor its manager. The press is a full one
+        // — every bucket the board should keep, phases included — because the right is what this answers about,
+        // and nothing behind that check is reached.
+        val denied = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), "Commissioning", by = "EMP0002")
+        assertEquals(LaneError.DENIED, denied.error, "an assignee reshaped the board")
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
+        // A project that is not there has no board to write — and the right is read first, so the only account
+        // that ever reaches that answer is management, whose say does not depend on the project existing.
+        assertEquals(LaneError.NO_PROJECT, ticked(4242, "Commissioning", by = "EMP0002", manage = true).error)
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
+    }
+
+    @Test
+    fun `one bucket ticked twice by a hand-built post is one column`() {
+        val id = haulRoadId()
+        TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
+        // Several boxes share the field name, so a hand-written post can send the same bucket three ways round.
+        // Compared trimmed and ignoring case, and the catalogue's own spelling is what the board prints — a lane
+        // that differs from the bucket it came from by an initial letter is two answers to one question.
+        val saved = ticked(
+            id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), "Commissioning", "commissioning", " Commissioning ",
+        )
+        assertTrue(saved.ok, "the picker refused a list of one bucket: ${saved.message}")
+        assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Commissioning"), TaskService.lanesOf(id).map { it.name })
+        assertEquals(1, TypeDefaultBucketRepository.namesOf("Site projects").size, "the catalogue gained a second spelling")
+    }
+
+    @Test
+    fun `a bucket is locked by the count of cards filed in it, and an emptied one is not`() {
+        val id = haulRoadId()
+        val haul = extraLane()
+        assertEquals(emptyMap<Int, Int>(), TaskService.cardCounts(id), "a board with no cards reports counts")
+        val card = TaskService.create(draft(lane = haul.name), "EMP0001", canManage = true).taskId!!
+        assertEquals(mapOf(haul.id to 1), TaskService.cardCounts(id), "the picker could not see the card in the bucket")
+        // Filed somewhere else again and the bucket is offered for taking off: an absent id, not a zero, is what
+        // makes the panel print a tickable box rather than a locked one.
+        TaskService.moveToLane(card, lanes().first().id, "EMP0001", canManage = true)
+        assertFalse(TaskService.cardCounts(id).containsKey(haul.id), "an emptied bucket still reports a card")
+        assertTrue(
+            ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray()).ok,
+            "the picker refused to take an empty bucket off",
+        )
+        assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
     }
 
     // --- the backlog's own columns (Stage 40) ---------------------------------------------------------
@@ -1240,7 +1918,7 @@ class TaskServiceTest {
             TaskDraft(
                 title = "Audit the fuel store", projectName = haulRoad, assigneeEmpNo = "EMP0002",
                 started = "2026-11-01", due = "2026-11-20", priority = "High", status = "Not started",
-                projectLane = "Site projects", columnId = site, board = BOARD_OTHER,
+                projectLane = "Production", columnId = site, board = BOARD_OTHER,
             ),
             "EMP0001", canManage = true,
         )
@@ -1266,7 +1944,7 @@ class TaskServiceTest {
             TaskDraft(
                 title = "Re-line the crush bin", projectName = haulRoad, assigneeEmpNo = "EMP0002",
                 started = "2026-11-01", due = "2026-11-20", priority = "High", status = "Not started",
-                projectLane = "Repair/Maintenance", columnId = site, board = BOARD_PROJECT,
+                projectLane = "Procurement", columnId = site, board = BOARD_PROJECT,
             ),
             "EMP0001", canManage = true,
         )
@@ -1275,7 +1953,7 @@ class TaskServiceTest {
         val card = TaskRepository.findById(id!!)!!
         assertFalse(card.isBacklog, "a card the panel filed on a project landed on the backlog")
         assertEquals(haulRoad, card.project)
-        assertEquals("Repair/Maintenance", card.projectBucket, "the lane named by the panel was not the one kept")
+        assertEquals("Procurement", card.projectBucket, "the lane named by the panel was not the one kept")
         assertEquals(0, card.bucketId, "the column the hidden half posted was filed on the card")
     }
 
@@ -1363,7 +2041,7 @@ class TaskServiceTest {
         // so there is no lane for it to be wrong about, and a message under a field the popup never drew would
         // be the reader's problem rather than theirs.
         val filed = TaskService.updateAssigned(
-            card, draft(project = "", assignee = "EMP0002").copy(projectLane = "Site projects"), "EMP0001",
+            card, draft(project = "", assignee = "EMP0002").copy(projectLane = "Production"), "EMP0001",
             canManage = true)
         assertEquals(card, filed.taskId, "a hand-posted lane was refused at a backlog card: ${filed.errors}")
         assertNull(filed.error(TaskField.LANE), "a lane refusal printed on a popup with no lane field")
@@ -1390,16 +2068,16 @@ class TaskServiceTest {
     @Test
     fun `management sends a project card to the backlog and its work rides along`() {
         val site = backlog("Site works")
-        val repair = lanes().first { it.name == "Repair/Maintenance" }
+        val procurement = lanes().first { it.name == "Procurement" }
         val id = TaskService.create(
-            draft(lane = repair.name, status = "In progress"), "EMP0001", canManage = true,
+            draft(lane = procurement.name, status = "In progress"), "EMP0001", canManage = true,
         ).taskId!!
         val step = TaskService.addChecklistItem(id, "Order the mesh", "EMP0001", canManage = true)
         assertNotNull(step, "the plan was not written")
 
         // The popup's "where it lives" picker answering *Other tasks*, with a column named for it to land in.
         val moved = TaskService.updateAssigned(
-            id, draft(lane = repair.name, status = "In progress")
+            id, draft(lane = procurement.name, status = "In progress")
                 .copy(board = BOARD_OTHER, columnId = site),
             "EMP0001", canManage = true,
         )
@@ -1432,7 +2110,7 @@ class TaskServiceTest {
         ).taskId!!
         val moved = TaskService.updateAssigned(
             id,
-            draft(project = haulRoad, lane = "Goods sales", assignee = "EMP0002", status = "In progress")
+            draft(project = haulRoad, lane = "Production", assignee = "EMP0002", status = "In progress")
                 .copy(board = BOARD_PROJECT),
             "EMP0001", canManage = true,
         )
@@ -1440,7 +2118,7 @@ class TaskServiceTest {
         val card = TaskRepository.findById(id)!!
         assertFalse(card.isBacklog, "the card is still a backlog row")
         assertEquals(haulRoad, card.project)
-        assertEquals("Goods sales", card.projectBucket, "the card did not land in the lane named")
+        assertEquals("Production", card.projectBucket, "the card did not land in the lane named")
         assertEquals(0, card.bucketId, "a project card still points at a backlog column")
         assertEquals("In progress", card.status, "the crossing reset the card's status")
         // The column it came from stops counting it: a card on a project's board is on no backlog column, and
@@ -1451,8 +2129,8 @@ class TaskServiceTest {
     @Test
     fun `a crossing that names nowhere to land is refused and leaves the card where it was`() {
         val site = backlog("Site works")
-        val repair = lanes().first { it.name == "Repair/Maintenance" }
-        val id = TaskService.create(draft(lane = repair.name), "EMP0001", canManage = true).taskId!!
+        val procurement = lanes().first { it.name == "Procurement" }
+        val id = TaskService.create(draft(lane = procurement.name), "EMP0001", canManage = true).taskId!!
 
         // Onto the backlog with no column: an OTHER row pointing at no column is printed by no board at all.
         val noColumn = TaskService.updateAssigned(
@@ -1480,8 +2158,8 @@ class TaskServiceTest {
     @Test
     fun `an account that does not manage cannot send a card to the other board`() {
         val site = backlog("Site works")
-        val fabrication = lanes().first()
-        val id = TaskService.create(draft(lane = fabrication.name), "EMP0001", canManage = true).taskId!!
+        val engineering = lanes().first()
+        val id = TaskService.create(draft(lane = engineering.name), "EMP0001", canManage = true).taskId!!
         // The card belongs to EMP0002, who posts the whole popup form with the board field set, exactly as a
         // hand-built POST does. Their own three fields land; the board answer is read from the row, not them.
         val own = TaskService.updateAssigned(
@@ -1494,7 +2172,7 @@ class TaskServiceTest {
         val card = TaskRepository.findById(id)!!
         assertFalse(card.isBacklog, "an assignee moved their card onto the backlog")
         assertEquals(0, card.bucketId, "the refused crossing wrote a column")
-        assertEquals(fabrication.id, card.projectBucketId, "the crossing un-filed the card")
+        assertEquals(engineering.id, card.projectBucketId, "the crossing un-filed the card")
         assertEquals("Low", card.priority, "the owner's own priority was thrown away")
         assertEquals("Not started", card.status, "an owner completed their own card from the popup")
         assertEquals("EMP0002", card.assignee, "an owner handed the card to somebody else")

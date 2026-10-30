@@ -45,14 +45,13 @@ import mn.murray.pts.service.EmployeeRow
 import mn.murray.pts.service.EmployeeService
 import mn.murray.pts.service.EmployeeSheet
 import mn.murray.pts.service.MailSwitch
+import mn.murray.pts.service.ProjectTypeService
 
 const val MIN_PASSWORD_LENGTH = 4
 
-/** Outcome of a password change. Passed back to the page after the redirect to drive the flash banner. */
+/** Outcome of an account write. Passed back to the page after the redirect to drive the flash banner. */
 enum class PasswordStatus(val isError: Boolean, val text: String) {
     CHANGED(false, "Password updated successfully."),
-    WRONG_CURRENT(true, "Current password is incorrect."),
-    MISMATCH(true, "New password and confirmation do not match."),
     TOO_SHORT(true, "Password must be at least $MIN_PASSWORD_LENGTH characters."),
     EMPTY(true, "Please fill in all password fields."),
     USER_NOT_FOUND(true, "No user found with that employee number."),
@@ -70,12 +69,25 @@ enum class PasswordStatus(val isError: Boolean, val text: String) {
     MAIL_ENABLED(false, "Outbound mail is now enabled — PTS can send."),
     MAIL_DISABLED(true, "Outbound mail is now switched off — PTS will not send until it is enabled again."),
     MAIL_REFUSED(true, "Only a Super Admin can turn outbound mail on or off."),
-    LANE_ADDED(false, "Default lane added."),
+    // The lane add carries no text of its own since Stage 98: the receipt from BucketDefaultsService.add is
+    // already a whole sentence naming the bucket, the category and how many boards took the new column, and
+    // "Default lane added." in front of it would say the same thing twice (the TYPE_* pattern below).
+    LANE_ADDED(false, ""),
     LANE_REMOVED(false, "Default lane removed."),
-    LANE_REFUSED(true, "That lane cannot be added.");
+    LANE_REFUSED(true, "That lane cannot be added."),
+    // The three category answers carry no text of their own: ProjectTypeService's reason is already a whole
+    // sentence naming the letter, the label and how many projects moved, and prefixing it with "Category
+    // added." would say the same thing twice. A blank text means `message()` prints the detail alone.
+    TYPE_ADDED(false, ""),
+    TYPE_RENAMED(false, ""),
+    TYPE_REMOVED(false, ""),
+    TYPE_REFUSED(true, "That category cannot be saved.");
 
-    fun message(detail: String? = null): String =
-        if (detail.isNullOrBlank()) text else "$text ($detail)"
+    fun message(detail: String? = null): String = when {
+        text.isBlank() -> detail.orEmpty()
+        detail.isNullOrBlank() -> text
+        else -> "$text ($detail)"
+    }
 
     companion object {
         fun fromCode(code: String?): PasswordStatus? =
@@ -91,15 +103,14 @@ fun DIV.flashBanner(status: PasswordStatus?, detail: String? = null) {
 }
 
 /**
- * The Settings page (Stage 46): the company's Team sheet first, then the reader's own account, then
- * the password form.
+ * The Settings page (Stage 46): the company's Team sheet first, then the reader's own account.
  *
  * The picture this page is built to is a roster with a search box over it — one row per person, seven
  * columns, and the two things anybody ever wanted from the old workload table (what this account may
  * do, and how much work is on it) printed as columns rather than as a count you have to click open.
- * So the sheet replaced that table here, and the two sections underneath it stayed exactly where they
- * were: this page is still the one a `mustChangePassword` account is sent to, and the password form is
- * the only thing on it that clears that flag.
+ * So the sheet replaced that table here, and the account card underneath it stayed exactly where it
+ * was. Stage 99 took the password box off the page: a password is set from the Team sheet, and the app
+ * no longer stops a reader whose password is still the number the system gave them.
  *
  * How it updates, in the same shape the lesson sheet uses:
  *
@@ -126,12 +137,14 @@ fun DIV.settingsContent(
     canManage: Boolean,
     canAdmin: Boolean = false,
     note: PasswordStatus? = null,
-    passwordStatus: PasswordStatus? = null,
     mailStatus: PasswordStatus? = null,
     mailDetail: String? = null,
     bucketNote: PasswordStatus? = null,
     bucketDetail: String? = null,
     bucketDefaultsType: String = PROJECT_TYPES.first(),
+    typeNote: PasswordStatus? = null,
+    typeDetail: String? = null,
+    typeBeingEdited: String = "",
 ) {
     // Stage 51: the Team sheet is the Settings *function* — the roster of accounts with its add/edit controls,
     // search and toolbar. It belongs to management alone, so a Viewer who reaches this page (the change-password
@@ -141,7 +154,7 @@ fun DIV.settingsContent(
         h3("set-section") { +"Team" }
         flashBanner(note)
         if (form.mayAdd) addEmployeeCard(filter)
-        teamToolbar(filter, sheet)
+        teamToolbar(filter, sheet, bucketDefaultsType)
         div("board-results") {
             id = "team-board"
             attributes["data-live-region"] = "true"
@@ -151,29 +164,17 @@ fun DIV.settingsContent(
 
     accountCard(session)
 
-    h3("set-section") { +"Change Password" }
-    div("card-panel") {
-        if (session.mustChangePassword) {
-            // requireSession() routes these accounts straight here and blocks every other page;
-            // the flag is cleared by UserService.changeOwnPassword when this form succeeds.
-            div("flash err") {
-                +"Set a new password to unlock the rest of PTS — the current one is the default the system created for your account."
-            }
-        }
-        flashBanner(passwordStatus)
-        passwordForm()
-    }
-
-    // The three panels below the password form are the settings *of the app*, not of the account: which
-    // categories projects are filed under, whether outbound mail can leave this machine, and which lanes a
-    // freshly created project starts with beyond the six it always gets. All three are management's — a
-    // Viewer's page stops at the password form — and each is a straight print of state the code already
-    // holds: the category list comes from PROJECT_TYPES, the mail status from DueDateAlertService.currentMode,
-    // and the per-type lanes from the V12 table ProjectService.create seeds a new board from.
+    // The three panels below the account card are the settings *of the app*, not of the account: which
+    // categories projects are filed under, which buckets a freshly created project starts with, and whether
+    // outbound mail may leave this machine. All three are management's — a Viewer's page stops at their own
+    // account — and all three are now a print of state the *database* holds: the categories are the V14
+    // catalogue, the per-category buckets the V12 one, and the mail switch the V13 one. The order is the one
+    // the work flows in: name the kinds of job, decide what each one's board looks like, then say whether
+    // anybody is told about them by email.
     if (canManage) {
-        projectTypesPanel()
+        projectTypesPanel(typeNote, typeDetail, typeBeingEdited)
+        bucketDefaultsPanel(bucketDefaultsType, bucketNote, bucketDetail, filter)
         emailPanel(session.employeeNumber, canAdmin, mailStatus, mailDetail)
-        bucketDefaultsPanel(bucketDefaultsType, bucketNote, bucketDetail)
     }
 
     if (canManage) {
@@ -194,7 +195,7 @@ private fun DIV.addEmployeeCard(filter: EmployeeFilter) {
     div("card-panel team-add") {
         p("panel-caption") {
             +("Add a new employee account. They sign in with their employee number, and until you set a " +
-                "password the number is the password and they have to change it on first sign-in.")
+                "password on this sheet the number is the password.")
         }
         form(action = "/app/settings", method = FormMethod.get, classes = "opener-form") {
             attributes["data-live-target"] = "#employeeModal"
@@ -220,10 +221,23 @@ private fun DIV.addEmployeeCard(filter: EmployeeFilter) {
  * The hidden `sort` is the order the sheet is *already* read down: the pickers have no opinion about it,
  * and without it choosing a position would jump a Z→A list back to A→Z.
  */
-private fun DIV.teamToolbar(filter: EmployeeFilter, sheet: EmployeeSheet) {
+private fun DIV.teamToolbar(filter: EmployeeFilter, sheet: EmployeeSheet, bucketType: String = PROJECT_TYPES.first()) {
     form(action = "/app/settings", method = FormMethod.get, classes = "board-toolbar") {
         id = "tsFilter"
-        attributes["data-live-extra"] = "#team-counts"
+        // The bucket card rides along: its category form carries this view's fields (viewCarriage), so a
+        // sheet filtered here must hand the new copy its hidden q/position/role/sort or the next category
+        // change would write them away — and the next add would land on a panel the address no longer names.
+        attributes["data-live-extra"] = "#team-counts,#bucketDefaults"
+        // The page carries two independent views, and its address carries both. Without this the team's
+        // own filter would write a query with no `lanes`, so a reload after searching the roster would
+        // put the bucket panel back on the first category — and the next add would land there (Stage 82 fix).
+        input(type = InputType.hidden, name = "lanes") {
+            // Named so the bucket picker can hand this copy the category the reader just chose: the two
+            // views share one address, and a stale hidden field here would send the roster's next filter
+            // back to the category the page opened on.
+            id = "bucketCategoryKey"
+            value = bucketType
+        }
         div("board-search") {
             input(type = InputType.text, name = "q") {
                 id = "teamSearch"
@@ -498,67 +512,135 @@ private fun DIV.accountCard(session: UserSession) {
 }
 
 /**
- * The password form, unchanged from the page this replaced.
+ * The categories a project can be filed under — the V14 catalogue, and management's to edit.
  *
- * It stays a plain POST with a redirect and a flash line rather than a popup write, because it is the
- * one form on the page a `mustChangePassword` account has to be able to use with nothing else working —
- * no live region, no companion swap, no modal script between the reader and the app unlocking itself.
+ * Each row is the letter that leads that category's project numbers (the S in S-01), the label, and how many
+ * projects the company has under it right now. [ProjectTypeService] owns what may be written here, and its two
+ * rules are what the panel is shaped around: **a label may be renamed** — the projects and the per-category
+ * lanes that store it are carried across in the same transaction, so nothing is orphaned — and **a letter may
+ * not**. It is the catalogue's key and the first token of numbers people already quote to each other, so the
+ * pencil edits only the words and a retired category's letter is simply free again, never reassigned.
+ *
+ * The rename is an inline swap rather than a popup: one field, already holding the words being changed, and
+ * the panel is its own live region (`#projectTypes`), so a save or a cancel replaces this card and the sheet
+ * above it never moves. A refusal comes back as the card's own flash line, beside the reason.
  */
-private fun DIV.passwordForm() {
-    form(action = "/app/settings/password", method = FormMethod.post) {
-        div("field") {
-            label { +"Current password" }
-            input(type = InputType.password, name = "currentPassword") {
-                required = true
-                attributes["autocomplete"] = "current-password"
-            }
+private fun DIV.projectTypesPanel(note: PasswordStatus?, detail: String?, beingEdited: String) {
+    h3("set-section") { +"Project types" }
+    div("card-panel") {
+        id = "projectTypes"
+        p("panel-caption") {
+            +("These are the type codes available when creating a project, shown as the small badge in the " +
+                "project list and used as the group heading on the forecasts sheet. Each one leads its project " +
+                "numbers with its letter — the S in S-01 — so a letter is issued once and never reused: " +
+                "renaming a category moves the projects filed under it, retiring one is refused while any remain.")
         }
-        div("field") {
-            label { +"New password" }
-            input(type = InputType.password, name = "newPassword") {
-                required = true
-                attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
-                attributes["autocomplete"] = "new-password"
-            }
+        flashBanner(note, detail)
+        // By letter, not by the catalogue's own order: the list below is a lookup of "which code is which
+        // category", and a reader scanning it for the S knows the letter they are hunting, not the position
+        // somebody added the row at. The create-project picker keeps the catalogue order.
+        ProjectTypeService.list().sortedBy { it.code }.forEach { row ->
+            if (row.name == beingEdited) typeRenameRow(row) else typeRow(row)
         }
-        div("field") {
-            label { +"Confirm new password" }
-            input(type = InputType.password, name = "confirmPassword") {
-                required = true
-                attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
-                attributes["autocomplete"] = "new-password"
-            }
-        }
-        button(type = ButtonType.submit, classes = "submit") { +"Change Password" }
+        addTypeForm()
     }
 }
 
 /**
- * The nine categories, read-only.
+ * One category: badge, label, how many projects it holds, and the two writes that row may answer.
  *
- * [PROJECT_TYPES] is the list the create-project popup's picker is built from and [TYPE_PREFIX] the letter
- * each category's numbers lead with (`S-01` for Site projects), so this panel is a print of the app's own
- * catalog rather than a second list that could drift from it. It is deliberately **not** editable: a
- * category is not a free label — it keys project codes through [codeMatchesType], the chip colours through
- * [typeChipClass], the Forecasts sheet's panels and this page's per-type lane defaults — and renaming one
- * on a whim would leave every project already coded under the old letter misfiled. Management reads the
- * catalog here; changing it is a code decision, made where the letter, the colour and the codes agree.
+ * The bin is printed even on a category that cannot be retired, because the refusal is the answer the reader
+ * needs to read — "3 projects are filed under Site projects. Move them to another category first" — and a
+ * control that is quietly absent teaches nothing about why the row is still there. [ProjectTypeService.remove]
+ * decides again on the route, as always.
  */
-private fun DIV.projectTypesPanel() {
-    h3("set-section") { +"Project types" }
-    div("card-panel") {
-        p("panel-caption") {
-            +("The categories a project is filed under. Each one leads its project numbers with its letter " +
-                "— the S in S-01 — and these nine are fixed: adding or renaming one is a change to how " +
-                "codes, forecasts and lanes are keyed, not a setting to type in.")
-        }
-        PROJECT_TYPES.forEach { type ->
-            div("set-row type-row") {
-                span("code type-letter") { +typeLetter(type) }
-                span("chip ${typeChipClass(type)}") { +type }
-                span("type-count") { +projectCountByType(type) }
+private fun DIV.typeRow(row: ProjectType) {
+    div("set-row type-row") {
+        span("code type-letter") { +row.code }
+        span("chip ${typeChipClass(row.name)}") { +row.name }
+        span("type-count") { +projectCountByType(row.name) }
+        div("icon-btns") {
+            form(action = "/app/settings", method = FormMethod.get, classes = "opener-form ts-action") {
+                attributes["data-live-target"] = "#projectTypes"
+                input(type = InputType.hidden, name = "edittype") { value = row.name }
+                button(type = ButtonType.submit, classes = "icon-btn ts-edit") {
+                    attributes["title"] = "Rename ${row.name}"
+                    attributes["aria-label"] = "Rename ${row.name}"
+                    +"✎"
+                }
+            }
+            form(action = "/app/settings/types/delete", method = FormMethod.post, classes = "ts-action") {
+                attributes["data-live-target"] = "#projectTypes"
+                input(type = InputType.hidden, name = "code") { value = row.code }
+                button(type = ButtonType.submit, classes = "icon-btn") {
+                    attributes["title"] = "Retire ${row.name}"
+                    attributes["aria-label"] = "Retire ${row.name}"
+                    attributes["data-confirm"] =
+                        "Stop offering ${row.name} when a project is created? Projects already filed under it " +
+                            "keep their category and have to be moved first."
+                    +"🗑"
+                }
             }
         }
+    }
+}
+
+/**
+ * The row the pencil opened: the label in a field, and nothing else editable.
+ *
+ * The letter stays a badge rather than becoming an input for the same reason [ProjectTypeService.rename]
+ * cannot change it — every project number under this category begins with that character, and a field that
+ * looked changeable would promise a renumbering the app will not do.
+ */
+private fun DIV.typeRenameRow(row: ProjectType) {
+    div("set-row type-row editing") {
+        span("code type-letter") { +row.code }
+        form(action = "/app/settings/types/rename", method = FormMethod.post, classes = "type-rename") {
+            attributes["data-live-target"] = "#projectTypes"
+            input(type = InputType.hidden, name = "name") { value = row.name }
+            input(type = InputType.text, name = "newname") {
+                value = row.name
+                autoComplete = "off"
+                required = true
+                attributes["maxlength"] = ProjectTypeService.NAME_MAX.toString()
+                attributes["placeholder"] = "New name for ${row.code}"
+            }
+            button(type = ButtonType.submit, classes = "submit btn-sm") { +"Save" }
+        }
+        form(action = "/app/settings", method = FormMethod.get, classes = "opener-form ts-action") {
+            attributes["data-live-target"] = "#projectTypes"
+            button(type = ButtonType.submit, classes = "ghost-btn btn-sm") {
+                attributes["title"] = "Keep ${row.name}"
+                attributes["aria-label"] = "Keep ${row.name}"
+                +"Cancel"
+            }
+        }
+    }
+}
+
+/**
+ * The add line under the list: a letter and a name, in that order, because the letter is the decision and
+ * the name is the label. Both are bounded by what [ProjectTypeService.add] accepts — one character, A to Z —
+ * and a collision with a letter already in use comes back as the panel's own refusal line.
+ */
+private fun DIV.addTypeForm() {
+    form(action = "/app/settings/types/add", method = FormMethod.post, classes = "type-add") {
+        attributes["data-live-target"] = "#projectTypes"
+        input(type = InputType.text, name = "code") {
+            autoComplete = "off"
+            required = true
+            attributes["maxlength"] = "1"
+            attributes["placeholder"] = "Code, e.g. P"
+            attributes["aria-label"] = "New category letter"
+        }
+        input(type = InputType.text, name = "name") {
+            autoComplete = "off"
+            required = true
+            attributes["maxlength"] = ProjectTypeService.NAME_MAX.toString()
+            attributes["placeholder"] = "Description, e.g. Parts supply"
+            attributes["aria-label"] = "New category name"
+        }
+        button(type = ButtonType.submit, classes = "submit btn-sm") { +"+ Add type" }
     }
 }
 
@@ -614,10 +696,14 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
             span("set-key") { +"Delivery mode" }
             span("email-mode") { +mode }
         }
-        div("set-row") {
-            span("set-key") { +"Outbound mail" }
-            span(if (sending) "email-switch on" else "email-switch off") {
-                +(if (sending) "Enabled — PTS can send" else "Switched off — PTS will not send")
+        // Management that cannot move the switch still reads whether mail may leave the machine at all. An
+        // admin's checkbox below *is* that state, printed as the control rather than twice.
+        if (!canAdmin) {
+            div("set-row") {
+                span("set-key") { +"Outbound mail" }
+                span(if (sending) "email-switch on" else "email-switch off") {
+                    +(if (sending) "Enabled — PTS can send" else "Switched off — PTS will not send")
+                }
             }
         }
         div("set-row") {
@@ -626,19 +712,26 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
         }
         // The master switch is the one control that decides whether the whole installation may email anyone,
         // so it prints as a form for a Super Admin only — the same right `/app/settings/mail-switch` re-checks.
-        // The button offers the *opposite* of the current state, and turning it on warns what it commits to.
+        // The box carries the state (ticked = sending, and the route reads anything but "true" as off, so a
+        // hand-typed value cannot quietly arm the mailer) and *Save settings* is the no-JavaScript path to the
+        // same write. Only a press that would turn sending on is confirmed: stopping mail asks nothing of anyone.
         if (canAdmin) {
-            form(action = "/app/settings/mail-switch", method = FormMethod.post, classes = "opener-form") {
+            form(action = "/app/settings/mail-switch", method = FormMethod.post, classes = "mail-switch") {
                 attributes["data-live-target"] = "#emailBoard"
-                input(type = InputType.hidden, name = "on") { value = if (sending) "false" else "true" }
-                button(type = ButtonType.submit, classes = if (sending) "ghost-btn btn-sm" else "submit") {
-                    if (sending) {
-                        attributes["data-confirm"] = "Stop PTS from sending any email? Alerts and notices will go back to the log only."
-                        +"Switch sending off"
-                    } else {
-                        attributes["data-confirm"] = "Allow PTS to send email to people? Due-date alerts and notices will start going out to the addresses on the Team sheet."
-                        +"Enable sending"
+                label("check-row") {
+                    input(type = InputType.checkBox, name = "on") {
+                        value = "true"
+                        checked = sending
                     }
+                    +"Enable email notifications"
+                }
+                button(type = ButtonType.submit, classes = "submit btn-sm") {
+                    if (!sending) {
+                        attributes["data-confirm"] =
+                            "Allow PTS to send email to people? Due-date alerts and notices will start going " +
+                                "out to the addresses on the Team sheet."
+                    }
+                    +"Save settings"
                 }
             }
         }
@@ -664,38 +757,71 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
 }
 
 /**
- * The lanes a freshly created project of [type] gets **on top of** the six every board carries.
+ * The buckets a project of [type] opens with, and nothing else.
  *
- * The six ([DEFAULT_PROJECT_BUCKETS]) print as the permanent floor: a card is filed in one of them or it is
- * not on a project, so no setting can take one away and this panel does not offer one. What is edited here
- * are the *extra* defaults per category — the lane a Fabrication job always has and a Labor supply contract
- * never does — stored in the V12 table and appended to a new project's board by ProjectService.create, right
- * after [mn.murray.pts.repository.ProjectBucketRepository.seedDefaults]. Existing boards keep whatever lanes
- * their manager gave them: changing a default changes the next project, not the last twenty.
+ * Since **Stage 100** this table is the whole board. [mn.murray.pts.repository.ProjectService.create] seeds a
+ * new project with exactly the rows listed here, in this order — the three phases Engineering, Procurement and
+ * Production are not added by the code any more, so a category that wants them lists them like any other
+ * bucket, under its own spelling. A category with no rows at all has no column to file a card in, and until
+ * **Stage 104** that refused the create outright; since then the create popup may name that board's first column,
+ * so an empty category makes its projects one at a time — the popup points here when it names nothing either.
+ * Existing boards are untouched
+ * by this — they keep the lanes their manager gave them; what changes is what the *next* project opens with.
+ *
+ * A row is added by naming it; since Stage 83 the app picks the colour, and the column it seeds wears that same
+ * shade. Taking a row off stops new projects getting it — the boards that already carry that column keep it.
+ * Since Stage 73 a bucket typed into a project's own page can be written back here too, so a bucket the company
+ * starts using becomes one the category opens with — and since **Stage 77** only when the reader ticks the box
+ * under the name field, which is drawn for management alone: left clear, a typed bucket is that project's
+ * column and no other board ever hears about it.
  *
  * The category picker is a plain GET onto this page carrying `?lanes=`, so the panel answers for the category
  * chosen rather than always the first one, and the two write forms carry the same key hidden so their answers
- * land on the category being edited.
+ * land on the category being edited. The add line prints that key where it is used — *"Adds to Site projects
+ * only"* — because a bucket named for one category is offered to that category's new projects and to nobody
+ * else's, and the hidden field alone leaves the reader guessing which of the nine the word went to.
+ *
+ * Since **Stage 80** a dot is read from its row rather than counted off its place: a bucket somebody gave a
+ * shade wears that shade here and on every board it later lands on, and one with no shade of its own wears the
+ * colour of its position. **Stage 83 stopped asking**: creating a bucket is a name and a button, and the colour
+ * the new row — and the column it later seeds — wears is the next shade in the run, picked by the app. The
+ * choice is not gone, only moved to where it belongs: a bucket already on a project's board can be recoloured
+ * from its own `⋯`, where the reader can see what they are changing.
  */
-private fun DIV.bucketDefaultsPanel(type: String, note: PasswordStatus? = null, detail: String? = null) {
-    val extras = BucketDefaultsService.extrasOf(type)
-    h3("set-section") { +"Bucket defaults" }
+private fun DIV.bucketDefaultsPanel(
+    type: String,
+    note: PasswordStatus? = null,
+    detail: String? = null,
+    filter: EmployeeFilter = EmployeeFilter(),
+) {
+    val entries = BucketDefaultsService.bucketsOf(type)
+    h3("set-section") { +"Project bucket settings" }
     div("card-panel") {
         id = "bucketDefaults"
         p("panel-caption") {
             +(
-                "Every project board starts with the six standard sub-categories below, and a card filed " +
-                    "under one of the six is what the general boards read. The names here are the extra lanes " +
-                    "each category adds when a project is created — existing projects keep their own lanes."
+                "The buckets a $type project opens with — these and nothing else, in this order, apart from a " +
+                    "column named while creating a project. " +
+                    "Adding one puts an empty column on each of this category's projects now, and every project " +
+                    "created afterwards opens with it; taking a row off stops new projects getting it, while the " +
+                    "boards that already carry that column keep it. A project needs a column to file its first " +
+                    "card in, so name one here for every project of this category, or name this project's first " +
+                    "one while creating it. A project's own page is where a column is renamed or taken off. A bucket typed into " +
+                    "a project's own picker joins this list only when management tick the box under its name; " +
+                    "left clear, that bucket is one board's own. Each row's dot is the colour of its place in " +
+                    "the run, and the column that bucket puts on a board opens wearing that same shade — the app " +
+                    "picks it, so adding a bucket asks for a name and nothing else."
                 )
         }
-        div("set-row") {
-            span("set-key") { +"Always on every board" }
-            span("lane-floor") {
-                DEFAULT_PROJECT_BUCKETS.forEach { span("chip lane-chip") { +it } }
-            }
-        }
         form(action = "/app/settings", method = FormMethod.get, classes = "board-toolbar") {
+            // The add line sits outside the live region but belongs to the same choice: its hidden `lanes`
+            // and its *"Adds to … only"* label name the category. Without this companion the picker could
+            // swap the rows and leave the form posting the category the reader had just left (Stage 82 fix).
+            attributes["data-live-extra"] = "#bucketAdd,#bucketCategoryKey"
+            // The other view's keys ride along too, so choosing a category does not write away the
+            // roster's search, its two pickers or its order (Stage 82 fix; same carriage as the
+            // employee card and the pencils, `viewCarriage`).
+            viewCarriage(filter)
             label("board-key") {
                 +"Category"
                 select {
@@ -706,12 +832,32 @@ private fun DIV.bucketDefaultsPanel(type: String, note: PasswordStatus? = null, 
             }
         }
         div("board-results") {
+            // The Settings page carries two live regions (the Team roster above and this one), so this
+            // region names itself: `app.js` matches the response's copy by id, and a category change
+            // replaces this list rather than the first region on the page. Without the id the select
+            // moved the roster, the hidden `lanes` field stayed on the old category, and the next add
+            // wrote there (Stage 82 fix).
+            id = "bucketDefaultsResults"
             attributes["data-live-region"] = "true"
-            if (extras.isEmpty()) {
-                p("board-empty-line") { +"$type adds no lanes of its own — its projects start with just the six." }
+            flashBanner(note, detail)
+            // Stage 100: no fixed phase rows any more. This list is the whole board a new project opens with, so
+            // every row is an ordinary catalogue row — a dot, a name, a bin — and the three phases appear here
+            // only because a category lists them.
+            if (entries.isEmpty()) {
+                p("board-empty-line") {
+                    // Stage 104 made this sentence true again: an empty category still has no column to file a
+                    // card in, but its projects can be created one at a time — the create popup names the first
+                    // column. The old wording said no project of this category could be created at all.
+                    +("$type has no buckets yet — add one below, or name one while creating a project.")
+                }
             } else {
-                extras.forEach { entry ->
-                    div("set-row") {
+                entries.forEachIndexed { index, entry ->
+                    div("set-row lane-row") {
+                        // The catalogue and a board both number from 0, so the catalogue's first row is that
+                        // board's first column and QAQC wears the same shade on both pages (Stage 100; see
+                        // [BUCKET_DOT_COLOURS]). Since Stage 80 a bucket with a colour of its own overrides
+                        // that — the position only answers for one nobody picked a shade for.
+                        span(bucketDotClass(index, entry.colourSlot)) { }
                         span("lane-name") { +entry.name }
                         form(action = "/app/settings/buckets/delete", method = FormMethod.post, classes = "ts-action") {
                             attributes["data-live-target"] = "#bucketDefaults"
@@ -728,21 +874,26 @@ private fun DIV.bucketDefaultsPanel(type: String, note: PasswordStatus? = null, 
                 }
             }
         }
-        form(action = "/app/settings/buckets/add", method = FormMethod.post) {
+        // One line, the way a lane is added on a live board: name it, press the button. Since Stage 83 the colour
+        // is the app's answer rather than the reader's — the new row, and the future column seeded from it, wear
+        // the next shade in the run. The category rides along hidden, so a lane typed while Fabrication is on
+        // show lands on Fabrication and the
+        // answer comes back to the same panel rather than to the catalogue's first category — and it is written
+        // out at the box as well, because the scoping is the whole point of this panel and a hidden field is not
+        // a reader being told: the word added here belongs to the category on show and to no other.
+        form(action = "/app/settings/buckets/add", method = FormMethod.post, classes = "bucket-add") {
+            id = "bucketAdd"
             attributes["data-live-target"] = "#bucketDefaults"
-            div("form-grid") {
-                div("field") {
-                    label { +"New extra lane for $type" }
-                    input(type = InputType.text, name = "name") {
-                        attributes["placeholder"] = "Like: Commissioning"
-                        autoComplete = "off"
-                        attributes["maxlength"] = PROJECT_BUCKET_MAX.toString()
-                    }
-                }
+            span("bucket-add-for") { +"Adds to $type only" }
+            input(type = InputType.text, name = "name") {
+                attributes["placeholder"] = "New bucket name, e.g. QAQC"
+                attributes["aria-label"] = "New default bucket for $type"
+                autoComplete = "off"
+                required = true
+                attributes["maxlength"] = PROJECT_BUCKET_MAX.toString()
             }
             input(type = InputType.hidden, name = "lanes") { value = type }
-            div { flashBanner(note, detail) }
-            button(type = ButtonType.submit, classes = "submit btn-sm") { +"+ Add default lane" }
+            button(type = ButtonType.submit, classes = "submit btn-sm") { +"+ Add bucket" }
         }
     }
 }
@@ -776,10 +927,9 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                             "name people by those words."
                     } else if (form.maySetRoles) {
                         "They sign in with the number and the password you set here. Leave the password " +
-                            "blank and the number is it, until they change it."
+                            "blank and the number is it; you can set a new one here at any time."
                     } else {
-                        "They sign in with their employee number as the password and change it on first " +
-                            "sign-in, as a Viewer."
+                        "They sign in with their employee number as the password, as a Viewer."
                     }
                     )
             }

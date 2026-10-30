@@ -171,10 +171,11 @@ object JsonImporter {
             } get Projects.id
             projectIdByName[p.name] = newId
             newIdByLegacyId[p.id] = newId
-            // Every imported project gets the board a project created through the service gets (V7). The
-            // importer writes rows directly rather than calling ProjectService.create, so without these three
-            // lanes a legacy or demo project would open on the status columns while a new one opened on its
-            // own lanes — the same difference the V7 backfill removes for projects already in the database.
+            // Every imported project gets the board a project created through the service gets: the three lanes
+            // in [DEFAULT_PROJECT_BUCKETS], which is what V16 puts on every other board. The importer writes rows
+            // directly rather than calling ProjectService.create, so without these lanes an imported project
+            // would open on a board of its own making while every other project opened on the same three it can
+            // then edit.
             DEFAULT_PROJECT_BUCKETS.forEachIndexed { laneIdx, laneName ->
                 ProjectBuckets.insert {
                     it[projectId] = newId

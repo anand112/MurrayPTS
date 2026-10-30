@@ -1,7 +1,7 @@
 /* bucket-modal.js — the way out of the backlog's bucket popup.
 
    Opening is not this file's business. The page has two openers for that one popup: `+ Add bucket`, the small
-   button in the page head beside `Show all buckets` (Stage 59), is a GET form onto this page as `?newbucket=1`, and
+   button in the page head (since Stage 97 its only control there), is a GET form onto this page as `?newbucket=1`, and
    a column's `⋮` is the same
    kind of form as `?bucket=<id>`. `app.js` answers either by fetching that URL and swapping only `#bucketModal`
    for the copy the server drew already open — which is why a reader with scripts switched off can still add,
@@ -39,8 +39,9 @@
     }
     // A bookmark, a reload or the browser's Back would otherwise put this form back up on the screen.
     // Only this popup's own keys go: `?newbucket=1` is the add opener and `?bucket=` the column's `⋮`.
-    // `?edit=` and `?new=` belong to the task popup's opener, and `?allbuckets=` is the board's own view
-    // rather than anything about this form, so none of them is ours to clear.
+    // `?edit=` and `?new=` belong to the task popup's opener, and `?show=` is the board's own bucket filter
+    // rather than anything about this form, so none of them is ours to clear. (Until Stage 97 the second of
+    // those was `?allbuckets=`; the head's toggle and the wide view it carried are gone.)
     var params = new URLSearchParams(window.location.search);
     if (!params.has('newbucket') && !params.has('bucket')) return;
     params.delete('newbucket');

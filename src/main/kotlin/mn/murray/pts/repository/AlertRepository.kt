@@ -90,12 +90,21 @@ object AlertRepository {
             .filter { it.status != "Completed" }
     }
 
-    /** Tasks whose status is not Completed, with the parent project resolved for the label + manager. */
+    /**
+     * Tasks whose status is not Completed, with the parent project resolved for the label + manager.
+     *
+     * An archived card is left out (V18), and this is the one read that has to say so for itself: the sweep does
+     * not go through [mn.murray.pts.repository.TaskRepository.findByKind], so without this clause a card somebody
+     * took off their board would keep mailing its assignee and its project manager about a due date on work that
+     * is no longer on any board. The ledger keeps whatever it already sent — a mail cannot be un-sent — but the
+     * archive stops the next one.
+     */
     fun openTasks(): List<TaskDueRow> = transaction {
         val projects = Projects.selectAll().associate { r ->
             r[Projects.id] to Triple(r[Projects.code], r[Projects.name], r[Projects.managerEmpNo].orEmpty())
         }
-        Tasks.selectAll().orderBy(Tasks.id to SortOrder.ASC)
+        Tasks.selectAll().where { Tasks.archived eq false }
+            .orderBy(Tasks.id to SortOrder.ASC)
             .map { r ->
                 val pid = r[Tasks.projectId]
                 val project = pid?.let { projects[it] }

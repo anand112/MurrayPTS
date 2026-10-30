@@ -12,6 +12,8 @@ import mn.murray.pts.repository.ProjectBucketRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.UserRepository
+import mn.murray.pts.seedOpeningThree
+import mn.murray.pts.seedOpeningThreeFor
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.selectAll
@@ -71,12 +73,15 @@ class NotificationServiceTest {
         UserRepository.insert(manager, "Munkhtsetseg", "x", "Admin", "munkho@murray.mn", null, false, false)
         UserRepository.insert(worker, "Bat-Erdene", "x", "Manager", "bat@murray.mn", null, false, false)
         projectId = ProjectRepository.insert(
-            code = "S-01", name = "Haul road widening", status = "Ongoing", progress = 0,
+            code = "S-01", name = "Haul road widening", status = "In progress", progress = 0,
             managerEmpNo = manager, due = "2027-03-30", type = "Site projects",
         )
-        // The six sub-categories every project's board is made of (Stage 48), which a card has to name; this
-        // harness writes the project row itself, so it hands out the board `ProjectService.create` would have.
-        ProjectBucketRepository.seedDefaults(projectId)
+        // The three phases (Stage 48), which a card has to name; this harness writes the project row itself, so
+        // it gives the project the three-lane board every board had before Stage 100.
+        seedOpeningThree(projectId)
+        // Stage 100: a project made through the create route below takes its board from this list, so the
+        // category is given the same three.
+        seedOpeningThreeFor("Site projects")
         projectName = ProjectRepository.findById(projectId)!!.name
     }
 

@@ -76,8 +76,21 @@ private val MONTH_OUT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM"
 /** True for a 'YYYY-MM' string a ledger row may be keyed on. */
 fun isValidMonthKey(value: String): Boolean = MONTH_KEY.matches(value)
 
+/** A `YearMonth` written the way a page keys a month on it. */
+fun monthKey(of: YearMonth): String = of.format(MONTH_OUT)
+
 /** The month a page reads when the URL does not name one. */
-fun currentMonthKey(today: LocalDate = LocalDate.now()): String = YearMonth.from(today).format(MONTH_OUT)
+fun currentMonthKey(today: LocalDate = LocalDate.now()): String = monthKey(YearMonth.from(today))
+
+/**
+ * The month an address asks for, out of the controls that are able to ask: the first name that is a
+ * real 'YYYY-MM' wins, and an address that names none — or names `banana` — reads this month rather
+ * than failing. A page with two ways to choose a month (step to a neighbour, or type one) passes both
+ * answers here in the order they should be believed; a bookmark left on a month that no longer holds
+ * anything still opens a page.
+ */
+fun monthKeyOf(vararg named: String?, today: LocalDate = LocalDate.now()): String =
+    named.asSequence().map { (it ?: "").trim() }.firstOrNull { isValidMonthKey(it) } ?: currentMonthKey(today)
 
 /**
  * [months] steps away from [key], kept inside a range nobody is forecasting in. An unparseable

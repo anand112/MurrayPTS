@@ -79,13 +79,12 @@ class SidebarTaskCountTest {
         seq++
         val name = "Project ${seq.toString().padStart(2, '0')}"
         val projectId = ProjectRepository.insert(
-            code = "S-%02d".format(seq), name = name, status = "Ongoing", progress = 0,
+            code = "S-%02d".format(seq), name = name, status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "", type = "Site projects",
         )
-        // A project's board is the six shared sub-categories (Stage 48), and a card has to name one of them —
-        // the same board `ProjectService.create` hands out, put here by hand because this harness writes the
-        // project row itself.
-        ProjectBucketRepository.seedDefaults(projectId)
+        // A project's board holds the three phases (Stage 48), and a card has to name one of them; this harness
+        // writes the project row itself, so the board is written here too.
+        seedOpeningThree(projectId)
         val result = TaskService.create(
             TaskDraft(
                 title = title, projectName = name, assigneeEmpNo = empNo, status = status,

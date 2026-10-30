@@ -1,5 +1,6 @@
 package mn.murray.pts.service
 
+import mn.murray.pts.domain.PROJECT_BUCKET_MAX
 import mn.murray.pts.domain.PROJECT_STATUSES
 import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.Project
@@ -8,7 +9,6 @@ import mn.murray.pts.domain.codeMatchesType
 import mn.murray.pts.domain.isValidProjectCode
 import mn.murray.pts.domain.normalizeProjectCode
 import mn.murray.pts.repository.PinRepository
-import mn.murray.pts.repository.ProjectBucketRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.TypeDefaultBucketRepository
@@ -24,7 +24,7 @@ import java.time.format.DateTimeFormatter
  * place. [create] takes the raw [ProjectDraft] straight
  * off the form and answers with either a new id or the field-keyed errors the modal renders
  * under each input. Persistence goes through [ProjectRepository] / [PinRepository] /
- * [ProjectBucketRepository]; nothing here touches the legacy JSON store.
+ * [TypeDefaultBucketRepository]; nothing here touches the legacy JSON store.
  */
 object ProjectService {
 
@@ -95,6 +95,43 @@ object ProjectService {
             errors += ProjectField.REVENUE to "Enter revenue as a number, like 1250000."
         }
 
+        // **Stage 104 puts a bucket line back on the create form, as an addition rather than a choice.** Since
+        // Stage 100 the answer to "what columns does a new board have" was entirely the category's — the whole
+        // Settings list, nothing else — and a category that listed none could not be created from at all. Now this
+        // form may name extra columns too, and they are **appended after** the catalogue rows: the list Settings
+        // keeps is still what every project of the category starts with, and what management types here is this
+        // project's own. Nothing below writes a `type_default_buckets` row, so a bucket added at creation joins no
+        // catalogue and no other board — the same reach Stage 77 gave a bucket typed on a live board with its
+        // `also_type` tick left off, and the reason this form prints no tick at all.
+        //
+        // A typed name that repeats the catalogue is refused instead of being quietly dropped. [TypeDefaultBucketRepository.seedBoard]
+        // would have ignored it without a word — the shape Stage 79 accepted for a re-typed name on a live board —
+        // and here the reader would have watched a chip they added vanish from a board that says it was created.
+        val typedBuckets = draft.newBuckets.map { it.trim() }.filter { it.isNotEmpty() }
+        val catalogue = if (type in PROJECT_TYPES) TypeDefaultBucketRepository.of(type) else emptyList()
+        if (type in PROJECT_TYPES) {
+            val seen = LinkedHashSet<String>()
+            val problem = typedBuckets.map { it.trim() }.firstNotNullOfOrNull { name ->
+                val shape = BucketDefaultsService.nameProblem(name)
+                when {
+                    shape != null -> shape
+                    !seen.add(name.lowercase()) -> "$name is on this board twice."
+                    catalogue.any { it.name.equals(name, ignoreCase = true) } ->
+                        "$name is already one of ${type.lowercase()}'s buckets — this board gets it from Settings."
+                    else -> null
+                }
+            }
+            if (problem != null) {
+                errors += ProjectField.BUCKETS to problem
+            } else if (catalogue.isEmpty() && typedBuckets.isEmpty()) {
+                // The one refusal left, and it is narrower than Stage 100's: an empty category is still a board
+                // with nowhere to file work, but the reader can now fill it from here instead of walking to
+                // Settings first.
+                errors += ProjectField.BUCKETS to
+                    "This category has no buckets yet. Add one above, or list them in Settings under Project bucket settings."
+            }
+        }
+
         if (errors.isNotEmpty()) return CreateProjectResult(null, errors, draft)
 
         val id = ProjectRepository.insert(
@@ -109,17 +146,14 @@ object ProjectService {
             start = start,
             revenue = revenue ?: 0.0,
         )
-        // A project arrives with the six standard sub-categories already on it — the same families the Projects
-        // board cuts itself by — and the manager of the project adds to them from the page. The create form does
-        // not ask for lane names, because a new project is not a form somebody has to understand before they can
-        // use it, and because a card cannot be written until its board exists: the six being fixed is what lets
-        // a card be *filed* rather than left unplaced (see DEFAULT_PROJECT_BUCKETS and V10).
-        ProjectBucketRepository.seedDefaults(id)
-        // On top of the six, a category's own defaults (V12) land on the board — positions 6 onwards, in the
-        // order management added them to the catalogue on Settings. A category with none writes nothing, so a
-        // project is exactly the six-lane board it was before the table existed. See BucketDefaultsService:
-        // this is the only place the catalogue reaches a board, and it never reaches one that already exists.
-        TypeDefaultBucketRepository.seedExtras(id, type)
+        // **Stage 100: the board starts as the category's Settings list, all of it. Stage 104 appends what this
+        // form named.** The three phases V16 gave every board that already exists are not added here any more; a
+        // category that wants them lists them. [seedBoard] writes the rows in catalogue order — the same rows
+        // Settings' add puts on the boards that already exist when management adds a bucket there — and appends a
+        // name the catalogue does not know last, in the order the form posted it, which is where a bucket typed
+        // during creation lands. It carries no colour, so that column wears the shade of the position it took
+        // (Stage 80), exactly like one added later from the board's own `+ Add bucket` box.
+        TypeDefaultBucketRepository.seedBoard(id, type, LinkedHashSet(catalogue.map { it.name } + typedBuckets))
         NotificationService.projectManagerAssigned(id, actorEmpNo)
         return CreateProjectResult(id, emptyMap(), draft)
     }
@@ -245,12 +279,35 @@ object ProjectService {
     }
 }
 
-/** Which input a create-project error belongs under; also keys the re-populated form. */
+/**
+ * Which input a create-project error belongs under; also keys the re-populated form.
+ *
+ * There is no bucket *choice* field: the popup never asks which of the category's rows the board should hold.
+ * Stage 73's `BUCKETS` — the one entry that keyed a group of controls rather than a single input — was deleted
+ * with the tick-list in Stage 98 and put back by Stage 100 for the empty-category refusal alone.
+ */
 enum class ProjectField {
     TYPE, CODE, NAME, CLIENT, START, END, STATUS, MANAGER, REVENUE, INVOICED,
+    /**
+     * The create popup's bucket line. Since **Stage 104** it does name an input — the Add bucket box — so a
+     * message here is either a name that broke a rule (too long, twice on the board, already one of the
+     * category's), or the refusal of a create whose category lists nothing and whose form typed nothing. The
+     * message is one line for the whole line of boxes, because a chip has no field of its own to be refused in.
+     */
+    BUCKETS,
 }
 
-/** The raw create-project form, exactly as submitted so the modal can be re-rendered. */
+/**
+ * The raw create-project form, exactly as submitted so the modal can be re-rendered.
+ *
+ * A draft remembers no *choice* about buckets — since Stage 100 nothing on this form selects from the category's
+ * list — but since **Stage 104** it remembers what management **typed** in the Add bucket line: [newBuckets] is
+ * every `new_bucket` value posted, chips and the name still in the box alike, in the order the form sent them. A
+ * rejected create comes back as chips holding exactly these, and a successful one lands them on the new board
+ * after the category's own rows. Stage 73's `buckets` / `newBucket` and Stage 77's `bucketForType` were deleted
+ * in Stage 98 along with the popup fields that posted them; this is a new field with a narrower job, not that pair
+ * coming back — there is no tick-list and nothing here reaches the category's catalogue.
+ */
 data class ProjectDraft(
     val type: String = "",
     val code: String = "",
@@ -262,6 +319,7 @@ data class ProjectDraft(
     val managerName: String = "",
     val revenue: String = "",
     val invoiced: String = "",
+    val newBuckets: List<String> = emptyList(),
 )
 
 /** `projectId` on success, field-keyed `errors` when the form has to stay open. */

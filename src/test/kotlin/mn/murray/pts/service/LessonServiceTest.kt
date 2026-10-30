@@ -83,7 +83,7 @@ class LessonServiceTest {
     private var backlogCard = 0
 
     private fun project(code: String, name: String): Int = ProjectRepository.insert(
-        code = code, name = name, status = "Ongoing", progress = 40, managerEmpNo = "EMP0001",
+        code = code, name = name, status = "In progress", progress = 40, managerEmpNo = "EMP0001",
         due = "2026-12-01", type = "Fabrication/Manufacturing", client = "Erdenet Mining Corporation",
         revenue = 2_340_000_000.0,
     )

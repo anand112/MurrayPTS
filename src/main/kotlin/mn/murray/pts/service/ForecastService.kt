@@ -8,6 +8,7 @@ import mn.murray.pts.domain.Project
 import mn.murray.pts.domain.currentMonthKey
 import mn.murray.pts.domain.invoiceTint
 import mn.murray.pts.domain.isValidMonthKey
+import mn.murray.pts.domain.monthKeyOf
 import mn.murray.pts.domain.shiftMonth
 import mn.murray.pts.repository.ForecastLedgerRepository
 import java.time.LocalDate
@@ -37,7 +38,7 @@ object ForecastService {
 
     /** The month a page reads when the URL does not name one. */
     fun monthOr(param: String?, today: LocalDate = LocalDate.now()): String =
-        param?.trim()?.takeIf { isValidMonthKey(it) } ?: currentMonthKey(today)
+        monthKeyOf(param, today = today)
 
     /** The month a ‹ / › control points at, given the one on screen. */
     fun neighbourMonth(month: String, steps: Long): String = shiftMonth(month, steps)

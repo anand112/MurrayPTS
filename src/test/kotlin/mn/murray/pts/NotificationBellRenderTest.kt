@@ -64,12 +64,12 @@ class NotificationBellRenderTest {
         seq++
         val name = "Project ${seq.toString().padStart(2, '0')}"
         val projectId = mn.murray.pts.repository.ProjectRepository.insert(
-            code = "S-%02d".format(seq), name = name, status = "Ongoing", progress = 0,
+            code = "S-%02d".format(seq), name = name, status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "", type = "Site projects",
         )
-        // The six sub-categories the card has to be filed in (Stage 48); this harness writes the project row
-        // itself, so it hands out the board `ProjectService.create` would have.
-        mn.murray.pts.repository.ProjectBucketRepository.seedDefaults(projectId)
+        // The three phases the card is filed in (Stage 48); this harness writes the project row itself, so it
+        // gives the project the three-lane board every board had before Stage 100.
+        mn.murray.pts.seedOpeningThree(projectId)
         val result = TaskService.create(
             TaskDraft(
                 title = title, projectName = name, assigneeEmpNo = "EMP0002",

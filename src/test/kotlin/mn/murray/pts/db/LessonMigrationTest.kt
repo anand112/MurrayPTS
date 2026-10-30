@@ -71,7 +71,7 @@ class LessonMigrationTest {
         update(
             ds,
             "INSERT INTO projects (code, name, status, progress, due, type, created_at, updated_at) " +
-                "VALUES ('$code', 'Job $code', 'Ongoing', 0, '2027-03-30', 'Site projects', '2026-01-01', '2026-01-01')",
+                "VALUES ('$code', 'Job $code', 'In progress', 0, '2027-03-30', 'Site projects', '2026-01-01', '2026-01-01')",
         )
     }
 

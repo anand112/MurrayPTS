@@ -127,7 +127,7 @@ class EmployeeServiceTest {
     fun tearDown() = ds.close()
 
     private fun project(code: String, name: String): Int = ProjectRepository.insert(
-        code = code, name = name, status = "Ongoing", progress = 40, managerEmpNo = manager,
+        code = code, name = name, status = "In progress", progress = 40, managerEmpNo = manager,
         due = "2026-12-01", type = "Fabrication/Manufacturing", client = "Erdenet Mining Corporation",
         revenue = 2_340_000_000.0,
     )

@@ -1,0 +1,44 @@
+-- ============================================================================
+-- Murray PTS — V19 one word for the running stage (SQLite)
+-- ----------------------------------------------------------------------------
+-- The ask was about the **new-project Status picker**: it opened with the app's most-used status
+-- (`Ongoing, Not started, In progress…` — ordered by how often managers reached for a choice) and the
+-- reader asked for the progression instead, `Not started → In progress → On hold → Blocked → Completed`.
+-- Reorder alone would have been half the fix, because the word the user typed — *In progress* — was not a
+-- project status at all. It was a **card** status. The app ran two vocabularies for one idea: `tasks.status`
+-- said *In progress*, `projects.status` said *Ongoing*, and every surface that showed both had to translate.
+-- The Calendar's task list needed `taskStatusChip` to colour a card's word with the project palette; the Team
+-- page's dot table needed an `Ongoing` arm and an `In progress` arm beside each other; and the Projects board's
+-- status sort deliberately disagreed with the picker about whether *Blocked* or *On hold* came first. The user
+-- chose to collapse them: **one vocabulary app-wide**, spelled the way the cards already spelled it.
+--
+-- So this migration rewrites one column of one table. `projects.status` holds free text with no CHECK
+-- constraint (V1), the app's five words arriving by validation at the form rather than by rule in the schema,
+-- which is what makes a single `UPDATE` the whole change — no table copy, no index rebuild. `updated_at` is
+-- deliberately left alone: this is the app renaming its own vocabulary, not a manager moving a project, and
+-- stamping every project row with today's date would make a four-year-old job look as if someone had touched
+-- it this morning.
+--
+-- What this migration deliberately does not do:
+--
+--   * **touch `tasks.status`.** The card word was already `In progress`; V19 moves the project word to meet it.
+--     An update there would match zero rows and read like a second table that needed converting, which it does not.
+--   * touch `forecasts.invoice_status` (V8) or `notifications.mail_status` (V4). Those columns hold `Not invoiced`
+--     and `sent | logged | failed | no-address` — words that merely share the column name `status`, not stages of
+--     a project.
+--   * rewrite `LegacyNormalizer`'s output or old exports. The import path normalises into `OLD_STATUS_MAP`, which
+--     now sends both the legacy `On track` and the v2 `Ongoing` to `In progress`, so a restore of an older JSON
+--     lands on the same five words without a second pass.
+--   * canonicalise anything else. A row whose status is not one of the five — hand-edited, or written by a build
+--     predating V3 — survives exactly as written. This migration renames one word; it is not a data-cleaning pass,
+--     and a status the app cannot name still shows on the board as its raw text rather than silently becoming
+--     `Not started`.
+--
+-- The reader-visible consequence, and the reason the code changes accompany this file rather than follow it:
+-- `PROJECT_STATUSES` (the picker) and `PROJECT_STATUS_ORDER` (the board's `status` sort) are now the same list, so
+-- the picker's order *is* the sort order and the sort captions — *Not started first*, *Completed first* — describe
+-- one ordering instead of two that disagreed. Existing `Ongoing` projects arrive at the same position in that
+-- ordering as `In progress` always held.
+-- ============================================================================
+
+UPDATE projects SET status = 'In progress' WHERE status = 'Ongoing';

@@ -56,8 +56,10 @@ fun HTML.loginPage(error: String?) {
                     }
                     input(type = InputType.text, name = "employeeNumber") {
                         id = "employeeNumber"
-                        placeholder = "e.g. EMP0009"
+                        placeholder = "e.g. emp0009"
                         attributes["autocomplete"] = "username"
+                        attributes["autocapitalize"] = "none"
+                        attributes["spellcheck"] = "false"
                     }
                 }
                 div("field") {
@@ -76,8 +78,8 @@ fun HTML.loginPage(error: String?) {
             p("note") {
                 // Two separate text nodes: `+"A" + "B"` would apply binary plus to the result of
                 // the first unary plus (Unit), which does not compile.
-                +"First sign-in: your starting password is your employee number (e.g. EMP0009 / EMP0009). "
-                +"PTS will ask you to choose a private one before it opens the rest of the system."
+                +"Employee numbers are not case-sensitive. Passwords are case-sensitive. "
+                +"Your starting password, if none was set, is your employee number in capitals (e.g. EMP0009)."
             }
         }
         themeScript()

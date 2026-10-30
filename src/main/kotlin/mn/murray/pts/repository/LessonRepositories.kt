@@ -117,6 +117,7 @@ object LessonRepository {
             it[Projects.id] to it[Projects.code]
         }
         Tasks.selectAll()
+            .where { Tasks.archived eq false }
             .orderBy(Tasks.projectId to SortOrder.ASC, Tasks.title to SortOrder.ASC)
             .map {
                 LessonTaskChoice(

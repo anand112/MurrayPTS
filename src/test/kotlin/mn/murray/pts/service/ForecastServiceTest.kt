@@ -9,6 +9,7 @@ import mn.murray.pts.domain.NOT_INVOICED
 import mn.murray.pts.domain.PARTIALLY_INVOICED
 import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.currentMonthKey
+import mn.murray.pts.domain.monthKeyOf
 import mn.murray.pts.repository.ForecastLedgerRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TeamRepository
@@ -68,7 +69,7 @@ class ForecastServiceTest {
     private fun project(
         code: String,
         name: String = "Haul road widening",
-        status: String = "Ongoing",
+        status: String = "In progress",
         revenue: Double = 12_500_000.0,
         type: String = "Site projects",
         client: String = "Oyu Tolgoi LLC",
@@ -112,6 +113,22 @@ class ForecastServiceTest {
         listOf("", "  ", "banana", "2026-13", "2026-10-05", "Oct 2026").forEach { bad ->
             assertEquals("2026-10", ForecastService.monthOr(bad, today), "?month=$bad should fall back")
         }
+    }
+
+    @Test
+    fun `a page with two ways to choose believes the control that was acted on`() {
+        // The calendar asks one question two ways: ‹ / › send `month`, the box that names any month sends `pick`,
+        // and pressing a step also carries whatever the box holds. The control that was acted on wins.
+        assertEquals("2026-09", monthKeyOf("2026-09", "2026-10", today = today))
+        assertEquals("2026-12", monthKeyOf(null, "2026-12", today = today), "the box alone is a valid answer")
+        assertEquals("2026-12", monthKeyOf("", "2026-12", today = today), "an empty step is not an answer")
+        // A step that is not a month does not disqualify the box that is; and when neither is one, the page opens
+        // on this month rather than on a dead end.
+        assertEquals("2026-12", monthKeyOf("banana", "2026-12", today = today))
+        assertEquals("2026-10", monthKeyOf("banana", "2026-1-2", today = today))
+        assertEquals("2026-10", monthKeyOf(null, null, today = today))
+        // What the sheet's own helper does with one answer is the same rule, stated once.
+        assertEquals(ForecastService.monthOr("2025-03", today), monthKeyOf("2025-03", today = today))
     }
 
     @Test
@@ -204,13 +221,13 @@ class ForecastServiceTest {
 
     @Test
     fun `running projects and finished ones are separate halves of one sheet`() {
-        val ongoing = project("S-01", name = "Haul road widening", status = "Ongoing")
+        val active = project("S-01", name = "Haul road widening", status = "In progress")
         val parked = project("S-02", name = "Weir repair", status = "Not started", revenue = 1_000_000.0)
         val done = project("R-01", name = "Excavator overhaul", status = "Completed", revenue = 8_000_000.0,
             type = "Repair/Maintenance/other services")
 
         val board = ForecastService.board("2026-10")
-        assertEquals(listOf(ongoing, parked), board.open.map { it.project.id }, "both running rows, in id order")
+        assertEquals(listOf(active, parked), board.open.map { it.project.id }, "both running rows, in id order")
         assertEquals(listOf(done), board.completed.map { it.project.id })
         // A finished job has no forward plan to read, so the sheet that lists it counts what it totalled.
         write(done, "2026-06", "5,000,000", "5,000,000", FULLY_INVOICED)
@@ -536,8 +553,8 @@ class ForecastServiceTest {
     fun `the sheet's own address is rebuilt from the filter it is standing on`() {
         assertEquals("/app/forecasts?month=2026-10", ForecastFilter().queryFor("2026-10"))
         assertEquals(
-            "/app/forecasts?month=2026-10&q=haul+road&type=Site+projects&status=Ongoing",
-            ForecastFilter("haul road", "Site projects", "Ongoing").queryFor("2026-10"),
+            "/app/forecasts?month=2026-10&q=haul+road&type=Site+projects&status=In+progress",
+            ForecastFilter("haul road", "Site projects", "In progress").queryFor("2026-10"),
         )
         // A row's save answers on the same sheet it came from, which is why the path is not fixed.
         assertEquals(
@@ -546,15 +563,15 @@ class ForecastServiceTest {
         )
         // The tabs are links, so each one has to carry the sheet it stands on: a tab that dropped the
         // word in the search box would look like a filter control that clears the other one.
-        val standing = ForecastFilter(text = "haul", status = "Ongoing")
+        val standing = ForecastFilter(text = "haul", status = "In progress")
         assertEquals(
-            "/app/forecasts?month=2026-10&q=haul&type=Site+projects&status=Ongoing",
+            "/app/forecasts?month=2026-10&q=haul&type=Site+projects&status=In+progress",
             standing.hrefFor("2026-10", "Site projects"),
         )
-        assertEquals("/app/forecasts?month=2026-10&q=haul&type=Other&status=Ongoing", standing.hrefFor("2026-10", "Other"))
+        assertEquals("/app/forecasts?month=2026-10&q=haul&type=Other&status=In+progress", standing.hrefFor("2026-10", "Other"))
         // "All" is the sheet with no tab chosen, so its link drops the key rather than sending an empty one.
         assertEquals(
-            "/app/forecasts?month=2026-10&q=haul&status=Ongoing",
+            "/app/forecasts?month=2026-10&q=haul&status=In+progress",
             standing.hrefFor("2026-10", null),
         )
     }

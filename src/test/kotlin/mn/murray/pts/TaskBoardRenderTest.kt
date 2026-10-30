@@ -10,16 +10,20 @@ import mn.murray.pts.domain.ProjectBucket
 import mn.murray.pts.domain.TASK_STATUSES
 import mn.murray.pts.domain.UNSORTED_LANES
 import mn.murray.pts.domain.TaskItem
+import mn.murray.pts.domain.bucketDotClass
 import mn.murray.pts.repository.ProjectBucketRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TaskRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.service.TaskDraft
+import mn.murray.pts.service.TaskField
+import mn.murray.pts.service.TaskSaveResult
 import mn.murray.pts.service.TaskService
 import org.jetbrains.exposed.sql.Database
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -37,7 +41,8 @@ import kotlinx.html.stream.createHTML
  * target that opens its editor, and the editor prints the card as the database holds it — every field for
  * management, four of them greyed for the person it is assigned to, with the plan and the log underneath.
  * There is no menu and no status dropdown on a card any more: a board carries one hidden opener form, and
- * a column is changed by dragging, by the owner's arrows, or by management inside the popup. A card prints
+ * a column is changed by dragging, or by management inside the popup — **Stage 103** took the owner's arrows out,
+ * so a status-board card prints no button at all. A card prints
  * one number about its plan and nothing else (Stage 41) — the steps and their tick boxes are in the editor
  * the click opens, offered to exactly the two readers the route answers to. A rejected form comes back with
  * the popup open and its message under its own field.
@@ -63,20 +68,20 @@ class TaskBoardRenderTest {
         TeamRepository.upsert(Member("EMP0001", "Munkhtsetseg", "Operations", "Project Manager"))
         TeamRepository.upsert(Member("EMP0002", "Bat-Erdene", "Workshop", "Engineer"))
         val projectId = ProjectRepository.insert(
-            code = "S-01", name = "Haul road widening", status = "Ongoing", progress = 0,
+            code = "S-01", name = "Haul road widening", status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "2027-03-30", type = "Site projects",
         )
         project = ProjectRepository.findById(projectId)!!
-        // Every project the application has holds the same six sub-categories (V7, fixed by Stage 48) —
-        // `ProjectService.create` gives them out and V10 gave them to the projects that predate it — so the
-        // project page this suite renders is a lane board, exactly as the real one is.
-        ProjectBucketRepository.seedDefaults(projectId)
+        // The three phases (V7, V10's six, V16's three again). Since Stage 100 a create takes its board from the
+        // category's Settings list, so this harness — which inserts the project row itself — writes the board by
+        // hand: the project page this suite renders is a lane board, exactly as the real one is.
+        seedOpeningThree(projectId)
         TaskService.create(
             TaskDraft(
                 title = "Spread base course", projectName = project.name,
                 assigneeEmpNo = "EMP0002", started = "2026-11-01", due = "2026-11-12",
                 priority = "High", status = "Not started",
-                // Stage 48: a project card is filed in one of the six, so the card this harness starts every
+                // Filing is compulsory (Stage 48) into the three a board opens with (Stage 75), so the card every
                 // test with says which.
                 projectLane = DEFAULT_PROJECT_BUCKETS.first(),
             ),
@@ -162,14 +167,16 @@ class TaskBoardRenderTest {
     }
 
     @Test
-    fun `a card is clickable for its manager and its owner, and for nobody else`() {
+    fun `a card is clickable for everybody and moves only for its manager and owner`() {
         val tasks = TaskService.assigned()
         val asManager = render { taskKanban(tasks, manager, canManage = true, BACK_ASSIGNED) }
         val asAssignee = render { taskKanban(tasks, engineer, canManage = false, BACK_ASSIGNED) }
         val asStranger = render { taskKanban(tasks, UserSession("EMP9999"), canManage = false, BACK_ASSIGNED) }
         // The card is the trigger and carries only what the opener needs: the id of the card to ask for.
-        listOf(asManager, asAssignee).forEach {
-            assertTrue(it.contains("data-task-card=\"1\""))
+        // **Stage 86** made that true of every card for every reader — the popup behind the click is what
+        // narrows to a read-only view ([TaskForm.viewOnly]), not the click itself.
+        listOf(asManager, asAssignee, asStranger).forEach {
+            assertTrue(it.contains("data-task-card=\"1\""), "a card on the board was not clickable")
             // Focusable and named, so the same popup is reachable without a mouse; the ⋯ tab that used
             // to hint at a menu is gone, because there is no menu to open any more.
             assertTrue(it.contains("tabindex=\"0\""), "a clickable card cannot be tabbed to")
@@ -181,27 +188,26 @@ class TaskBoardRenderTest {
             assertFalse(it.contains("kcard-actions"))
             assertFalse(it.contains("/app/assigned-tasks/delete"), "a card still deletes itself")
         }
-        // Nothing at all stands on a manager's card, the status arrows included: everything a manager can
-        // do to a card is behind clicking it, and a column is what they change inside that popup.
-        assertFalse(asManager.contains("kmove-btn"), "a manager's card still carries move buttons")
-        // The owner's arrows stay: their editor greys Status, so a card's column must not depend on
-        // management being the one who changes it.
-        assertTrue(asAssignee.contains("kmove-btn"))
+        // **Stage 103 retired the prev/next arrows**, so no card on a status board carries a standing button for
+        // anybody — not management, whose Status field lives in the popup they open by clicking the card, and not
+        // its holder, whose way to another column is the drag the card already offers. What the board still owes
+        // every reader is the click, and what it still owes the holder is the grab.
+        listOf(asManager, asAssignee, asStranger).forEach {
+            assertFalse(it.contains("kmove"), "a status-board card still carries a move button")
+            assertFalse(it.contains("← "), "a status-board card still points backwards")
+        }
         assertTrue(asAssignee.contains("draggable"))
-        // A reader with no part in the card gets the plain, inert board: no click target, no opener, no
-        // drag and no arrows — and no popup to ask this page for.
-        assertFalse(asStranger.contains("data-task-card"))
-        assertFalse(asStranger.contains("taskEditOpener"))
-        assertFalse(asStranger.contains("tabindex"))
+        // Opening is not moving. A reader with no part in the card can click it — and can read it — but gets no
+        // drag, and the board still ships the opener their click fills.
+        assertTrue(asStranger.contains("taskEditOpener"), "the click had no form to fill")
         assertFalse(asStranger.contains("draggable"))
-        assertFalse(asStranger.contains("kmove-btn"))
     }
 
     @Test
     fun `a card offers no status dropdown anywhere on the board`() {
         val onManagersBoard = render { taskKanban(TaskService.assigned(), manager, canManage = true, BACK_ASSIGNED) }
         val onOwnersBoard = render { taskKanban(TaskService.assigned(), engineer, canManage = false, BACK_ASSIGNED) }
-        // The menu's mover went with the menu. `/app/tasks/status` is still the route the arrows and the
+        // The menu's mover went with the menu. `/app/tasks/status` is still the route the drag and the
         // drag post to — see kanban.js — it simply has no rendered control of its own on a board.
         listOf(onManagersBoard, onOwnersBoard).forEach {
             assertFalse(it.contains("/app/tasks/status"), "the board still prints a status form")
@@ -259,7 +265,7 @@ class TaskBoardRenderTest {
     }
 
     @Test
-    fun `a project page is cut by status and carries no manager panel`() {
+    fun `a project page is cut by its buckets and carries no manager panel`() {
         val html = render { projectDetailContent(manager, project, canManage = true) }
         val tasks = html.indexOf("Tasks on this project")
         assertTrue(tasks >= 0, "no task board on the project page")
@@ -271,27 +277,41 @@ class TaskBoardRenderTest {
         assertFalse(html.contains("Project assignees"))
         assertFalse(html.contains("Set manager"), "the manager panel came back")
         assertFalse(html.contains("/manager"), "a separate manager route came back")
-        // Stage 52 cut the project page to the **five statuses**, the same columns the general Assigned tasks
-        // page prints. Each is a `.kcol[data-status]` a drag posts to `/app/tasks/status`, and the word the
-        // old lane board refused to print is a column head again.
+        // Stage 75 put this page back on its **buckets**, always: the columns are the project's lanes, one per
+        // bucket it carries, and a card's status is a line on the card changed through its own Done button, not a
+        // place on the board. Each lane is a `.kcol[data-lane]` a drag posts to `/app/tasks/bucket`.
         assertEquals(
-            TASK_STATUSES.size, occurrences(html, "class=\"kcol\" data-status"),
-            "the project board is not its five status columns",
+            lanes().size, occurrences(html, "data-lane="),
+            "the project board is not its bucket columns",
         )
-        TASK_STATUSES.forEach {
+        DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(html.contains("<span class=\"kcol-title\">$it</span>"), "$it is not a column here")
         }
-        // The six sub-categories the project still files cards into behind the scenes are no longer columns.
-        assertFalse(html.contains("data-lane"), "a lane column is on the project board")
-        DEFAULT_PROJECT_BUCKETS.forEach {
-            assertFalse(html.contains("<span class=\"kcol-title\">$it</span>"), "$it is still a column here")
-        }
-        // And nothing under or beside these columns names a lane or takes one off (Stage 35 stands), not even
-        // for the management account this render is drawn for: the two `/buckets` routes stay in the
-        // application with no control pointing at them.
-        assertFalse(html.contains("/buckets"), "a lane route is on the page")
-        assertFalse(html.contains("laneName"), "a box to name a lane came back")
+        // …and the five statuses are not. Nothing on this board is a `.kcol[data-status]`, and no status word
+        // stands as a column head; the words appear only as a card's own line and inside its popup.
+        assertFalse(html.contains("class=\"kcol\" data-status"), "a status column is on the project board")
+        // Nothing that predates the board's own controls comes back either (Stage 35 stands): no lane swap region
+        // and no `?lane=` opener beside the columns. The per-column `⋯`, the dashed `+ Add bucket` box and the
+        // remove form inside the column popup are the page's own now, and ProjectsPageRenderTest pins those.
+        assertFalse(html.contains("?lane="), "a lane code opener came back")
         assertFalse(html.contains("laneArea"), "a lane swap region came back")
+        // **Stage 79** took the tick-list panel that sat under the header off this page, so the board's own forms
+        // are the page's only bucket writers: the save route is printed exactly once, by the `+ Add bucket` half
+        // of the column popup, and it swaps the board the reader is standing on — not a panel that no longer
+        // exists — alongside the card popup's Sub-category picker and the popup itself.
+        assertFalse(html.contains("id=\"projectBuckets\""), "the bucket panel came back")
+        assertFalse(html.contains("Save buckets"), "the panel's button came back")
+        assertEquals(1, occurrences(html, "/buckets/save"), "a second bucket form is on this page")
+        val saveForm = html.substringAfter("<form action=\"/app/projects/${project.id}/buckets/save\"")
+            .substringBefore(">")
+        assertTrue(
+            saveForm.contains("data-live-target=\"#projectBoard\""),
+            "adding a bucket redraws something other than the columns",
+        )
+        assertTrue(
+            saveForm.contains("data-live-extra=\"#taskLane,#projectLaneModal\""),
+            "a bucket added here leaves the card popup or the popup itself stale",
+        )
     }
 
     @Test
@@ -377,19 +397,16 @@ class TaskBoardRenderTest {
         viewer: String = "EMP0001",
         back: String = BACK_ASSIGNED,
         fixed: mn.murray.pts.domain.Project? = null,
-        showAllBuckets: Boolean = false,
     ): String = render {
         taskFormModal(
             editFormOf(card(), canEditAll = canManage, viewerEmpNo = viewer),
             back,
             fixed,
-            showAllBuckets,
         )
     }
 
     /** [edit] as the person the card is assigned to sees it: not management, but the one who works it. */
-    private fun editAsOwner(showAllBuckets: Boolean = false): String =
-        edit(canManage = false, viewer = "EMP0002", showAllBuckets = showAllBuckets)
+    private fun editAsOwner(): String = edit(canManage = false, viewer = "EMP0002")
 
     @Test
     fun `management's editor arrives filled, with the plan and the log under the fields`() {
@@ -404,7 +421,7 @@ class TaskBoardRenderTest {
         assertTrue(html.contains("value=\"2026-11-01\""))
         assertTrue(html.contains("value=\"2026-11-12\""))
         assertTrue(selectedOption(html, "EMP0002"), "the assignee on the card is not the one picked")
-        // All seven fields are management's, so nothing is greyed and no scope line is needed.
+        // Every field on this popup is management's, so nothing is greyed and no scope line is needed.
         assertFalse(html.contains("disabled"), "management was shown a read-only field")
         assertFalse(html.contains("modal-scope"))
         // Two live regions, each redrawn by the forms inside it, each saying which card to come back to.
@@ -431,7 +448,9 @@ class TaskBoardRenderTest {
         // The line says it before the greying has to be guessed at.
         assertTrue(html.contains("modal-scope"))
         assertTrue(html.contains("The dates and the priority are yours to set."))
-        listOf("title", "project", "assignee", "status").forEach { field ->
+        // The project and the sub-category are not printed at all since Stage 87, so what is greyed here is
+        // what the popup still has: the title, the holder and the status.
+        listOf("title", "assignee", "status").forEach { field ->
             val tag = control(html, field)
             assertTrue(tag.contains("disabled"), "$field is open to the person who does not own it")
         }
@@ -440,12 +459,15 @@ class TaskBoardRenderTest {
             assertFalse(tag.contains("disabled"), "$field was taken from the person who sets it")
         }
         // The plan the card no longer prints is here instead, and here alone: this popup is the only place
-        // its owner can tick it, so taking the section out would take the tick out of the app. Writing the
-        // plan is still management's, so the add line and the × stay out of this copy.
+        // its owner can tick it, so taking the section out would take the tick out of the app. Since Stage 89
+        // the owner also writes their own plan, so the *New step…* line is here — but the × is not: taking a
+        // step off is still a decision about the plan rather than about the work.
         assertTrue(html.contains("id=\"task-steps-${task.id}\""), "the owner's editor carries no plan")
         assertTrue(html.contains("id=\"chk-$step\""), "the plan printed no box")
         assertTrue(html.contains("action=\"/app/tasks/checklist/toggle\""))
-        assertFalse(html.contains("checklist/add"), "the owner was offered to write a step")
+        assertEquals(1, occurrences(html, "action=\"/app/tasks/checklist/add\""), "the owner was refused a step")
+        assertTrue(html.contains("id=\"stepAdd-${task.id}\""), "the owner's add line has no field")
+        assertTrue(html.contains("name=\"edit\" value=\"${task.id}\""), "an added step would close the popup")
         assertFalse(html.contains("checklist/remove"), "the owner was offered to delete a step")
         // The log is open to the person doing the work: the box is here, the × is not.
         assertTrue(html.contains("id=\"task-notes-${task.id}\""))
@@ -458,6 +480,44 @@ class TaskBoardRenderTest {
     private fun control(html: String, name: String): String =
         Regex("<(?:input|select|textarea)[^>]*name=\"$name\"[^>]*>").find(html)?.value
             ?: error("no $name control rendered")
+
+    @Test
+    fun `a colleague's card opens to be read and not written`() {
+        val task = card()
+        val step = TaskService.addChecklistItem(task.id, "Set out the haul road", "EMP0001", true)!!
+        TaskService.addNote(task.id, "Layer is wet, holding.", "EMP0002", false)
+        // Stage 86: a reader with no part in the card opens it from the shared board and gets a view.
+        val html = edit(canManage = false, viewer = "EMP9999", back = BACK_PROJECT, fixed = project)
+        // The heading says what it is, and the line under it names the person it belongs to.
+        assertTrue(html.contains("Task T-"), "the read-only popup still calls itself an editor")
+        assertFalse(html.contains("Edit task"), "a stranger was offered an edit")
+        assertTrue(html.contains("This task belongs to Bat-Erdene."), "the popup did not say whose card it is")
+        assertTrue(html.contains("You can read its plan and its log"), "the popup did not say what is left")
+        // Nothing on it writes: no save, no box, no ×, no add line, no delete and no note box. (The `<form>`
+        // wrapper is still there, with every field in it disabled — it is the shape the popup has always had.)
+        assertFalse(html.contains("Save task"), "a stranger was handed a save")
+        assertFalse(html.contains("class=\"submit\""), "a stranger was offered a submit button")
+        listOf(
+            "checklist/toggle", "checklist/add", "checklist/remove",
+            "notes/add", "notes/remove", "assigned-tasks/delete",
+        ).forEach { assertFalse(html.contains(it), "a stranger was offered $it") }
+        // Every field the popup still prints is greyed — including the three an owner keeps, because this
+        // reader is not the owner. The project and sub-category left the editor in Stage 87, so there is
+        // nothing of them to grey; the next test pins their absence.
+        listOf("title", "assignee", "status", "started", "due", "priority").forEach { field ->
+            assertTrue(control(html, field).contains("disabled"), "$field opened for a stranger")
+        }
+        // The plan and the log are what the card *is*, so both are here to read; the plan is drawn stopped.
+        assertTrue(html.contains("id=\"task-steps-${task.id}\""), "the plan left the card")
+        assertTrue(html.contains("id=\"chk-$step\""), "the plan printed no row")
+        assertTrue(html.contains("chk-box locked"), "a stranger's plan is not drawn stopped")
+        assertFalse(html.contains("name=\"done\""), "a stranger was handed a tick box")
+        assertTrue(html.contains("Layer is wet, holding."), "the log left the card")
+        assertFalse(html.contains("class=\"note-foot\""), "a stranger was handed the note foot")
+        // One way out, and it says what it does rather than offering a cancel of nothing.
+        assertTrue(html.contains(">Close<"), "the read-only popup has no Close")
+        assertFalse(html.contains(">Cancel<"), "the read-only popup offers to cancel nothing")
+    }
 
     /** True when an `<option>` carries [value] and is the one rendered as picked. */
     private fun selectedOption(html: String, value: String): Boolean =
@@ -495,7 +555,7 @@ class TaskBoardRenderTest {
         assertTrue(html.contains("name=\"taskId\" value=\"0\""))
         // Stage 48 took the blank choice out of both pickers: a card that names no project belongs to neither
         // world, and one that names no lane of it is nowhere on that board. So the general board's create lists
-        // the projects and opens on the first real one, with the six sub-categories beside it.
+        // the projects and opens on the first real one, with its three phase columns beside it.
         assertFalse(html.contains("— No project —"), "the general board can still create a card on no project")
         assertTrue(html.contains("value=\"${project.name}\""), "this project is off the general board's picker")
         assertTrue(selectedOption(html, DEFAULT_PROJECT_BUCKETS.first()), "a create opened on no lane")
@@ -533,6 +593,77 @@ class TaskBoardRenderTest {
     }
 
     @Test
+    fun `a finished card's steps are settled rather than clickable, for the reader who may tick them`() {
+        val task = card()
+        val (first, second) = steps("Set out the haul road", "Compact the sub-base")
+        assertTrue(TaskService.toggleChecklistItem(second, "EMP0001", true))
+        assertTrue(TaskService.updateStatus(task.id, "Completed", "EMP0001", canManage = true))
+        val html = edit(canManage = true)
+        // The plan reads as the plan it was a moment ago — same rows, every one struck through, and the
+        // head counts what the service ticked.
+        assertTrue(html.contains("2 of 2 done · 100%"), "a finished card's plan did not print as done")
+        assertEquals(2, occurrences(html, "class=\"chk-row\""))
+        assertEquals(2, occurrences(html, "class=\"chk-label done\""))
+        // …but nothing in it is a control: the route refuses every box on a completed card, so drawing one
+        // would be a refusal waiting to happen. The form is gone rather than merely inert.
+        assertEquals(0, occurrences(html, "action=\"/app/tasks/checklist/toggle\""), "a finished card was handed tick boxes")
+        assertFalse(html.contains("data-autosubmit"), "a locked box would still submit itself on a click")
+        assertEquals(2, occurrences(html, "class=\"chk-box locked\""))
+        val box = Regex("<input[^>]*id=\"chk-$first\"[^>]*>").find(html)?.value
+        assertNotNull(box, "the finished card printed no square at all")
+        assertTrue(box!!.contains("disabled"), "a step on a finished card was still tickable")
+        assertTrue(box.contains("checked"), "a settled step printed unticked")
+        // The reason is on the row, and the way round it is the card's status, not the step.
+        assertTrue(html.contains("This card is Completed"), "a locked box said nothing about why")
+        // Writing the plan is a different route and stays open: management can still correct a finished card.
+        assertEquals(1, occurrences(html, "action=\"/app/tasks/checklist/add\""))
+        assertEquals(2, occurrences(html, "action=\"/app/tasks/checklist/remove\""))
+        // The same card, seen by the person it belongs to: they keep the plan and lose the boxes with it, and
+        // keep the add line they gained in Stage 89 — which writes a step unticked like any other (Stage 101).
+        val asOwner = editAsOwner()
+        assertTrue(asOwner.contains("id=\"task-steps-${task.id}\""), "the owner lost a finished card's plan")
+        assertEquals(0, occurrences(asOwner, "action=\"/app/tasks/checklist/toggle\""), "the owner was handed boxes on a finished card")
+        assertEquals(2, occurrences(asOwner, "class=\"chk-box locked\""))
+        assertEquals(1, occurrences(asOwner, "action=\"/app/tasks/checklist/add\""), "a finished card lost the owner's add line")
+        assertFalse(asOwner.contains("checklist/remove"), "the owner was offered to strike a line off")
+    }
+
+    @Test
+    fun `a step written onto a settled plan prints unticked`() {
+        val task = card()
+        steps("Set out the haul road", "Compact the sub-base")
+        assertTrue(TaskService.updateStatus(task.id, "Completed", "EMP0001", canManage = true))
+        // Stage 101: the add line writes work still to do, even on a card that is already finished — so the
+        // plan the card prints is the plan it has, and the one row added after the fact is the one row in it
+        // that is not struck through.
+        val late = TaskService.addChecklistItem(task.id, "Photograph the start", "EMP0002", false)!!
+        val html = edit(canManage = true)
+        assertTrue(html.contains("2 of 3 done"), "a step added to a finished card counted as done")
+        assertEquals(2, occurrences(html, "class=\"chk-label done\""), "the late step printed struck through")
+        val box = Regex("<input[^>]*id=\"chk-$late\"[^>]*>").find(html)?.value
+        assertNotNull(box, "the late step printed no square")
+        assertFalse(box!!.contains("checked"), "a step added to a finished card printed ticked")
+        assertTrue(box.contains("disabled"), "a finished card's rows stopped being stopped")
+        // The owner sees the same reading: the plan, still stopped, with the new line unticked.
+        val asOwner = editAsOwner()
+        assertTrue(asOwner.contains("2 of 3 done"))
+        assertEquals(3, occurrences(asOwner, "class=\"chk-box locked\""))
+    }
+
+    @Test
+    fun `an open card keeps its boxes, and a completed one is the only card that loses them`() {
+        val task = card()
+        steps("Set out the haul road")
+        assertTrue(TaskService.updateStatus(task.id, "Blocked", "EMP0001", canManage = true))
+        val html = edit(canManage = true)
+        assertEquals(1, occurrences(html, "action=\"/app/tasks/checklist/toggle\""))
+        assertFalse(html.contains("chk-box locked"), "a card nobody has finished had its plan stopped")
+        // *Blocked* is not *Completed*: the four open columns are worked the same way *In progress* is.
+        assertTrue(TaskService.updateStatus(task.id, "Completed", "EMP0001", canManage = true))
+        assertTrue(edit(canManage = true).contains("chk-box locked"), "only the Completed column locks the plan")
+    }
+
+    @Test
     fun `a tick posts the card, the step, the page and the popup it came from`() {
         val task = card()
         val (itemId) = steps("Set out the haul road")
@@ -556,17 +687,23 @@ class TaskBoardRenderTest {
     }
 
     @Test
-    fun `a step written from the wide backlog board leaves the board wide`() {
+    fun `no popup form carries the backlog's retired wide view`() {
+        // **Stage 40** put a hidden `allbuckets` field on every form in this panel — the step toggle, the step
+        // remove, the step add, the note, and management's **Delete task** address — so a write from the wide board
+        // answered on the wide board. **Stage 97** took the wide view out with the button that set it, and the field
+        // with it: five forms used to carry it, so this counts none.
         steps("Set out the haul road")
-        val wide = edit(canManage = true, showAllBuckets = true)
-        // Five forms answer a step or a note write with the whole page, and the page is only wide if the
-        // write says so: one of them dropping the flag would quietly narrow the board the reader was on.
-        assertEquals(
-            5,
-            occurrences(wide, "name=\"allbuckets\""),
-            "a write from the wide board did not carry the view back",
+        val html = edit(canManage = true)
+        assertFalse(html.contains("name=\"allbuckets\""), "a popup form still posts the retired flag")
+        assertFalse(html.contains("showAllBuckets"), "the retired view is still named in the markup")
+        // Which board the answer lands on is said once, by `back` — and on the backlog that token carries the
+        // bucket filter (Stage 93), the one piece of view state the page still has.
+        assertTrue(html.contains("name=\"back\" value=\"assigned\""), "the popup forgot the board it came from")
+        assertTrue(
+            formPosting(edit(canManage = true, back = "other:7"), "/app/assigned-tasks/save")
+                .contains("name=\"back\" value=\"other:7\""),
+            "a card opened from a narrowed backlog does not answer there",
         )
-        assertFalse(edit(canManage = true).contains("name=\"allbuckets\""), "the narrow board asked for all")
     }
 
     @Test
@@ -669,8 +806,9 @@ class TaskBoardRenderTest {
         steps("Set out the haul road")
         val unowned = card().copy(assignee = "")
         // `toggleChecklistItem` answers to management and to the card's own assignee, and to a card that
-        // belongs to nobody it is management alone. `editableBy` hands the card to that same pair, so the
-        // popup a reader can open is always one whose boxes they may use.
+        // belongs to nobody it is management alone. **Since Stage 86** the popup opens for a third reader —
+        // anybody — but the *boxes* still follow that rule: a stranger gets the plan drawn stopped, which is
+        // why the section is on the page and the tick form is not.
         val management = render {
             taskFormModal(editFormOf(unowned, canEditAll = true, viewerEmpNo = "EMP0001"), BACK_ASSIGNED)
         }
@@ -678,8 +816,10 @@ class TaskBoardRenderTest {
         val nobody = render {
             taskFormModal(editFormOf(unowned, canEditAll = false, viewerEmpNo = "EMP0002"), BACK_ASSIGNED)
         }
-        assertFalse(nobody.contains("task-steps-"), "an unassigned card was offered to a stranger as theirs")
+        assertTrue(nobody.contains("task-steps-"), "the plan is part of the card and left the popup")
         assertFalse(nobody.contains("name=\"done\""), "a reader the route would refuse was handed a box")
+        assertFalse(nobody.contains("checklist/add"), "a stranger was offered to write a step")
+        assertTrue(nobody.contains("chk-box locked"), "the stranger's plan is not drawn stopped")
     }
 
     // --- the one number a card keeps --------------------------------------------------------
@@ -716,7 +856,10 @@ class TaskBoardRenderTest {
         // outside it would be left holding the value from before the click.
         val body = one.substringAfter("id=\"task-body-${card().id}\"")
         assertTrue("kpct" in body, "the percentage left the block a tick swaps")
-        assertTrue(body.indexOf("kpct") < body.indexOf("kmove"), "the percentage is not on the card's own line")
+        assertTrue("kpct" in body.substringBefore("</div>"), "the percentage is not on the card's own line")
+        // **Stage 103** took the arrows off this board, so nothing follows that line inside the block a tick
+        // repaints — a button row printed back here would sit under the card and outside the swapped region.
+        assertFalse("kmove" in body, "a status board grew a button row under its card again")
     }
 
     @Test
@@ -803,6 +946,12 @@ class TaskBoardRenderTest {
      * is why [canMoveCards] defaults to [canAdd] rather than to anything of its own (Stage 49): the page hands
      * the same flag to both, because writing a card onto a project and filing one of its cards in another lane
      * of it are one rule, [mn.murray.pts.service.TaskService.mayAddTasks].
+     *
+     * [canManageLanes] is the fourth right and it stays **off** by default (Stage 74): the page computes it from
+     * [mn.murray.pts.service.TaskService.mayEditLanes] and passes it, so a board rendered without the argument is
+     * the board a reader who cannot name a bucket stands on — the columns are there and nothing beside them
+     * writes one. That is why the Stage 35 tests below can say *no control* and mean the openers as much as the
+     * old per-lane forms.
      */
     private fun laneBoard(
         tasks: List<TaskItem> = listOf(card()),
@@ -810,6 +959,8 @@ class TaskBoardRenderTest {
         canManage: Boolean = false,
         canAdd: Boolean = false,
         canMoveCards: Boolean = canAdd,
+        canManageLanes: Boolean = false,
+        doneOpen: Set<Int> = emptySet(),
     ): String = render {
         taskKanban(
             tasks, reader, canManage, BACK_PROJECT, project.id,
@@ -817,6 +968,8 @@ class TaskBoardRenderTest {
             fixedProject = project,
             lanes = lanes(),
             canMoveCards = canMoveCards,
+            canManageLanes = canManageLanes,
+            doneOpen = doneOpen,
         )
     }
 
@@ -824,32 +977,60 @@ class TaskBoardRenderTest {
     private fun formTags(html: String, classes: String): List<String> =
         Regex("<form[^>]*class=\"${Regex.escape(classes)}\"[^>]*>").findAll(html).map { it.value }.toList()
 
+    /**
+     * The whole `<form …>` block this board prints for [classes] — its opening tag, its children and its
+     * `</form>`. [formTags] stops at the opening tag, which is what its assertions want (a form's own `action` and
+     * `data-live-target` are attributes), and is the wrong slice for an **ask**, because the field carrying it is a
+     * child of the form: `?laneedit=<id>` and `?laneadd=1` are hidden inputs, not attributes.
+     */
+    private fun formSection(html: String, classes: String): String {
+        val opener = Regex("<form[^>]*class=\"${Regex.escape(classes)}\"[^>]*>").find(html)
+            ?: return ""
+        val end = html.indexOf("</form>", opener.range.first)
+        return html.substring(opener.range.first, if (end < 0) html.length else end + "</form>".length)
+    }
+
+    /**
+     * Every form carrying [classes], in the order the page draws them. A folded column is one form per column that
+     * holds finished work, so a promise about *which* columns a press leaves open can only be read off the row of
+     * them, not off the first.
+     */
+    private fun formSections(html: String, classes: String): List<String> =
+        Regex("<form[^>]*class=\"${Regex.escape(classes)}\"[^>]*>").findAll(html).map { opener ->
+            val end = html.indexOf("</form>", opener.range.first)
+            html.substring(opener.range.first, if (end < 0) html.length else end + "</form>".length)
+        }.toList()
+
     @Test
     fun `a project board is cut by its lanes and never by status`() {
         val fabrication = lanes().first()
         val html = laneBoard()
         // Every lane is a column, in the order the board was given them, and the card sits in the one it
         // was filed in. `data-lane` is what a drop posts; a status column would have said `data-status`.
-        // Since Stage 48 the lanes are the same six on every project — see [DEFAULT_PROJECT_BUCKETS].
+        // The harness gave this board the three phases (see [seedOpeningThree]); since Stage 100 that is a choice
+        // the category's Settings list makes, not something every create writes.
         assertEquals(DEFAULT_PROJECT_BUCKETS, lanes().map { it.name })
         lanes().forEach { assertTrue(html.contains("<span class=\"kcol-title\">${it.name}</span>"), "${it.name} is not a column") }
         assertTrue(html.contains("data-lane=\"${fabrication.id}\""), "the lanes carry no id for a drop")
         // No *column* is cut by status here — `data-lane` is what a drop posts. A card's own Done button
         // still writes a status, and that is the only one on the page.
         assertFalse(html.contains("class=\"kcol\" data-status"), "a status column is on this board")
-        // The card was filed in the first of the six, so nothing here is waiting for a lane — and a board with
+        // The card was filed in the first of the three, so nothing here is waiting for a lane — and a board with
         // nothing to put in **Unsorted** prints no Unsorted column (Stage 37): the columns are the project's
         // lanes, the way the board was drawn to look.
         assertFalse(html.contains("data-lane=\"0\""), "an empty Unsorted column is printed as a seventh lane")
         TASK_STATUSES.forEach {
             assertFalse(html.contains("<span class=\"kcol-title\">$it</span>"), "$it is a column here")
         }
-        // The card's own line prints no status word either — the column is the only thing that used to say it.
+        // No *column* is cut by status here — `data-lane` is what a drop posts. What the board stopped printing
+        // is the column, not the stage: since Stage 76 the card says its own stage, and since Stage 78 it says it
+        // on its foot line beside the holder. The only place it is *not* printed is a head above it.
         assertTrue(html.contains("Spread base course"))
+        assertTrue(html.contains("<span class=\"kstat s-notstarted\">Not started</span>"), "the card lost its stage")
     }
 
     @Test
-    fun `the drag is the mover's and the click is the owner's`() {
+    fun `the drag is the mover's and the click is everybody's`() {
         // Stage 49's whole difference on this page, and it is a one-attribute difference: `draggable` is all
         // kanban.js looks for in a drag source, so a card this reader may not move simply does not start a drag.
         // Three readers stand on the same board with the same card, which belongs to the engineer:
@@ -867,10 +1048,13 @@ class TaskBoardRenderTest {
         assertTrue(asOwner.contains("data-task-card=\"${card().id}\""), "the owner lost the click")
         assertTrue(asOwner.contains("kmove-btn"), "the owner lost the button that finishes their own card")
         // And the two are independent, not one flag with two names: a mover who has no work on this card can
-        // drag it and still cannot open it, and an owner who may not drag it still opens it.
+        // drag it, and since Stage 86 can also open it — read-only — while nobody hands them the owner's button.
         val asMoverWithoutWork = laneBoard(reader = UserSession("EMP9999"), canManage = false, canAdd = true)
         assertTrue(asMoverWithoutWork.contains("draggable=\"true\""), "a mover could not drag somebody else's card")
-        assertFalse(asMoverWithoutWork.contains("data-task-card"), "a stranger's card was made clickable")
+        assertTrue(
+            asMoverWithoutWork.contains("data-task-card=\"${card().id}\""),
+            "a colleague's card on a shared board was not clickable",
+        )
         assertFalse(asMoverWithoutWork.contains("kmove-btn"), "a mover was handed the owner's buttons")
     }
 
@@ -889,7 +1073,7 @@ class TaskBoardRenderTest {
 
     @Test
     fun `the board prints Unsorted only while it has a card in it`() {
-        // The column the user asked to have gone off the board. It is gone from the board that shows the six
+        // The column the user asked to have gone off the board. It is gone from the board that shows its lanes,
         // lanes, and comes back for the card that has no lane — and what makes that safe is in app.css, not
         // here: `.kanban-lanes` is a run of fixed 288px tracks, so an extra column arriving or leaving takes no
         // width off the others. Under the `auto-fit` `1fr` tracks it replaced, filing the one unfiled card took
@@ -926,7 +1110,7 @@ class TaskBoardRenderTest {
         // offered the per-lane `+ Add task` lines: none of the three prints a way to name a lane or take one
         // off. `POST /app/projects/{id}/buckets` and its `delete` twin are still wired and still check the role
         // — [mn.murray.pts.service.TaskService.addLane] and `removeLane` keep their rules, tested in
-        // TaskServiceTest — but nothing on this page reaches them, so a project's columns are the six it was
+        // TaskServiceTest — but nothing on this page reaches them, so a project's columns are the three it was
         // created with and no refusal code has a sentence printed from it.
         listOf(
             "an assignee" to laneBoard(),
@@ -944,21 +1128,114 @@ class TaskBoardRenderTest {
     }
 
     @Test
-    fun `a lane head is its name and its count`() {
+    fun `a lane head is its colour, its name and its count`() {
         unfiled()
         val html = laneBoard(canAdd = true)
-        // The whole of a column's chrome: one span of name, one span of number, and nothing else in between.
-        // A control cannot hide inside a head drawn to this shape.
+        // The whole of a lane's chrome: one dot, one span of name, one span of number, and nothing else in
+        // between. A control cannot hide inside a head drawn to this shape. The dot is Stage 74's — the picture
+        // the user handed over puts one on every column head, and it is the same span the Settings catalogue's
+        // bucket rows use, so a board and the picker beneath it say the same thing about the same bucket.
         val heads = Regex(
-            "<div class=\"kcol-head\">\\s*<span class=\"kcol-title\">[^<]*</span>" +
+            "<div class=\"kcol-head\">\\s*<span class=\"bucket-dot dot-\\d\"></span>" +
+                "\\s*<span class=\"kcol-title\">[^<]*</span>" +
                 "\\s*<span class=\"kcol-count\">\\d+</span>\\s*</div>",
         ).findAll(html).toList()
-        assertEquals(lanes().size + 1, heads.size, "a head carries something besides its name and its count")
-        assertEquals(lanes().size + 1, occurrences(html, "kcol-head"), "the board is not its six lanes plus Unsorted")
+        assertEquals(lanes().size, heads.size, "a head carries something besides its colour, its name and its count")
+        // Unsorted is the column with no bucket behind it, so it wears no dot and keeps its old head.
+        val unsorted = Regex(
+            "<div class=\"kcol-head\">\\s*<span class=\"kcol-title\">$UNSORTED_LANES</span>" +
+                "\\s*<span class=\"kcol-count\">\\d+</span>\\s*</div>",
+        ).findAll(html).toList()
+        assertEquals(1, unsorted.size, "the unfiled column's head is not the dotless one")
+        assertEquals(lanes().size + 1, occurrences(html, "kcol-head"), "the board is not its lanes plus Unsorted")
+        // The dots are the stylesheet's six hues, cycled by **position** rather than stored per bucket: index 0 is
+        // `dot-0` on the board and in the catalogue, which is what keeps the two surfaces from drifting.
+        lanes().forEachIndexed { index, lane ->
+            assertTrue(
+                Regex(
+                    "<span class=\"${bucketDotClass(index)}\"></span>\\s*<span class=\"kcol-title\">" +
+                        Regex.escape(lane.name),
+                ).containsMatchIn(html),
+                "${lane.name} is not the colour position ${index + 1} is given",
+            )
+        }
         // Taking the lane controls away took none of the lanes themselves: the columns are still the drop
         // targets `kanban.js` posts to, and they still carry the Stage 34 lines that start a card in one.
         assertEquals(lanes().size + 1, occurrences(html, "data-lane=\""), "a column stopped answering drops")
         assertEquals(lanes().size, occurrences(html, "class=\"kcol-add\""), "the lanes lost their add lines")
+    }
+
+    // --- Stage 74: the openers that name a bucket live on the lane board ------------------------------------
+
+    /**
+     * The board with one extra bucket on it. The extra is here because a board with four columns shows the
+     * arrangement Stage 75 leaves: the three it opened with and a column somebody named for itself, all of them
+     * ordinary — each carries its own menu and the dashed box trails the run.
+     */
+    private fun boardWithAnExtra(canManageLanes: Boolean): String {
+        ProjectBucketRepository.insert(project.id, "Site works")
+        return laneBoard(canManageLanes = canManageLanes)
+    }
+
+    @Test
+    fun `every bucket on a board its reader may re-shape carries its own menu`() {
+        val html = boardWithAnExtra(canManageLanes = true)
+        // One opener per column, the three a board opens with included. Stage 75 took away the name protection
+        // — [mn.murray.pts.service.TaskService.renameLane] and `removeLane` refuse no lane for what it is
+        // called — so a menu on **Engineering** answers, and leaving it off would be the opposite of Stage 51's
+        // rule: a control the reader needs, withheld because of a name.
+        assertEquals(lanes().size, occurrences(html, "kcol-menu-btn"), "a column of this board has no menu")
+        assertTrue(html.contains("Rename or remove this bucket"))
+        // The opener is the backlog's shape: a GET onto this page carrying the lane's id, which `app.js` follows
+        // and answers by swapping `#projectLaneModal` rather than by moving the board. Read as a whole form, because
+        // the ask is a hidden input — a child of the form, not an attribute of it.
+        assertEquals(lanes().size, occurrences(html, "class=\"kcol-menu\""), "two columns shared one menu")
+        Regex("<form[^>]*class=\"kcol-menu\"[^>]*>.*?</form>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(html).map { it.value }.toList().forEachIndexed { index, menu ->
+                assertTrue(menu.contains("action=\"/app/projects/${project.id}\""), "the opener points off this page")
+                assertTrue(menu.contains("method=\"get\""), "the opener would navigate instead of swapping")
+                assertTrue(menu.contains("data-live-target=\"#projectLaneModal\""))
+                assertTrue(
+                    menu.contains("name=\"laneedit\" value=\"${lanes()[index].id}\""),
+                    "column ${index + 1}'s menu asks for the wrong bucket",
+                )
+            }
+        // The dot the picture puts on every head cycles by position, so the fourth bucket is `dot-3` — the same
+        // agreement the Settings catalogue's rows make with the stylesheet, offset there by the three this board
+        // opens with.
+        assertTrue(
+            Regex("<span class=\"bucket-dot dot-3\"></span>\\s*<span class=\"kcol-title\">Site works</span>")
+                .containsMatchIn(html),
+            "the extra column's dot is not the one its position is given",
+        )
+    }
+
+    @Test
+    fun `the add box trails the run of columns without being one of them`() {
+        val html = boardWithAnExtra(canManageLanes = true)
+        assertEquals(1, occurrences(html, "class=\"lane-add-box\""), "the board offered two boxes to add a bucket")
+        val box = formSection(html, "lane-add-box")
+        assertTrue(box.contains("name=\"laneadd\" value=\"1\""), "the box opens nothing")
+        assertTrue(box.contains("data-live-target=\"#projectLaneModal\""))
+        assertTrue(box.contains("+ Add bucket"))
+        // `kanban.js` binds its drop targets as `.kcol[data-lane]`. The box is a column's width and a column's
+        // height without being a column: it holds no bucket, so a card dragged into it would be a move the
+        // service refuses. Neither marker is on the form, and the board's columns are still exactly the buckets.
+        assertFalse(box.contains("kcol"), "the add box is shaped like a column")
+        assertFalse(box.contains("data-lane"), "the add box is a drop target")
+        assertEquals(lanes().size, occurrences(html, "data-lane=\""), "the add box was counted as a column")
+    }
+
+    @Test
+    fun `a reader who may not write buckets is given neither opener`() {
+        // The right is [mn.murray.pts.service.TaskService.mayEditLanes], and the board asks it for both controls:
+        // a `⋯` whose every button the route refuses, and a box that opens a form the save refuses, are the two
+        // dead controls Stage 51 removed for the same reason.
+        val html = boardWithAnExtra(canManageLanes = false)
+        assertFalse(html.contains("kcol-menu"), "a column menu is on a board its reader cannot rename")
+        assertFalse(html.contains("lane-add-box"), "an add box is on a board its reader cannot widen")
+        assertFalse(html.contains("laneedit"), "a hand-built ?laneedit= has a form to be aimed at")
+        assertFalse(html.contains("/buckets"), "a bucket write is reachable from this board")
     }
 
     @Test
@@ -985,7 +1262,49 @@ class TaskBoardRenderTest {
         assertTrue(html.contains("✓ Done"))
         assertTrue(Regex("data-status=\"Completed\"").containsMatchIn(html))
         assertFalse(html.contains("← "), "the status arrows came back")
-        assertFalse(html.contains("In progress"), "the board printed the status it no longer shows")
+        // The arrows are gone because there is no status to *walk*, but the stage is still a fact the reader is
+        // owed, and since Stage 76 the card prints it: this card is Not started, and no other
+        // stage word appears on the board.
+        assertFalse(html.contains("In progress"), "the card printed a stage it does not have")
+        assertTrue(html.contains("<span class=\"kstat s-notstarted\">Not started</span>"), "the card printed no stage at all")
+    }
+
+    @Test
+    fun `a lane card carries its stage and its holder on one foot line`() {
+        // Stage 78's shape, read off the server's own markup. The card is its title, then priority and due date,
+        // then a foot line holding the stage at the left and the holder's avatar at the right — and no code chip,
+        // because a project page is one project's cards and the number identifies nothing here.
+        val html = laneBoard()
+        assertFalse(html.contains("kcard-top"), "a lane card printed a code line")
+        assertFalse(html.contains("tcode"), "a lane card printed its code")
+        val foot = html.substringAfter("<div class=\"kmeta kfoot\">").substringBefore("</div>")
+        assertTrue(foot.contains("<span class=\"kstat s-notstarted\">Not started</span>"), "the foot has no stage")
+        assertTrue(foot.contains("avatar xs"), "the foot has no holder")
+        // The avatar moved *out* of the meta line rather than being duplicated, and the meta line is still the
+        // one `task-modal.js` swaps when a step is ticked.
+        val meta = html.substringAfter("<div class=\"kbody\"").substringBefore("</div>")
+        assertTrue(meta.contains("prio p-high"), "the meta line lost its priority")
+        assertFalse(meta.contains("avatar"), "the holder is on both lines")
+        // A status board keeps the code chip and prints no foot line of its own: its column head is the stage,
+        // and its cards come from every project at once, which is exactly where a code earns its line.
+        val general = render { taskKanban(listOf(card()), engineer, canManage = false, BACK_ASSIGNED, 0) }
+        // **Stage 104 made that name the way to the project.** kotlinx writes an `<a>`'s attributes in map order,
+        // so the assertions read the tag whole and ask it each question rather than pinning an order.
+        val chip = Regex("<div class=\"kcard-top\"><a[^>]*>[^<]*</a>").find(general)?.value.orEmpty()
+        assertTrue(chip.isNotEmpty(), "the code chip left the status board")
+        assertTrue(chip.contains("class=\"tcode\""), "the chip is not the app's code chip any more: $chip")
+        assertTrue(chip.contains("href=\"/app/projects/${project.id}\""), "the chip links to no project: $chip")
+        // …because since Stage 88 what it carries is the card's **project** (`S-01`), not the card's own
+        // `T-00012`: on a board of cards from every project at once, "which project is this work for" is the fact.
+        assertTrue(chip.endsWith(">S-01</a>"), "the chip does not name its project: $chip")
+        assertTrue(
+            chip.contains("title=\"Open project S-01\"") &&
+                chip.contains("aria-label=\"Open project S-01 on the Projects board\""),
+            "the chip does not say where pressing it goes: $chip",
+        )
+        assertFalse(general.contains("<span class=\"tcode\">S-01</span>"), "the project chip is still a dead label")
+        assertFalse(general.contains("T-0000"), "the status card still printed its own task number")
+        assertFalse(general.contains("kfoot"), "a status card grew the lane board's foot line")
     }
 
     @Test
@@ -994,93 +1313,270 @@ class TaskBoardRenderTest {
         val html = laneBoard()
         assertTrue(html.contains("↺ Reopen"))
         assertTrue(Regex("data-status=\"Not started\"").containsMatchIn(html))
-        // A card that is done reads as done even with no column saying so; an open one wears no status
-        // colour, because the colour would be the word the page is not allowed to print.
+        // A card that is done reads as done at a glance, and since **Stage 78** so does one that is merely open:
+        // the tint is the stage's, on every board, the way a status board has always worn it. What the word is for
+        // is the exact stage, which the colour alone cannot tell apart from its neighbours.
         assertTrue(html.contains("class=\"kcard s-completed\""), "a finished card was not marked")
-        assertFalse(html.contains("s-inprogress"))
+        assertTrue(
+            html.contains("<span class=\"kstat s-completed\">Completed</span>"),
+            "a finished card lost its stage",
+        )
         // The move is the project manager's (Stage 49); the status writes around it stay the assignee's, which
         // is the whole difference the stage drew: this card's owner still finishes it, no longer relocates it.
         val open = TaskService.moveToLane(card().id, lanes().last().id, "EMP0001", canManage = false)
         assertTrue(open)
         assertTrue(TaskService.updateStatus(card().id, "In progress", "EMP0002", canManage = false))
-        assertFalse(laneBoard().contains("s-inprogress"), "a lane board tinted a card by its status")
+        val working = laneBoard()
+        assertTrue(
+            working.contains("<span class=\"kstat s-inprogress\">In progress</span>"),
+            "a board with no status column printed no stage for the card that is being worked",
+        )
+        // …and the card wears it too: the word and the tint are the same fact drawn twice on purpose, one for the
+        // reader scanning a column and one for the reader who is already looking at this card.
+        assertTrue(working.contains("class=\"kcard s-inprogress\""), "a lane board left an open card untinted")
+    }
+
+    // --- Stage 80: a column's finished cards folded behind one line ------------------------------------
+
+    @Test
+    fun `a column with a finished card folds it behind a count, and a column without prints no line`() {
+        assertTrue(TaskService.updateStatus(card().id, "Completed", "EMP0002", canManage = false))
+        val html = laneBoard()
+        // The line exists only where there is something to open, so three columns and one card print exactly one
+        // toggle — the other two have no finished work and offer nothing.
+        assertEquals(1, occurrences(html, "class=\"kcol-done-toggle\""), "a column invented a completed section")
+        assertTrue(html.contains("▸ Completed 1"), "the folded cards were not counted")
+        // The card is still on the page — a board that hid work is a board that lost it — but inside a block the
+        // stylesheet keeps shut until the reader asks.
+        assertTrue(html.contains("class=\"kcol-done\" hidden=\"true\""), "the finished cards were not folded away")
+        assertTrue(html.contains("Spread base course"), "a folded card is a card the page does not have")
+        // …and the head still counts it: the number above the column is how much work the bucket holds, which is
+        // what it has always counted and what kanban.js recomputes the same way after a drag.
+        assertTrue(
+            html.contains("<span class=\"kcol-title\">${lanes().first().name}</span><span class=\"kcol-count\">1</span>"),
+            "folding a card took it off the column's count",
+        )
+        // One card finished is one card, singular; the line says so.
+        assertFalse(html.contains("Completed 1 cards"), "the toggle mis-counted its own cards")
     }
 
     @Test
-    fun `the popup lists the six sub-categories and opens on the one the card is in`() {
-        val html = render {
-            taskFormModal(editFormOf(card(), canEditAll = true).copy(lanes = lanes()), BACK_PROJECT, project)
+    fun `the toggle is a GET onto the project page that names the columns open after the press`() {
+        assertTrue(TaskService.updateStatus(card().id, "Completed", "EMP0002", canManage = false))
+        val lane = lanes().first()
+        val other = lanes().last()
+        val html = laneBoard()
+        val form = formSection(html, "kcol-done-toggle")
+        // The board's own mechanism, not a script's memory: the fold is a key of the URL the page reads, so the
+        // same address always answers with the same board and a reader with JavaScript off gets the identical
+        // open-and-shut state.
+        assertTrue(form.contains("action=\"/app/projects/${project.id}\""), "the toggle posted somewhere else")
+        assertTrue(form.contains("method=\"get\""), "folding a column is not a write")
+        assertTrue(form.contains("data-live-target=\"#projectBoard\""), "opening a column reloaded the page")
+        // Shut at the moment of the press, so the set it asks for is this one column open and nothing else.
+        assertTrue(
+            form.contains("<input type=\"hidden\" name=\"showdone\" value=\"${lane.id}\">"),
+            "the toggle did not ask for its own column to open",
+        )
+        assertFalse(form.contains("value=\"$other\""), "pressing one column opened another")
+    }
+
+    @Test
+    fun `opening one column leaves the others folded and its own press closes it again`() {
+        val lane = lanes().first()
+        val second = lanes()[1]
+        TaskService.create(
+            TaskDraft(
+                title = "Label the culverts", projectName = project.name, assigneeEmpNo = "EMP0002",
+                started = "2026-11-01", due = "2026-11-14", priority = "Medium", status = "Not started",
+                projectLane = second.name,
+            ),
+            callerEmpNo = "EMP0001", canManage = true,
+        )
+        TaskService.assigned().forEach { assertTrue(TaskService.updateStatus(it.id, "Completed", "EMP0002", canManage = false)) }
+        val opened = laneBoard(tasks = TaskService.assigned(), doneOpen = setOf(lane.id))
+        // The column the reader opened prints its cards and points the arrow down…
+        assertTrue(opened.contains("▾ Completed 1"), "an opened column still reads as folded")
+        // …and it is the only one: both columns hold finished cards, and exactly one of the two blocks is shut.
+        // Counting the shut ones is the whole promise — `hidden` on both would mean opening one opened none, and
+        // on neither would mean opening one opened them all.
+        assertEquals(2, occurrences(opened, "class=\"kcol-done\""), "both columns are not holding finished cards")
+        assertEquals(
+            1, occurrences(opened, "class=\"kcol-done\" hidden=\"true\""),
+            "an opened column kept its cards shut, or opening one column opened them all",
+        )
+        assertTrue(opened.contains("▸ Completed 1"), "opening one column opened them all")
+        // Each line carries the set as it will read *after* the press, which is how one button can shut its own
+        // column while leaving the other one open: the opened column's form asks for nothing (a board with no key
+        // folded is the default), and the folded column's form asks for itself **and** for the column already
+        // standing open — pressing it opens its own cards without closing the other's.
+        val forms = formSections(opened, "kcol-done-toggle")
+        assertEquals(2, forms.size, "a column holding finished cards grew no line of its own")
+        assertFalse(forms[0].contains("name=\"showdone\""), "the opened column's own press left it open again")
+        assertTrue(forms[1].contains("<input type=\"hidden\" name=\"showdone\" value=\"${second.id}\">"),
+            "the folded column did not ask for its own cards")
+        assertTrue(forms[1].contains("<input type=\"hidden\" name=\"showdone\" value=\"${lane.id}\">"),
+            "opening a folded column shut the one already open")
+    }
+
+    @Test
+    fun `an unfiled column keeps no fold and the status board keeps none at all`() {
+        // **Unsorted is not one of the project's buckets** — it is drained by design and vanishes when it empties,
+        // so folding its cards would hide the one column whose purpose is to be looked at.
+        val loose = unfiled()
+        assertTrue(TaskService.updateStatus(loose.id, "Completed", "EMP0002", canManage = false))
+        val html = laneBoard(tasks = listOf(loose))
+        assertFalse(html.contains("kcol-done-toggle"), "the Unsorted column grew a fold")
+        assertFalse(html.contains("kcol-done"), "a folded block appeared outside the project's buckets")
+        // A status board never had this: its columns are the statuses, so a Completed card is already where it
+        // belongs and hiding it would hide the board's own answer.
+        val statusBoard = render {
+            taskKanban(listOf(loose), engineer, canManage = false, BACK_ASSIGNED, 0)
         }
-        // Posted by **name** since Stage 48: the six are the same six on every project, so a name is the one
+        assertFalse(statusBoard.contains("kcol-done"), "the status board folded its Completed column's cards")
+    }
+
+    @Test
+    fun `a lane board prints the stage and a status board leaves it to its column`() {
+        // The one rule Stage 76 drew and Stage 78 kept, read from both boards at once. A project page has no
+        // status column to read a card against, so the card says its own stage; the general board cuts cards by
+        // exactly that stage, so repeating it under the column head would be two places for one fact. Each stage
+        // is printed as a word and worn as a tint, on the same card, at the same time.
+        TASK_STATUSES.forEach { status ->
+            assertTrue(TaskService.updateStatus(card().id, status, "EMP0002", canManage = false))
+            val slug = when (status) {
+                "In progress" -> "s-inprogress"
+                "On hold" -> "s-onhold"
+                "Blocked" -> "s-blocked"
+                "Completed" -> "s-completed"
+                else -> "s-notstarted"
+            }
+            val board = laneBoard()
+            assertTrue(
+                board.contains("<span class=\"kstat $slug\">$status</span>"),
+                "the lane board printed no stage word for $status",
+            )
+            assertTrue(board.contains("class=\"kcard $slug\""), "the lane card wore no tint for $status")
+        }
+        val general = render {
+            taskKanban(listOf(card()), engineer, canManage = false, BACK_ASSIGNED, 0)
+        }
+        assertFalse(general.contains("kstat"), "a card under its own status column was told its status again")
+        // What the two boards each keep one of: a lane card's foot line holds the stage and the holder and no code,
+        // while a status card's top line holds the code and its meta line the holder.
+        val foot = laneBoard().substringAfter("<div class=\"kmeta kfoot\">").substringBefore("</div>")
+        assertTrue(foot.contains("kstat") && foot.contains("avatar"), "the stage and the holder are not on one line")
+        val top = general.substringAfter("<div class=\"kcard-top\">").substringBefore("</div>")
+        assertTrue(top.contains("class=\"tcode\""), "the status board lost its code line")
+    }
+
+    @Test
+    fun `a create popup lists the three phases and opens on the lane it was called from`() {
+        val html = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
+        // Posted by **name**: the three are the same three on every new board, so a name is the one
         // answer a popup can post without knowing this project's lane ids. (A drop still posts an id — that is
         // `kanban.js` talking to the board it is standing on, where the ids are already in the page.)
-        assertTrue(html.contains("name=\"lane\""), "the editor has no lane field")
+        assertTrue(html.contains("name=\"lane\""), "the create popup has no lane field")
         DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(html.contains("value=\"$it\""), "$it is missing from the picker")
         }
-        assertTrue(selectedOption(html, card().projectBucket), "the lane the card is in is not the one picked")
-        // A filed row opens on its lane and prints no placeholder — there is nothing for the reader to answer.
-        assertFalse(html.contains("— $UNSORTED_LANES —"), "the picker offered Unsorted to a filed card")
-        // A row that has no lane, which is every project card written before this rule, opens on the placeholder
-        // instead, and the service refuses to save past it until somebody files the card.
-        unfiled()
-        val legacy = render {
-            taskFormModal(editFormOf(card(), canEditAll = true).copy(lanes = lanes()), BACK_PROJECT, project)
+        // The lane whose `+ Add task` line was pressed is the one the blank form opens on.
+        val aimed = render {
+            taskFormModal(
+                newFormOf(into = DEFAULT_PROJECT_BUCKETS.last()).copy(lanes = lanes()),
+                BACK_PROJECT, project,
+            )
         }
-        assertTrue(Regex("value=\"\"[^>]*selected").containsMatchIn(legacy), "an unfiled card opened on no lane at all")
-        assertTrue(legacy.contains("— $UNSORTED_LANES —"), "the placeholder names nothing but itself")
-        // The general board's popup lists the same six, because filing a card in a part of its project is a
-        // question that page can ask without knowing any lane id.
-        val general = edit(canManage = true)
-        assertTrue(general.contains("name=\"lane\""), "the general board cannot ask which part of a project")
-        DEFAULT_PROJECT_BUCKETS.forEach {
-            assertTrue(general.contains("value=\"$it\""), "$it is off the general board's picker")
-        }
-        // And the person the card belongs to reads the lane but does not write it.
-        val mine = render {
-            taskFormModal(editFormOf(card(), canEditAll = false).copy(lanes = lanes()), BACK_PROJECT, project)
-        }
-        assertTrue(Regex("name=\"lane\"[^>]*disabled").containsMatchIn(mine), "an assignee was handed the column")
+        assertTrue(selectedOption(aimed, DEFAULT_PROJECT_BUCKETS.last()),
+            "the aimed create did not open on the lane it was called from")
     }
 
     @Test
-    fun `a lane this project added itself is offered after the six, on its own board`() {
-        // Stage 48 keeps a project's extra lanes, printed after the shared six — on the board and in the picker
-        // alike. An edit that posts a name the project does not hold is refused (TaskServiceTest), so a reader
-        // must never be able to pick one from here either.
+    fun `a lane this project added itself is offered after the three, on its own board`() {
+        // A project keeps its extra lanes, printed after the three it opened with — on the board and in the
+        // create popup's picker alike. A save that posts a name the project does not hold is refused
+        // (TaskServiceTest), so a reader must never be able to pick one from here either.
         val extraId = ProjectBucketRepository.insert(project.id, "Tendering")
         val extra = ProjectBucketRepository.find(extraId)!!
         val html = render {
-            taskFormModal(
-                editFormOf(card(), canEditAll = true).copy(lanes = lanes() + extra),
-                BACK_PROJECT, project,
-            )
+            taskFormModal(newFormOf().copy(lanes = lanes() + extra), BACK_PROJECT, project)
         }
         assertTrue(html.contains("value=\"Tendering\""), "this project's own lane is off its picker")
         assertTrue(
             html.indexOf("value=\"Tendering\"") > html.indexOf("value=\"${DEFAULT_PROJECT_BUCKETS.last()}\""),
-            "the extra lane is not after the shared six",
+            "the extra lane is not after the three",
         )
-        // The six are all still there, ahead of it: an extra lane joins the picker, it does not replace it.
+        // The three are all still there, ahead of it: an extra lane joins the picker, it does not replace them.
         DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(html.contains("value=\"$it\""), "$it left the picker when the extra lane joined")
         }
     }
 
     @Test
-    fun `a card filed in a lane the general board does not list still reads its own lane`() {
-        // The same card, opened from the Assigned tasks page: that popup knows the six names and not this
-        // project's extras, and a picker that silently dropped the card's lane would read as a card sitting in
-        // the first one. So the row's own name prints after the six, selected — the board draws extras after
-        // them the same way, and saving what the popup shows keeps the card where it is.
-        val extra = ProjectBucketRepository.insert(project.id, "Tendering")
-        assertTrue(TaskService.moveToLane(card().id, extra, "EMP0001", canManage = false))
+    fun `an edit of a card on a project prints neither the project nor the sub-category picker`() {
+        // Stage 87: a card's project is a fact of the row and its column is filed by dragging it on the board
+        // behind the popup, so an edit opens on the card's own fields instead of repeating the page in two
+        // drop-downs. The project still rides along as a hidden field: the save has to name the world it writes
+        // to, and a save that named none would be read as a different project.
         val html = edit(canManage = true)
-        assertTrue(selectedOption(html, "Tendering"), "a general-board popup hid the card's own lane")
-        assertEquals(1, occurrences(html, "value=\"Tendering\""), "the extra lane printed more than once")
+        assertFalse(html.contains("id=\"taskProject\""), "the project picker came back to a card's editor")
+        assertFalse(html.contains("id=\"taskLane\""), "the sub-category picker came back to a card's editor")
+        assertFalse(html.contains(">Sub-category<"), "the sub-category label came back")
         assertTrue(
-            html.indexOf("value=\"Tendering\"") > html.indexOf("value=\"${DEFAULT_PROJECT_BUCKETS.last()}\""),
-            "the card's own lane was printed before the six",
+            html.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "the save lost the project it writes to",
+        )
+        // The rest of the popup is untouched: the board picker, the holder, the dates, the priority, the status.
+        listOf("board", "assignee", "started", "due", "priority", "status").forEach {
+            assertTrue(control(html, it).isNotEmpty(), "$it left the editor")
+        }
+        // A create still asks both — there is no row to read them off.
+        val fresh = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
+        assertTrue(fresh.contains("id=\"taskProject\""), "a create lost its project picker")
+        assertTrue(fresh.contains("id=\"taskLane\""), "a create lost its sub-category picker")
+        // And so does a backlog card's editor, in the half its "where it lives" picker reveals: that is the one
+        // crossing in which the two fields are the answer to a question the reader just asked.
+        val backlogId = TaskRepository.insert(
+            kind = "OTHER", title = "Clean the spill bund", projectId = null, due = "",
+            priority = "Medium", assigneeEmpNo = "EMP0002", status = "Not started", bucketId = null, started = "",
+        )
+        val backlog = render {
+            taskFormModal(
+                editFormOf(TaskRepository.findById(backlogId)!!, canEditAll = true, viewerEmpNo = "EMP0001"),
+                BACK_OTHER,
+            )
+        }
+        assertTrue(backlog.contains("id=\"taskProject\""), "a backlog card lost the project it can move onto")
+        assertTrue(backlog.contains("id=\"taskLane\""), "a backlog card lost the column it lands in")
+    }
+
+    @Test
+    fun `a refused project card's save comes back with the pickers its message belongs under`() {
+        // The popup posts the card's own project, so the only refusal about these two fields is a hand-built
+        // or stale form. When one happens the pair returns — message, picker and all — rather than a popup
+        // that says nothing, which is the one shape this app does not answer a refusal with.
+        val task = card()
+        val html = render {
+            taskFormModal(
+                taskFormOf(
+                    taskId = task.id,
+                    result = TaskSaveResult(
+                        null,
+                        mapOf(TaskField.PROJECT to "Choose which project this card is on."),
+                        TaskDraft(title = task.title),
+                    ),
+                    task = task,
+                    canEditAll = true,
+                ),
+                BACK_ASSIGNED,
+            )
+        }
+        assertTrue(html.contains("id=\"taskProject\""), "the refusal had no project field to print under")
+        assertTrue(html.contains("id=\"taskLane\""), "the refusal had no sub-category field to print under")
+        assertTrue(html.contains("Choose which project this card is on."), "the reason is not on the page")
+        assertFalse(
+            html.contains("<input type=\"hidden\" name=\"project\""),
+            "the popup posts a picker and a hidden field of the same name",
         )
     }
 
@@ -1099,9 +1595,9 @@ class TaskBoardRenderTest {
     @Test
     fun `every lane carries its own add line for a reader who may write here`() {
         unfiled()
-        // The card is unfiled, so this board prints an Unsorted column as well as its six lanes.
+        // The card is unfiled, so this board prints an Unsorted column as well as its lanes.
         val html = laneBoard(canAdd = true)
-        assertEquals(lanes().size + 1, occurrences(html, "kcol-head"), "this board is not its six lanes plus Unsorted")
+        assertEquals(lanes().size + 1, occurrences(html, "kcol-head"), "this board is not its lanes plus Unsorted")
         assertTrue(html.contains("data-lane=\"0\""), "there is no Unsorted column here to check against")
         assertEquals(lanes().size, occurrences(html, "class=\"kcol-add\""), "the board is not one add line per lane")
         assertEquals(lanes().size, occurrences(html, "class=\"kcol-add-btn\""), "a lane's line has no button")
@@ -1173,5 +1669,130 @@ class TaskBoardRenderTest {
         assertEquals(5, occurrences(html, "class=\"kcol\" data-status"), "a status column does not answer drops")
         assertFalse(html.contains("data-lane"), "a lane column appeared where there are none")
         assertFalse(html.contains("/buckets"), "the general board was given a project's lane box")
+    }
+
+    // --- Stage 84: Delete task on every card's popup (Stage 81's Archive button is gone) --------
+
+    /**
+     * The whole `<form>` posting to [action], hidden fields and all. A tag-only match stops at the opening
+     * `>`, which is exactly where every field this route reads lives.
+     */
+    private fun formPosting(html: String, action: String): String {
+        val open = Regex("<form[^>]*action=\"${Regex.escape(action)}\"").find(html)
+            ?: error("nothing on this page posts to $action")
+        val end = html.indexOf("</form>", open.range.first)
+        assertTrue(end > open.range.first, "the form posting to $action never closes")
+        return html.substring(open.range.first, end)
+    }
+
+    @Test
+    fun `a project card's popup carries management's Delete task beside the note box`() {
+        val task = card()
+        val html = edit(canManage = true, back = BACK_PROJECT, fixed = project)
+        val form = formPosting(html, "/app/assigned-tasks/delete")
+        assertTrue(html.contains(">Delete task<"))
+        // Stage 84: the Archive button Stage 81 had put here is gone, and a live project card is destroyed from
+        // this popup again — the Archive panel is for cards a removed bucket already took off the board.
+        assertFalse(html.contains("/app/tasks/archive"), "a live project card still offered the old archive button")
+        assertTrue(form.contains("method=\"post\""))
+        assertTrue(form.contains("class=\"opener-form task-del\""))
+        // The three fields the route reads, server-rendered from the page the popup is on — never typed.
+        assertTrue(form.contains("name=\"taskId\" value=\"${task.id}\""))
+        assertTrue(form.contains("name=\"back\" value=\"$BACK_PROJECT\""))
+        assertTrue(form.contains("name=\"projectId\" value=\"${project.id}\""))
+        // No `edit`, unlike every other form in this panel: those come back with the popup open on the card,
+        // and a deleted card has no board to be open on.
+        assertFalse(form.contains("name=\"edit\""), "the way back would reopen the popup on a deleted card")
+        // The same shape the app already uses for a destructive press, confirm and all — and this one cannot be
+        // undone, which is what the sentence says.
+        assertTrue(form.contains("ghost-btn btn-sm danger"), "the delete weighs less than the button beside it")
+        assertTrue(form.contains("data-confirm=\"Delete ${task.title}?"))
+        assertTrue(form.contains("This cannot be undone"))
+        // Not a block form: the card it names is leaving the page, so the route answers with the board it came
+        // from rather than repainting a popup that has nothing left to show.
+        assertFalse(form.contains("data-live-target"))
+    }
+
+    @Test
+    fun `a delete answers on the board the card was opened from`() {
+        // Every card offers management's Delete task since Stage 84, and the address it lands on is the board it was
+        // opened from. **Stage 40** sent `allbuckets` beside that address so the wide backlog view came back with
+        // the delete; **Stage 97** retired the view and the field, and `back` names the board alone — which on a
+        // narrowed backlog is the bucket filter (Stage 93).
+        val backlogId = TaskRepository.insert(
+            kind = "OTHER", title = "Clean the spill bund", projectId = null, due = "2026-11-12",
+            priority = "Medium", assigneeEmpNo = "EMP0002", status = "Not started", bucketId = null, started = "",
+        )
+        val backlog = TaskRepository.findById(backlogId)!!
+        val full = render {
+            taskFormModal(editFormOf(backlog, canEditAll = true, viewerEmpNo = "EMP0001"), BACK_OTHER)
+        }
+        val form = formPosting(full, "/app/assigned-tasks/delete")
+        assertTrue(form.contains("name=\"back\" value=\"other\""), "the delete did not name the board it came from")
+        assertFalse(form.contains("allbuckets"), "the delete still carries the retired wide view")
+        assertFalse(full.contains("/app/tasks/archive"), "a backlog card was offered an archive it has no page for")
+        val narrowed = render {
+            taskFormModal(editFormOf(backlog, canEditAll = true, viewerEmpNo = "EMP0001"), "other:7")
+        }
+        assertTrue(
+            formPosting(narrowed, "/app/assigned-tasks/delete").contains("name=\"back\" value=\"other:7\""),
+            "a delete from a narrowed backlog answers on the full board",
+        )
+        // The route's own half of the same promise.
+        assertEquals("/app/other-tasks", taskRedirect(BACK_OTHER, 0))
+        assertEquals("/app/other-tasks?show=7", taskRedirect("other:7", 0))
+    }
+
+    @Test
+    fun `nobody but management is offered the Delete task button`() {
+        // The person a card belongs to, a reader with no part in it, and a project's own manager (who may write
+        // the board but is not management): the route checks `canManage` whatever the markup offered, so none of
+        // them is shown a button that would do nothing — and the old archive button is gone for all of them.
+        listOf(
+            editAsOwner(),
+            edit(canManage = false, viewer = "EMP9999"),
+            edit(canManage = false, viewer = "EMP0001", back = BACK_PROJECT, fixed = project),
+        ).forEach { html ->
+            assertFalse(html.contains("/app/tasks/archive"), "an archive reached a non-manager")
+            assertFalse(html.contains("/app/assigned-tasks/delete"), "a delete reached a non-manager")
+        }
+        // The note box follows a different line, and Stage 86 is where the two part: the owner writes notes on
+        // their own card ([TaskForm.mayNote]) while a stranger's popup — the project's manager's copy included —
+        // is a log to read, with no box under it and no save above it.
+        assertTrue(editAsOwner().contains("action=\"/app/tasks/notes/add\""), "the owner lost their note box")
+        listOf(
+            edit(canManage = false, viewer = "EMP9999"),
+            edit(canManage = false, viewer = "EMP0001", back = BACK_PROJECT, fixed = project),
+        ).forEach { html ->
+            assertFalse(html.contains("action=\"/app/tasks/notes/add\""), "a stranger was handed the note box")
+            assertFalse(html.contains("Save task"), "a stranger was handed a save")
+        }
+        // And a card being created has nothing yet to destroy.
+        val fresh = render { taskFormModal(newFormOf(), BACK_ASSIGNED) }
+        assertFalse(fresh.contains("/app/tasks/archive"))
+        assertFalse(fresh.contains("/app/assigned-tasks/delete"))
+    }
+
+    @Test
+    fun `the delete button shares the note box's own foot line`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        // The delete button is a sibling form — a form cannot live inside the note form — so it is the row, not
+        // nesting, that puts it at the right end of the Add note line, bottoms aligned.
+        listOf(
+            ".note-foot { display: flex; align-items: flex-end; gap: 10px; }",
+            ".note-foot .note-add { flex: 1 1 auto; min-width: 0; }",
+            ".note-foot .task-del { flex: 0 0 auto; }",
+        ).forEach { assertTrue(css.contains(it), "the note foot lost its rule: $it") }
+        // `.ghost-btn` is written after `.btn-sm` in this file and would win the padding and the font size,
+        // leaving a taller button standing beside a shorter one, so the delete button's metrics are spelled out.
+        val metrics = css.substringAfter(".note-foot .task-del .ghost-btn {").substringBefore("}")
+        assertTrue(metrics.contains("padding: 5px 12px"), "the delete is not the Add note button's size")
+        assertTrue(metrics.contains("font-size: 12.5px"), "the delete is not the Add note button's type")
+        // And the markup really does wrap both of them in that row, note box first.
+        val foot = edit(canManage = true).substringAfter("class=\"note-foot\"")
+        assertTrue(
+            foot.substringBefore(">Delete task<").contains("action=\"/app/tasks/notes/add\""),
+            "Delete task is not beside the note box",
+        )
     }
 }

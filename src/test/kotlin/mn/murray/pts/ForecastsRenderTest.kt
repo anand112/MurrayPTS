@@ -92,7 +92,7 @@ class ForecastsRenderTest {
 
         // One running project with money on this month and last, one that has never been forecast, and
         // one finished job, so both halves of the sheet have a row to prove the columns against.
-        haulRoad = project("S-01", "Haul road widening", "Ongoing", 12_500_000.0, "Site projects", "Oyu Tolgoi LLC")
+        haulRoad = project("S-01", "Haul road widening", "In progress", 12_500_000.0, "Site projects", "Oyu Tolgoi LLC")
         linerSupply = project("M-01", "Crusher liner supply", "Not started", 4_000_000.0, "Fabrication/Manufacturing", "")
         excavator = project("R-01", "Excavator overhaul", "Completed", 8_000_000.0, "Repair/Maintenance/other services", "Power Mining LLC")
         put(haulRoad, "2023-01", 3_000_000.0, 3_000_000.0, FULLY_INVOICED)
@@ -275,14 +275,14 @@ class ForecastsRenderTest {
 
     @Test
     fun `the row form carries the sheet it was drawn on so its totals cannot jump`() {
-        val html = sheet(filter = ForecastFilter(text = "widening", type = "Site projects", status = "Ongoing"))
+        val html = sheet(filter = ForecastFilter(text = "widening", type = "Site projects", status = "In progress"))
         // The toolbar's three keys ride along as `board_*`: a row that posted without them would come back
         // as the whole grid, and its totals line would change to every project's money mid-typing.
         assertTrue(html.contains("<input type=\"hidden\" name=\"project\" value=\"$haulRoad\">"))
         assertTrue(html.contains("<input type=\"hidden\" name=\"month\" value=\"2023-02\">"))
         assertTrue(html.contains("<input type=\"hidden\" name=\"board_q\" value=\"widening\">"), "the search is not preserved")
         assertTrue(html.contains("<input type=\"hidden\" name=\"board_type\" value=\"Site projects\">"))
-        assertTrue(html.contains("<input type=\"hidden\" name=\"board_status\" value=\"Ongoing\">"))
+        assertTrue(html.contains("<input type=\"hidden\" name=\"board_status\" value=\"In progress\">"))
         assertTrue(html.contains("class=\"fc-line-form\""))
         // `month` is the line being written, never the month the invoice cell names: the two are different
         // questions, and only the first decides where the money is counted.

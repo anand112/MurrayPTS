@@ -1,10 +1,20 @@
 package mn.murray.pts
 import mn.murray.pts.domain.*
 
+import kotlinx.html.ButtonType
 import kotlinx.html.DIV
+import kotlinx.html.FormMethod
+import kotlinx.html.InputType
+import kotlinx.html.button
+import kotlinx.html.form
 import kotlinx.html.h2
+import kotlinx.html.id
+import kotlinx.html.input
+import kotlinx.html.label
+import kotlinx.html.option
 import kotlinx.html.p
 import kotlinx.html.script
+import kotlinx.html.select
 import mn.murray.pts.service.TaskService
 
 /**
@@ -31,6 +41,13 @@ import mn.murray.pts.service.TaskService
  * opened and saved through the very same popup. The shared board and its management controls stay on
  * [mn.murray.pts.otherTasksContent], which is where the backlog *as a board* lives.
  *
+ * Since **Stage 90** the Other-task half is also where a reader **writes their first card**: one `+ Add task`
+ * line under the board opens the blank popup on the bucket the picker is showing. It restores the self-service
+ * half of [mn.murray.pts.service.TaskService.createBacklog] that Stage 51 had narrowed to management on the
+ * boards — a non-manager's card lands as **theirs** and **Not started**, pinned by the service, while
+ * management writes the same form with the whole roster. The bucket picker above stays even when the reader has
+ * no cards yet, because it is now also the chooser that line uses.
+ *
  * The two boards share the page's **one** card popup and **one** editor opener: the project board draws the
  * opener only when the Other-task board has nothing to draw it with (see the `drawOpener` argument), because
  * [task-modal.js] finds that opener by id and a second one would be a dead form. So the same click opens either
@@ -45,6 +62,7 @@ fun DIV.assignedTasksContent(
     session: UserSession,
     canManage: Boolean,
     state: TaskForm? = null,
+    otherBucketId: Int = 0,
 ) {
     // Stated on the page for the same reason the sidebar count is scoped: two cards out of nine,
     // with nothing saying why, reads as work that went missing. Since Stage 53 it is true of every reader, so
@@ -55,31 +73,133 @@ fun DIV.assignedTasksContent(
     // `assignedFor` and `assignedOtherFor` still answer management's wider read for the Calendar, the project
     // boards and the Team drill-down that need it.
     val cards = TaskService.assignedFor(session.employeeNumber, canManage = false)
-    val ownOther = TaskService.assignedOtherFor(session.employeeNumber)
-    // The general board has no one project to grant on, so writing the first card here stays
-    // management's — [mn.murray.pts.service.TaskService.mayAddTasks] takes a project for a reason.
+    val allOther = TaskService.assignedOtherFor(session.employeeNumber)
+    // The Other-task half is cut by **bucket** as well as by status since **Stage 88**: the reader picks one of
+    // the board's own columns (`Finance`, `HR`, …) and sees the cards filed in it, still standing in the five
+    // status columns they are used to. The picker only narrows; it never moves a card between columns.
+    val buckets = TaskService.bucketRows()
+    // An id the board no longer has — a stale bookmark, a column somebody deleted — answers **all buckets**
+    // rather than an empty board under a picker with nothing selected in it.
+    val chosenBucket = buckets.firstOrNull { it.id == otherBucketId }
+    val ownOther = chosenBucket?.let { chosen -> allOther.filter { it.bucketId == chosen.id } } ?: allOther
+    // Every action out of this page posts this token and comes back through `taskRedirect`, so the filter the
+    // reader chose is still the page they return to: opening a card, saving it, ticking a step, writing a note,
+    // deleting or answering a refusal all land on the same narrowed board (Stage 88).
+    val back = backForBucket(chosenBucket?.id ?: 0)
+    // The projects board has no one project to grant on, so writing the first *project* card here stays
+    // management's — [mn.murray.pts.service.TaskService.mayAddTasks] takes a project for a reason. The Other-task
+    // board's own line is a separate right since Stage 90 (see below).
     // The opener travels with this board only while the Other-task board below has no card of its own to carry it.
-    taskKanban(cards, session, canManage, BACK_ASSIGNED, canAdd = canManage, drawOpener = ownOther.isEmpty())
+    taskKanban(cards, session, canManage, back, canAdd = canManage, drawOpener = ownOther.isEmpty())
 
     h2("assigned-other-head") { +"Other tasks" }
     p("assigned-other-sub") { +"Work assigned to you that is not on a project." }
+    // Drawn whenever the board has columns, since **Stage 90** even when the reader has no Other-task cards yet:
+    // it is now also the chooser for the `+ Add task` line under the board, so hiding it on an empty board would
+    // leave a reader with no way to say which bucket their first card belongs in. A stale `?bucket=` still opens
+    // it so there is a way back to *All buckets*.
+    if (buckets.isNotEmpty()) {
+        otherBucketFilter(buckets, chosenBucket)
+    }
     if (ownOther.isEmpty()) {
-        p("assigned-other-empty") { +"You don't have any other tasks assigned." }
+        p("assigned-other-empty") {
+            +(if (chosenBucket != null) "You don't have any other tasks in ${chosenBucket.name}."
+            else "You don't have any other tasks assigned.")
+        }
     } else {
         // The reader's own backlog cards, cut by status exactly like the projects board above. `canAdd = false`:
-        // this is a personal read of cards that already exist, not the shared board's create line — a new Other
-        // card is written from the Other tasks page (management) or the Team sheet's assign panel, never from
-        // here. The board carries the page's one opener, since the project board handed it over above.
-        taskKanban(ownOther, session, canManage, BACK_ASSIGNED, canAdd = false)
+        // the page's create line is the row *below* the board, aimed at a bucket rather than a status column —
+        // the same reason the shared board puts one line at the foot of a bucket instead of one per status. The
+        // board carries the page's one opener, since the project board handed it over above.
+        taskKanban(ownOther, session, canManage, back, canAdd = false)
+    }
+    // Stage 90: the reader's own way in, on an empty board as readily as a full one. One line for the whole
+    // Other board, opening the blank card popup on the bucket the picker shows — the first column for *All
+    // buckets*, because a non-manager's popup pins its column (Stage 49). A non-manager's card lands as **theirs**
+    // and **Not started** ([mn.murray.pts.service.TaskService.createBacklog] rebuilds the draft that way);
+    // management writes the same form with the roster and the status picker.
+    if (buckets.isNotEmpty()) {
+        otherAddTaskForm(buckets, chosenBucket)
     }
 
     // The popup travels with the page, for every reader: management's `+ New task` in the head swaps into it,
     // and a reader's own card — from either board — swaps into it from the card itself. `state ?: TaskForm(...)`
     // is the placeholder a plain page ships — drawn for the reader standing here, so a normal account's copy holds
     // only their own name and status rather than the whole roster. The save route re-checks the role; markup is
-    // not a permission.
-    taskFormModal(state ?: TaskForm(canEditAll = canManage), BACK_ASSIGNED)
-    // Board drag-and-drop + move buttons live in an external script (Stage 7): the markup
-    // contract is .kcol[data-status], .kcard[draggable][data-id] and .kmove-btn[data-*].
+    // not a permission. `back` carries the bucket filter like the boards do, so a save answers on the same board.
+    taskFormModal(state ?: TaskForm(canEditAll = canManage), back)
+    // Board drag-and-drop lives in an external script (Stage 7): the markup contract is .kcol[data-status],
+    // .kcard[draggable][data-id] and .kmove-btn[data-*]. Stage 103 retired this board's prev/next arrows, so the
+    // drag is the way to change a status here; `.kmove-btn` survives in the contract for the project lane board's
+    // single ✓ Done / ↺ Reopen button, which the same script posts.
     script(src = "/static/js/kanban.js") {}
+}
+
+/**
+ * The **Bucket** picker above the reader's own Other-task board (Stage 88): a real GET form onto this page whose
+ * `bucket` key is the whole filter — the URL is the state, so a bookmark or a back button restores the same
+ * narrow view. `data-autosubmit` (app.js) submits it on change: picking a bucket answers in place rather than
+ * asking for a second press. The button below the select is the same submission for a browser with no script,
+ * which is why it is a `submit` and not a link.
+ *
+ * *All buckets* is option `0` — the absence of a filter, and the value a plain page's URL has. Selecting one of
+ * the board's columns narrows the cards; it never changes how they are grouped, and the five status columns
+ * above them are still the whole board. Since **Stage 90** it is drawn even when the reader has no Other-task
+ * cards yet, because the `+ Add task` line beneath the board aims at whatever bucket it shows — an empty board
+ * without it would leave the first card with no bucket to land in.
+ *
+ * The select sits **inside** its label, exactly like the projects board's sort pickers, because that pair is what
+ * the field styling keys on. **Stage 89** shrank it to the length of one card on the board it narrows: as a
+ * sibling of the label it fell through to the bare `select { width: 100% }` and stretched across the page, which
+ * made a one-dropdown filter read like a toolbar.
+ */
+private fun DIV.otherBucketFilter(buckets: List<Bucket>, chosen: Bucket?) {
+    form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "board-toolbar other-bucket-filter") {
+        label("board-key") {
+            +"Bucket"
+            select {
+                id = "otherBucket"
+                name = "bucket"
+                attributes["data-autosubmit"] = "true"
+                option {
+                    value = "0"
+                    selected = chosen == null
+                    +"All buckets"
+                }
+                buckets.forEach { bucket ->
+                    option {
+                        value = "${bucket.id}"
+                        selected = bucket.id == chosen?.id
+                        +bucket.name
+                    }
+                }
+            }
+        }
+        button(type = ButtonType.submit, classes = "submit btn-sm") { +"Show" }
+    }
+}
+
+/**
+ * The `+ Add task` line under the reader's own Other-task board (Stage 90): the blank card popup, aimed at a
+ * bucket of that board.
+ *
+ * It is the Other-tasks page's `bucketAddTaskForm` mechanism — a GET form carrying `new=1` and the `column` to
+ * open on — aimed at this page's URL instead, so `app.js` swaps the popup into `#taskModal` without disturbing
+ * the board behind it. The line is drawn for every reader because writing a card onto the backlog is every
+ * signed-in account's ([mn.murray.pts.service.TaskService.createBacklog]); the popup then prints a non-manager's
+ * writer and starting status as facts ([TaskForm.selfPinned]) and management's as choices.
+ *
+ * `column` is the bucket the picker shows, or the board's first when it shows *All buckets*: a non-manager's
+ * popup pins its column (Stage 49), so the line has to name one. `bucket` rides only while a filter is on, which
+ * is what brings the save back to the same narrowed board.
+ */
+private fun DIV.otherAddTaskForm(buckets: List<Bucket>, chosen: Bucket?) {
+    val aim = chosen ?: buckets.firstOrNull() ?: return
+    form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "kcol-add") {
+        attributes["data-live-target"] = "#taskModal"
+        input(type = InputType.hidden, name = "new") { value = "1" }
+        input(type = InputType.hidden, name = "column") { value = "${aim.id}" }
+        if (chosen != null) input(type = InputType.hidden, name = "bucket") { value = "${chosen.id}" }
+        button(type = ButtonType.submit, classes = "kcol-add-btn") { +"+ Add task" }
+    }
 }

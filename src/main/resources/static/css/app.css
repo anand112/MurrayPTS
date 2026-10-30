@@ -9,7 +9,7 @@ html[data-accent="amber"][data-theme="dark"] { --accent-soft: #33260f; }
 body.app-body { display: block; padding: 0; background: var(--main-bg); }
 .app { display: flex; min-height: 100vh; }
 .sidebar {
-    width: 264px; flex: 0 0 264px;
+    width: 240px; flex: 0 0 240px;
     background: var(--card-bg); border-right: 1px solid var(--input-border);
     display: flex; flex-direction: column;
     padding: 20px 14px 16px;
@@ -17,7 +17,7 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
 }
 .sidebar .logo { width: 170px; margin: 0 auto 4px; }
 .sidebar .logo-img.side-logo { width: 168px; max-width: 100%; height: auto; display: block; margin: 0 0 6px; }
-.side-caption { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .14em; color: var(--muted); margin: 4px 0 18px; }
+.side-caption { text-align: center; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: 4px 0 18px; }
 .side-caption .accent { color: var(--accent); font-weight: 800; }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .nav-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; color: var(--title); text-decoration: none; font-size: 14px; font-weight: 500; }
@@ -181,6 +181,18 @@ html[data-theme="dark"] .board-empty { background: rgba(255, 255, 255, .04); }
 .assigned-other-head { margin: 26px 0 2px; font-size: 15px; font-weight: 700; color: var(--title); }
 .assigned-other-sub { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
 .assigned-other-empty { margin: 10px 0 2px; font-size: 13px; color: var(--muted); }
+/* The Other-tasks bucket picker above the personal board (Stage 88): the projects board's toolbar idiom, sitting
+   under a heading rather than at the top of a page, so it starts on the sub-line's margin instead of stacking one.
+   **Stage 89** sizes the select to the length of one card on the board underneath — a fifth of the board, less its
+   gaps and the column's padding — so a filter for one board is one small field rather than a page-wide toolbar.
+   The select sits inside its label (AssignedTasks.kt), which is what keeps it off the bare `select` rule's 100%
+   width; the extra `form.` in the selector outranks the toolbar's own picker rule further down this file. */
+form.other-bucket-filter { margin: 0 0 12px; align-items: center; }
+form.other-bucket-filter .board-key { flex: 0 1 auto; min-width: 0; margin-bottom: 0; }
+form.other-bucket-filter .board-key select {
+    width: 200px; min-width: 0; max-width: 100%;
+    padding: 6px 10px; font-size: 13px;
+}
 .kcol.drag-over { outline: 2px dashed var(--accent); }
 .kcol-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .kcol-title { font-size: 13px; font-weight: 700; color: var(--title); }
@@ -204,7 +216,29 @@ html[data-theme="dark"] .kcard.s-inprogress { background: #332b12; }
 html[data-theme="dark"] .kcard.s-onhold { background: #33220f; }
 html[data-theme="dark"] .kcard.s-blocked { background: #331512; }
 html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
-.kcard.s-other { border-left-color: #5f6a76; }
+/* A backlog card wears the same five tints as every other card (Stage 95): the slate edge it used to carry as
+   `.s-other` is gone, because one stage on two boards had to be one colour. */
+/* The card's top line: its code, and a **status board**'s card is the only one that has it (Stage 78). That
+   page runs cards from every project together, so the number is what tells two of them apart; a project's own
+   board is one project's work and starts each card at its title, the way its picture does. */
+.kcard-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+/* The status board's chip is a project **code** or, on an Other-task card, a bucket **name** (Stage 88). A
+   bucket name is free text up to BUCKET_NAME_MAX, so the chip is allowed to take the line and cut itself short
+   with an ellipsis rather than push the card wider than its column. */
+.kcard-top .tcode { margin-bottom: 0; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The stage word on a lane card's foot line (Stage 78): a coloured dot and the word beside it, drawn the way the
+   priority line above it is — `.prio`'s `::before` — so the two small lines at the bottom of a card read as one
+   kind of thing. Only the *dot* takes the board's five hues, the same values a `.dot` in a column head and the
+   card's own left bar are painted with, so *In progress* means the same amber wherever it is read; the word
+   keeps the card's text colour, because on an amber-tinted card an amber word is the tint saying itself twice
+   and going unreadable. A status board never emits this span: its column head already is the word. */
+.kstat { font-size: 11.5px; font-weight: 600; color: var(--title); white-space: nowrap; flex: 0 0 auto; }
+.kstat::before { content: "● "; font-size: 9px; }
+.kstat.s-notstarted::before { color: #8a9199; }
+.kstat.s-inprogress::before { color: #e0a800; }
+.kstat.s-onhold::before { color: #e07000; }
+.kstat.s-blocked::before { color: #d93025; }
+.kstat.s-completed::before { color: #1e8e3e; }
 /* A kanban card is a fixed width and a content height (Stage 38, and it is worth saying which of the two is
    which). Stage 37 pinned the height at 168px on the way to matching the picture's columns; the board was
    asked back the other way the next day, so the tile is gone and a card with no plan is short while a card
@@ -241,12 +275,29 @@ html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 
 .chk-box input[type="checkbox"] { flex: 0 0 auto; margin: 2px 0 0; cursor: pointer; width: auto; }
 .chk-label { word-break: break-word; }
 .chk-label.done { color: var(--muted); text-decoration: line-through; }
+/* A finished card's steps are its record rather than a control, so the row is the same `.chk-box` with the
+   form taken out from under it. It needs that form's flex to hold the label's width exactly as a tickable
+   row does, and it drops the pointer because there is nothing to click. The square stays the browser's own
+   disabled checkbox — greyed, ticked, unmistakably stopped — rather than a second style of box. */
+.chk-box.locked { flex: 1 1 auto; min-width: 0; cursor: default; }
+.chk-box.locked input[type="checkbox"] { cursor: default; }
 /* The card's own plan bar, on the line between the section head and the rows it measures. `.progress` and
    `.bar` are used exactly as the Projects board and a project page use them — one control, one size, no
    second style of bar in the app — so all that is added here is the block it sits on. */
 .kprog { margin: 5px 0 8px; }
 .tcode { display: inline-block; background: #e6f4d7; color: #3f620e; border-radius: 6px; font-size: 10.5px; font-weight: 700; padding: 2px 7px; margin-bottom: 6px; }
 html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
+/* An Other-task card's chip names a bucket, not a project (Stage 88), so it wears the board's own neutral tint
+   rather than the project green: the two facts are different and a run of cards should not say they are the same. */
+.tcode.bucket-chip { background: #e8eef7; color: #3a5a7a; }
+html[data-theme="dark"] .tcode.bucket-chip { background: #1e2a38; color: #a9c6e2; }
+/* Stage 104: a status board's project code is the card's one way to the page it names, so it is an `<a>` wearing
+   the same chip rather than a new control. Underline on hover only — a board of permanently underlined chips reads
+   as a list of links instead of a board of cards — and a focus ring, because the chip is reachable by Tab and the
+   card around it is too. */
+a.tcode { text-decoration: none; cursor: pointer; }
+a.tcode:hover { text-decoration: underline; }
+a.tcode:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .ktitle { font-size: 13px; font-weight: 600; color: var(--title); line-height: 1.35; }
 .kmeta { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-size: 11.5px; color: var(--muted); }
 .kmeta.kfoot { justify-content: space-between; }
@@ -257,10 +308,12 @@ html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
 .prio.p-low { color: #8a9199; }
 .avatar.xs { width: 22px; height: 22px; flex-basis: 22px; font-size: 9px; margin-left: auto; }
 /* The backlog's own controls (Stage 40, on their own page since Stage 47).
-   Both page-head controls — `Show all buckets` and `+ Add bucket` — are rendered into `.page-actions`, which
-   already sets them at the head's right end opposite the title, so they need no margin rule of their own. Each is
+   The page-head control — `+ Add bucket` — is rendered into `.page-actions`, which
+   already sets it at the head's right end opposite the title, so it needs no margin rule of its own. It is
    a `.ghost-btn.btn-sm` inside a `.opener-form`, exactly like the head's `+ New project`, so the whole app's
-   "add / change this page" buttons read alike. The dashed full-height `+ Add bucket` box that used to trail the
+   "add / change this page" buttons read alike. *(Until **Stage 97** a second control shared the head, the
+   `Show all buckets` toggle; it used the same shape and so has no rule of its own to lose.)* The dashed
+   full-height `+ Add bucket` box that used to trail the
    board as a fake column (Stage 57 made the board a vertical run of groups, so a lone column box read as
    stranded) is gone; the name it asked for is still written in `#bucketModal`, not in a field on the board. */
 .dot.d-bucket { background: var(--accent); }
@@ -273,11 +326,15 @@ html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
 .kcol-menu-btn:hover, .kcol-menu-btn:focus-visible { color: var(--title); background: rgba(0, 0, 0, .06); }
 .kcol-menu-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 /* A backlog card is one click: the whole body opens its editor. The form is the card's own and wears it, which
-   is why it is placed over the content rather than beside it — and why `.kmove` on the same card is lifted
-   above it, so the arrows an owner has are pressed for what they do and not for the popup underneath.
+   is why it is placed over the content rather than beside it — and why the card's foot line is lifted
+   above it, so the holder's avatar is pressed for what it is and not for the popup underneath.
+   (The arrows that once sat here too were retired in Stage 103, and with them this rule's `.kmove` half.)
    The assigned boards give the same affordance to a click on `data-task-card`; here it is a form per card
-   because this page already spends that one opener id on the board above. */
-.kcard.s-other { position: relative; }
+   because this page already spends that one opener id on the board above.
+   `.kcard-overlay` is the card that carries that form. It is a layout hook, not a colour: since Stage 95 the
+   backlog card wears the same status tint every other card wears, and the node that used to say so — `.s-other`,
+   with its slate edge — would have beaten the tint's edge on a specificity tie. */
+.kcard.kcard-overlay { position: relative; }
 .kcard-open { position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0; }
 .kcard-open-btn {
   width: 100%; height: 100%; padding: 0; border: none; background: transparent; cursor: pointer;
@@ -285,12 +342,20 @@ html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
 }
 .kcard-open-btn:hover { background: rgba(0, 0, 0, .03); }
 .kcard-open-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: -2px; }
-.kcard.s-other .kmove { position: relative; z-index: 1; }
-.kcard.s-other .kfoot { position: relative; z-index: 1; }
+.kcard.kcard-overlay .kfoot { position: relative; z-index: 1; }
 /* The one button on a popup that removes something rather than adding it. Same shape as `.submit`, so the two
-   read as the same kind of control, with the colour carrying only "this one takes work off the board". */
-.danger-btn { border-color: #d93025; color: #fff; background: #d93025; }
-.danger-btn:hover { background: #b3261e; border-color: #b3261e; color: #fff; }
+   read as the same kind of control, with the colour carrying only "this one takes work off the board".
+   The selector is `.submit.danger-btn`, not `.danger-btn`: base.css writes `button.submit`, which is a class
+   **and** a type, and a lone class loses that tie — the red never landed and the button stayed the green of a
+   save. */
+.submit.danger-btn { border-color: #d93025; color: #fff; background: #d93025; }
+.submit.danger-btn:hover:not(:disabled) { background: #b3261e; border-color: #b3261e; color: #fff; }
+/* Since **Stage 79** this is the only place a column that holds work says it cannot come off: the panel that
+   used to grey the whole tick box is gone, and the popup's own sentence is easy to read past. A button that
+   looks pressable when it is not would be the wrong picture, so a shut one is drawn shut. */
+.submit.danger-btn:disabled {
+  border-color: var(--input-border); color: var(--muted); background: var(--input-bg); cursor: not-allowed;
+}
 .team-table th.num, .team-table td.num { text-align: center; width: 1%; white-space: nowrap; }
 .count { display: inline-block; min-width: 24px; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 700; }
 .count.zero { background: var(--input-bg); color: var(--muted); opacity: .55; font-weight: 600; }
@@ -370,6 +435,15 @@ html[data-theme="dark"] .fc-key.fc-full { background: rgba(139, 195, 74, .20); }
 .fc-strip { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; }
 .fc-month { font-size: 15px; font-weight: 800; color: var(--title); }
 .fc-step { min-width: 34px; font-weight: 700; line-height: 1; }
+/* The Calendar's month strip (Stage 65) is the strip above with one control added: the box that names any month
+   at all, so a reader jumps to February in one move instead of clicking ‹ eleven times. base.css writes `label` as
+   a block with field spacing and `input` as full-width, both of which would push the ‹ › steps off the line, so the
+   picker undoes them the way a board toolbar's picker does, and the strip wraps rather than squeezes. */
+.cal-strip { flex-wrap: wrap; }
+.cal-pick { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 11px; color: var(--muted); }
+.cal-pick input { width: auto; min-width: 132px; padding: 5px 8px; font-size: 12.5px; }
+/* Said once, under the grid, when the month on screen holds none of the reader's dates. */
+.cal-empty { margin: 10px 2px 0; }
 /* The type letter, the category's initial in a square — the projects board spells the category out
    in its panel head, a sheet this wide cannot. */
 .fc-letter { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-soft); color: var(--accent-strong); font-size: 11.5px; font-weight: 800; }
@@ -583,7 +657,11 @@ h3.set-section:first-child { margin-top: 0; }
 .todo-due-label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: 5px 8px; font-size: 12px; }
 .todo-del-form { margin: 0 0 0 auto; }
-.calendar-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* Stage 66: `table-layout: fixed` so the seven columns are seven equal sevenths. Under the old auto layout a
+   bar's nowrap title was a minimum content width, so a long card name pushed its column wider than 14.28% and
+   the whole month spilled past the right edge of the panel — the more so now a priority dot sits in front of
+   the label. Fixed layout lets the ellipsis below actually do its job. */
+.calendar-grid { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
 .calendar-grid th { text-align: center; font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: 8px 4px; border-bottom: 1px solid var(--input-border); }
 .calendar-grid td { padding: 0; border: 1px solid var(--input-border); vertical-align: top; min-height: 100px; }
 .calendar-cell { width: 14.28%; min-height: 100px; position: relative; }
@@ -591,9 +669,21 @@ h3.set-section:first-child { margin-top: 0; }
 .calendar-day.today { background: var(--accent-soft); color: var(--accent-strong); }
 .calendar-task-bar { color: #fff; padding: 4px 6px; margin-top: 4px; font-size: 11px; font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: 6px; cursor: pointer; }
 .calendar-task-bar:hover { opacity: 0.9; }
-.calendar-task-link { color: #fff; text-decoration: none; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.calendar-task-link { color: #fff; text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-task-link:hover { text-decoration: underline; }
 .calendar-bar-assignee { width: 18px; height: 18px; border-radius: 50%; background: rgba(255, 255, 255, 0.3); color: #fff; display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+/* Stage 66 — a bar's hue now says WHICH work it is (its project, or the Other-tasks bucket it sits in) rather
+   than its priority, so the month needs a key, and priority needs a mark of its own that reads on any hue.
+   The dots are bright fills with an inset ring: the ring keeps them legible on a pale page and on a dark bar. */
+.cal-key { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 2px 2px 10px; font-size: 11.5px; color: var(--muted); }
+.cal-key-item, .cal-group { display: inline-flex; align-items: center; gap: 6px; }
+.cal-key-prio { display: inline-flex; align-items: center; gap: 8px; margin-left: auto; }
+.cal-swatch { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; display: inline-block; }
+.cal-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .28); }
+.cal-dot-high { background: #ff5b4d; }
+.cal-dot-medium { background: #ffd257; }
+.cal-dot-low { background: #7ee29a; }
+.cal-tag { font-size: 9px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--input-border); border-radius: 999px; padding: 1px 6px; }
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0, 0, 0, 0.5); }
 /* Stage 23 puts the plan and the running log under the editor's fields, so a card with a few entries in
    each is taller than a short window. The old `margin: 10% auto` measured a vertical gap against the
@@ -648,17 +738,147 @@ h3.set-section:first-child { margin-top: 0; }
    account card's key/value pairs are; the count is the quietest thing in it. */
 .set-row .type-letter { flex: 0 0 auto; width: 18px; }
 .set-row .type-count { color: var(--muted); font-size: 12px; }
-/* The six standard sub-categories print as one run of chips under the picker, so they read as a floor the
-   list below adds to rather than as nine more editable rows. */
-.lane-floor { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; max-width: 70%; }
-.lane-floor .chip { font-size: 11px; }
-/* The six floor lanes are neutral, not the roster's role colours: they name the sub-categories every board
-   carries, so they print in the muted card tint rather than a done/planning/atrisk green-amber-red. */
-.lane-floor .chip.lane-chip { background: var(--input-bg); color: var(--muted); }
+/* Stage 100: Settings' bucket list is the whole board now, so its rows are all ordinary catalogue rows —
+   the `phase-row` / `phase-fixed` pair that marked the three fixed phases as unremovable went with them. */
 .set-row .lane-name { font-weight: 600; }
 /* The delivery mode is the one line on the page that says whether mail can leave this machine, and it is
    monospace because it quotes a host and a port. */
 .email-mode { font-family: Consolas, monospace; font-size: 12px; color: var(--title); text-align: right; }
+/* --- Stage 63: the three app panels laid out as the picture has them ---------------------------------
+   A category row reads left to right as badge, name, count, and the two writes it answers: the count is
+   pushed to the right edge with `.icon-btns` after it, so the buttons line up down the column the way the
+   Team sheet's do. The add line under the list is one row of its own — a short field for the letter, a wide
+   one for the name, then the button — and a row the pencil opened swaps its chip for the field being renamed
+   without changing the row's height. */
+.set-row.type-row, .set-row.lane-row { justify-content: flex-start; align-items: center; gap: 10px; }
+.set-row .type-letter {
+    flex: 0 0 22px; width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); color: var(--accent-strong);
+    border-radius: 6px; font-size: 12px; font-weight: 800;
+}
+.type-row .chip { flex: 0 1 auto; }
+.set-row .type-count { margin-left: auto; }
+.type-row .icon-btns { flex: 0 0 auto; }
+.type-row.editing .type-rename { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.type-row.editing .type-rename input {
+    flex: 1 1 240px; min-width: 0; width: auto; margin: 0;
+    padding: 6px 10px; font-size: 13px;
+}
+form.type-add { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+form.type-add input { margin: 0; padding: 7px 10px; font-size: 13px; }
+form.type-add input[name="code"] { flex: 0 0 84px; width: 84px; text-align: center; text-transform: uppercase; }
+form.type-add input[name="name"] { flex: 1 1 auto; min-width: 0; width: auto; }
+form.type-add .btn-sm { flex: 0 0 auto; }
+/* An extra lane is one dot and one name: the colour only tells the rows apart, so it is a flat dot rather
+   than a category chip, and the remove sits at the row's right edge like the floor chips' opposite.
+   Stage 75: the box is sized on the bare class, not under `.lane-row`, because the same dot prints on a Settings
+   row and on a board's column head, and the colour below is only two classes strong. Sized under `.lane-row` as
+   well, the head's own rule tied it on weight and won on order, so every column on a project board painted the
+   quiet grey of an uncoloured dot and the three buckets lost the one thing that told them apart at a glance. */
+.bucket-dot { flex: 0 0 10px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+/* Stage 81: the first three are the hues the picture puts on the three phases every board opens with —
+   Engineering blue, Procurement amber, Production teal. They are still *slots*, not phase identities: a fourth
+   bucket lands on the fourth shade and a manager can move any column to any of the six. The three changed
+   because those three columns are what a reader sees first on every project, and the old blue sat 2 shades
+   from the accent while the old amber and teal were the app's own; the other three are left alone so a slot
+   a reader picked in Stage 80 still looks the same tomorrow. */
+.bucket-dot.dot-0 { background: #2f6fed; }
+.bucket-dot.dot-1 { background: #c9861f; }
+.bucket-dot.dot-2 { background: #12959f; }
+.bucket-dot.dot-3 { background: #7a5af0; }
+.bucket-dot.dot-4 { background: #c2416b; }
+.bucket-dot.dot-5 { background: #5b6472; }
+.lane-row .ts-action { margin-left: auto; }
+form.bucket-add { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+/* The category the word being typed will land on, written at the box rather than only in the form's hidden
+   field. It is a flex item like the input and the button, and it keeps its own line: `flex: 0 0 auto` with no
+   wrap means a long category name shortens nothing and pushes nothing — the input is the one item allowed to
+   shrink (`flex: 0 1 330px` below), so the row stays one line whatever the catalogue is called. */
+form.bucket-add .bucket-add-for { flex: 0 0 auto; font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+form.bucket-add input {
+    flex: 0 1 330px; max-width: 100%; margin: 0; padding: 7px 10px; font-size: 13px;
+}
+form.bucket-add .btn-sm { flex: 0 0 auto; }
+/* --- Stage 80: the bucket's colour, chosen rather than counted --------------------------------------------
+   One row of six dots, the same six the catalogue rows and the column heads already paint (see `.bucket-dot`
+   above), each one a radio button. It is a radio group and not six buttons because the choice is one-of-six and
+   has to be *posted*: the app's rule is that the server renders the board, so a colour that only lived in a
+   script would be gone on reload. The input itself is the accessibility target and keeps its ring, which is why
+   it is faded rather than removed — `.colour-opt input:focus-visible + .bucket-dot` is what shows the reader
+   which dot the keyboard is on. A row that has to wrap does so under its own caption, so `flex: 1 1 100%` on
+   the Settings add line, which is a one-line flex row: the swatches belong under the name box, not squeezed
+   in beside the button. The bottom margin is the same reason: the row is the widest thing in these popups and
+   whatever follows it — the category tick, the buttons — has to read as the next question, not as this one's. */
+.colour-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; flex: 1 1 100%; margin: 2px 0 8px; }
+.colour-caption { font-size: 12px; color: var(--muted); text-transform: none; letter-spacing: normal; }
+label.colour-opt { display: inline-flex; align-items: center; margin: 0; cursor: pointer; }
+.colour-opt input[type="radio"] {
+    width: 15px; height: 15px; margin: 0 -11px 0 0; opacity: .01; accent-color: var(--accent); cursor: pointer;
+}
+.colour-opt .bucket-dot { width: 13px; height: 13px; flex: 0 0 13px; border: 2px solid transparent; }
+.colour-opt input[type="radio"]:checked + .bucket-dot { box-shadow: 0 0 0 2px var(--card-bg, #fff), 0 0 0 4px var(--accent-strong); }
+.colour-opt input[type="radio"]:focus-visible + .bucket-dot { outline: 2px solid var(--accent-strong); outline-offset: 4px; }
+form.bucket-add .colour-row { margin-top: 8px; }
+/* --- Stage 92: the create popup's bucket line --------------------------------------------------------------
+   The popup no longer picks buckets. Stage 100 left one muted sentence saying where the board's buckets come
+   from — Settings, per category — so the `.bucket-floor` chip run that used to name the three phases went
+   with the rule that they were universal. (**Stage 104** put an Add bucket line back on that popup, as an
+   addition to the list rather than a choice from it; read its block below.) */
+.bucket-pick { margin-top: 2px; }
+/* --- Stage 104: the create popup asks about buckets again, as an addition -------------------------------
+   The category's own rows print read-only — one `.bucket-preset-row` per category, only the chosen one shown —
+   and anything the reader types lands after them as a chip that carries its own hidden `new_bucket`. Rows rather
+   than one list the script rewrites, because the page a reader with no JavaScript gets must still name the
+   columns for the category that form will actually post. A chip is green for the same reason the card's own code
+   chip is: it is the project's, not the catalogue's. */
+.bucket-preset-rows { margin-top: 4px; }
+.bucket-preset-row { display: none; flex-wrap: wrap; gap: 5px; }
+.bucket-preset-row.on { display: flex; }
+.bucket-preset { display: inline-block; background: #eef1f5; color: var(--muted); border: 1px solid var(--input-border);
+    border-radius: 999px; font-size: 11px; font-weight: 600; padding: 2px 9px; }
+html[data-theme="dark"] .bucket-preset { background: #1c222b; color: #9aa7b8; }
+.bucket-preset.none { border-style: dashed; font-weight: 500; }
+.bucket-pending { display: flex; flex-wrap: wrap; gap: 5px; }
+.bucket-pending:empty { display: none; }
+.bucket-pending-chip { display: inline-flex; align-items: center; gap: 4px; background: #e6f4d7; color: #3f620e;
+    border-radius: 999px; font-size: 11px; font-weight: 700; padding: 2px 4px 2px 9px; }
+html[data-theme="dark"] .bucket-pending-chip { background: #24341a; color: #b7e08a; }
+.bucket-pending-drop { border: 0; background: none; color: inherit; cursor: pointer; font-size: 13px;
+    line-height: 1; padding: 0 4px; opacity: .7; }
+.bucket-pending-drop:hover { opacity: 1; }
+.bucket-add-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.bucket-add-line input[type="text"] { flex: 1 1 auto; }
+.bucket-add-line .ghost-btn { flex: 0 0 auto; }
+/* The box's own refusal — a name the category already offers, or one already on this board twice. It is not a
+   `.field-err` node on purpose: an error line that is always printed is the first one a refused create would
+   try to stand the caret in, and this one says nothing until the script has a reason to speak. */
+p.bucket-add-said { margin: 4px 0 0; font-size: 12.5px; font-weight: 600; color: #b3261e; }
+p.bucket-add-said:empty { display: none; }
+/* Stage 77: whether a new bucket also joins the category's defaults is asked as its own line under the box that
+   names it — never in the row of tick-boxes above, where it would read as one more bucket to pick. */
+label.bucket-widen { display: flex; align-items: center; gap: 6px; flex: 1 1 100%; margin: 6px 0 0;
+    font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; color: var(--title);
+    cursor: pointer; }
+label.bucket-widen input[type="checkbox"] { width: 15px; height: 15px; margin: 0; accent-color: var(--accent);
+    cursor: pointer; }
+p.bucket-widen-why { flex: 1 1 100%; margin: 2px 0 0; font-size: 11.5px; color: var(--muted); }
+/* The answer to a bucket write, on its own line above the columns it describes. Stage 79 took the project page's
+   tick-list away, so this is printed inside #projectBoard — and it keeps the flex rules because it is still a
+   flex item on the create popup's picker, where a note has to take its own line rather than squeeze in beside the
+   last tick-box. */
+.bucket-said { flex: 1 1 100%; margin: 10px 0 0; font-size: 12.5px; font-weight: 600; }
+.bucket-said.ok { color: var(--accent-strong); }
+.bucket-said.err { color: #b3261e; }
+/* The mailer's master switch is a tick box and a Save, in one form: the box carries the state and the button
+   is the path a reader with no JavaScript takes to the same write. They stack — the box is the sentence and
+   the button is the answer to it, so putting them side by side reads as one control. */
+form.mail-switch { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin-top: 12px; }
+/* The switch's own caption reads as a sentence, not as a field label: base.css uppercases every `label`,
+   which would turn this one into a heading. */
+label.check-row { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13.5px; font-weight: 600;
+    letter-spacing: normal; text-transform: none; color: var(--title); cursor: pointer; }
+.check-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .flash { padding: 10px 12px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; }
 .flash.ok { background: var(--accent-soft); color: var(--accent-strong); border: 1px solid var(--accent); }
 .flash.err { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0; }
@@ -744,27 +964,10 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .back-link { color: var(--muted); text-decoration: none; font-size: 13px; font-weight: 600; }
 .back-link:hover { color: var(--accent-strong); }
 .detail-title { margin: 6px 0 14px; font-size: 22px; color: var(--title); }
-/* The nine fields of a project's detail card, packed onto as few lines as the card is wide for. This used to
-   be `repeat(auto-fill, minmax(180px, 1fr))` — equal columns — which is precisely what stranded Revenue and
-   Progress on a line of their own whenever nine fields did not divide into however many columns the window
-   made. A wrapping flex row gives the next field whatever room is left on the line, so the last two read like
-   the eight before them: one run of `caption value` pairs, each pair on a single line. */
-.detail-grid { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 24px; }
-/* One line per field: caption then value. All nine cells read this way, Revenue and the Progress bar
-   included — they used to stack their value (and the bar's percentage, a third line) under the caption, and
-   the ask was for them to look like Project number and Client, not like a row of their own. `baseline` puts
-   the small caption and the larger value on the same text line; `nowrap` on the caption stops "Start date"
-   breaking in half and forcing the field back onto two lines, and leaves the value as the thing that may
-   wrap, with `min-width: 0` so a long client name folds inside its own field instead of shoving the next one
-   off the card. The bar is a shrinkable flex item, so a narrow card shortens it rather than overflowing. */
-.detail-item { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.detail-item .progress { flex: 0 1 110px; min-width: 40px; }
-/* Revenue and Progress as one unit of the run: a flex item that happens to hold two fields, so they wrap
-   together instead of the bar being left alone on the next line. It is not a row of its own — no full-width
-   span — and it still lets them split when the card is genuinely too narrow to hold both. */
-.detail-pair { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 24px; min-width: 0; }
-.detail-key { font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 700; white-space: nowrap; }
-.detail-val { font-size: 14px; color: var(--title); font-weight: 600; }
+/* The nine fields of a project's read-only detail card are ONE line, the same row management's editable header
+   prints (Stage 71) — see the Stage 71 block below the Stage 60 one for the run, the weights and the reason a
+   value is shortened rather than wrapped. `.detail-title` is the project's own name above that row. */
+.detail-title { margin: 6px 0 14px; font-size: 22px; color: var(--title); }
 /* --- Stage 60: the management header of a project page -------------------------------------------
    The breadcrumb row carries the path on the left and the whole-project actions (Pin for me, the copy-link
    icon, Delete project) on the right, on the same line. Below it the field strip is an editable form laid out
@@ -810,6 +1013,47 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .edit-strip input:focus, .edit-strip select:focus { outline: 1px solid var(--accent-strong); outline-offset: 2px; }
 /* The read-only progress percentage, styled as a value like the fields beside it (no bar). */
 .edit-strip .progress-ef .pct { font-size: 14px; font-weight: 600; color: var(--title); }
+/* --- Stage 71: the non-manager's detail strip is management's header, read-only ----------------------
+   A project's nine fields now print on ONE line for every reader. The card used to put each caption beside
+   its value, which needs roughly 1,600px of a panel that gives about 1,100 in a normal window — so Revenue
+   and Progress spilled onto a second line, which is what this block exists to stop. A caption OVER its value
+   halves the width a field asks for, and that is precisely how the editable strip above fits ten cells in one
+   row, so the read-only run reuses that object (`edit-strip`, `ef`, `ef-label`) and only swaps the control for
+   the text. The weights are its own, because the shares differ when nothing is typed: the two long-text fields
+   (Category, Manager) take the largest, the short money and progress cells the least, and every one of them
+   keeps Stage 60's ZERO flex-basis — `W 1 0` — which is what makes the row a promise instead of a hope. With a
+   basis of 0 the cells have no intrinsic width for `flex-wrap` to fall back on, so the nine always divide the
+   row between themselves; measured on the real header, their minimum legible widths come to about 1,000px of
+   text plus 112px of gaps, which a 1,138px panel (a 1,500px window less the 240px sidebar and the page and
+   card padding) has to spare. Narrower windows therefore do not wrap and do not scroll sideways: the longest
+   fields simply lose their tails.
+   A value that outgrows its share is shortened with an ellipsis rather than wrapped: wrapping is the bug
+   (a field that becomes two lines tall makes the row two lines tall), and the whole string rides on the cell's
+   `title`, so nothing is lost — the same bargain an input makes when its text scrolls. Captions are clipped the
+   same way, so a short window shortens nine labels a little instead of letting the longest one paint across its
+   neighbour. The bar shrinks to 72px so the progress cell's share holds caption, bar and percentage on one
+   line; it is still the app's only `.progress`, still fills from the same `width:N%`, and still carries
+   `#project-progress` for the live swap that repaints this cell when a step is ticked on a card below. */
+.detail-strip { margin-top: 2px; gap: 12px 14px; }
+.detail-strip .ef { flex: 1.2 1 0; }
+.detail-strip .ef.num-ef { flex: 1.45 1 0; }
+.detail-strip .ef.text-ef { flex: 1.15 1 0; }
+.detail-strip .ef.date-ef { flex: 1.15 1 0; }
+.detail-strip .ef.wide-ef { flex: 2 1 0; }
+.detail-strip .ef.cat-ef { flex: 2.75 1 0; }
+.detail-strip .ef.money-ef { flex: 1.1 1 0; }
+.detail-strip .ef.progress-ef { flex: 1.4 1 0; }
+/* The first cell of the strip is a project number, not management's Description sentence, so it has to answer
+   the `:first-child` rule above with its own weight rather than inherit the widest share on the row. */
+.detail-strip .ef:first-child { flex: 1.45 1 0; }
+.detail-strip .ef-label { overflow: hidden; text-overflow: ellipsis; }
+.detail-strip .detail-val {
+  font-size: 14px; color: var(--title); font-weight: 600;
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* Bar and percentage beside each other under the caption, and the pair is what shrinks if the row is short. */
+.detail-strip .detail-line { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.detail-strip .progress { flex: 0 1 72px; min-width: 32px; }
 .edit-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
 /* base.css writes `button.submit { display:block; width:100% }`, which turned "Save changes" into a full-width
    green bar spanning the panel — the screenshot shows no such bar. Compact it back to a right-aligned button
@@ -858,6 +1102,17 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .tasks-toggle:hover { border-color: var(--accent-strong); color: var(--accent-strong); }
 .tasks-toggle.open { background: var(--accent-soft); border-color: var(--accent-strong); color: var(--accent-strong); }
 .tasks-toggle.zero { color: var(--muted); font-weight: 600; }
+/* The same workload figure on a row this reader may not expand (Team.kt, Stage 68). The count is shared with
+   everybody and the card list under it is not, so the number is printed as a plain figure rather than as a button
+   that would open nothing — same metrics as .tasks-toggle minus the cursor and the hover, so the column still
+   reads as one kind of thing rather than as a control that has stopped working. */
+.tasks-static { display: inline-block; min-width: 32px; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: 12.5px; font-weight: 700; }
+.tasks-static.zero { color: var(--muted); font-weight: 600; }
+/* How many projects a member is on (Team.kt memberProjects) — a set of projects, not a count of cards, so it is
+   deliberately not a .count pill: the five status figures add up to the Total beside it and this one does not
+   belong to that arithmetic. Matched to .count-total's weight so the row reads as two totals, not one total
+   and one stray number. */
+.proj-count { font-size: 13px; font-weight: 800; color: var(--title); }
 .quick-add { margin-left: 6px; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); font-size: 14px; font-weight: 700; line-height: 1.4; cursor: pointer; }
 .quick-add:hover { color: var(--accent-strong); border-color: var(--accent-strong); background: var(--accent-soft); }
 /* Department label rows above each group in the Team table (Team.kt departmentRow). A plain row
@@ -927,6 +1182,21 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
    line hiding it: a card moved in or out changes the message with nothing in the script keeping it in step.
    The status board does not need this — its columns are only ever drawn by the server, and it reloads. */
 .kcol .kcard + .kcol-empty { display: none; }
+/* --- Stage 80: a column's finished cards folded behind one line ------------------------------------------
+   The line only prints when the column holds a Completed card, and it is the board's quietest control on purpose
+   — the same treatment as `+ Add task` below, because "show me the rest" is not an action with consequences and
+   should not look like one. The cards it opens sit in their own block, so two of the rules above need a second
+   half: `[hidden]` alone loses to base.css's display on a wrapper, and the "Nothing here." line is hidden by a
+   card *anywhere* in the column, which after this is a card inside `.kcol-done` rather than a sibling of it. */
+.kdone-btn {
+    background: none; border: 0; padding: 2px 0; font-family: inherit; font-size: 12px; font-weight: 600;
+    color: var(--muted); cursor: pointer;
+}
+.kdone-btn:hover { color: var(--accent-strong); text-decoration: underline; }
+.kdone-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.kcol-done[hidden] { display: none; }
+.kcol .kcol-done + .kcol-empty,
+.kcol .kcol-done .kcard + .kcol-empty { display: none; }
 /* The `+ Add task` line at the foot of each lane column (TaskBoard.kt). It is the page head's `+ New task`
    with one extra hidden field — the lane to open the blank card on — so it is deliberately the quietest
    control on the board: no border, no fill, the muted text colour, and it answers the cursor with an
@@ -939,6 +1209,29 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 }
 .kcol-add-btn:hover { color: var(--accent-strong); text-decoration: underline; }
 .kcol-add-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+/* --- Stage 74: an empty project board is its buckets -------------------------------------------------------
+   A project with no cards is drawn as one column per bucket, so the lane head carries the same dot the Settings
+   catalogue rows and the picker give each bucket — ten pixels, exactly the catalogue's, because the two are the
+   same colour of the same bucket read on two pages, and `flex: 0 0 10px` for the reason the `.dot` rule gives: a
+   head is a flex row, and a name long enough to wrap would crush the dot rather than shorten itself. Both of
+   those live on the shared `.bucket-dot` rule above, which is what lets the per-position colour reach the head
+   at all (Stage 75); a second sizing rule here would only re-paint the dot grey. */
+/* The dashed box that trails the run of columns. It is one grid track wide because `.kanban-lanes` is a grid and
+   it is a child of it — the same 288px a column is, with no `data-lane` and no cards, so [kanban.js] never sees it
+   as a drop target. `min-height` is `.kcol`'s own floor, which is the point: an offer to add a column has to read
+   as a column that is not there yet, and a strip of dashed line under three full columns would read as a footnote.
+   The button inside takes `.kcol-add-btn`'s quiet text treatment, so the two controls a reader reaches for at a
+   column's foot and at the end of the row look like the same kind of thing. */
+.lane-add-box {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 190px; padding: 12px; border: 1px dashed var(--input-border); border-radius: 12px;
+}
+.lane-add-box-btn {
+    background: none; border: 0; padding: 2px 6px; font-family: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--muted); cursor: pointer; border-radius: 6px;
+}
+.lane-add-box-btn:hover { color: var(--accent-strong); text-decoration: underline; }
+.lane-add-box-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .modal-wide { max-width: 640px; }
 .modal-wide h3 { font-size: 17px; margin: 0 0 16px; }
 .modal-wide .form-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
@@ -1009,6 +1302,20 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 }
 .note-add .btn-sm { margin-top: 8px; }
 
+/* Stage 72 — the note box's own foot row: *Add note* at its left and management's **Delete task** at the
+   right end of the SAME line. The two are sibling forms because a form cannot live inside a form (the note
+   box is already its own POST), so the row lines their bottoms up rather than their tops: the note form is
+   a textarea over a button and the delete form is only a button, and bottom-aligned they read as one line.
+   The delete's metrics are spelled out here rather than left to `.btn-sm`, because `.ghost-btn` is written
+   later in this file and would otherwise win the padding and font-size — leaving a taller button standing
+   beside a shorter one. Same box as `.submit.btn-sm`, so the two sit on one line at any font size. */
+.note-foot { display: flex; align-items: flex-end; gap: 10px; }
+.note-foot .note-add { flex: 1 1 auto; min-width: 0; }
+.note-foot .task-del { flex: 0 0 auto; }
+.note-foot .task-del .ghost-btn {
+    padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5;
+}
+
 /* --- notification bell, top-right of every page -------------------------------------------
    Rendered by notificationBell() in Notifications.kt into .page-right; notifications.js only
    flips `hidden` on .notif-panel, so the open state needs no JS to be correct on load.
@@ -1055,3 +1362,58 @@ a.notif-item.unread .notif-item-title { color: var(--title); }
 .notif-item-title { font-size: 12.5px; font-weight: 700; color: var(--muted); line-height: 1.35; }
 .notif-body { font-size: 11.5px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .notif-time { font-size: 10.5px; color: var(--note); margin-top: 3px; }
+
+/* ---------------------------------------------------------------------------
+   Stage 81 — the Archive. projectArchivePanel() in Projects.kt draws it as a
+   .modal block named #projectArchive, so it opens the way every other popup on
+   this page does (the server renders `style="display:block"` from ?archive=1, the
+   header's 🗄 asks for it, archive-modal.js closes it) and the reader never sees
+   a page they have not already been shown. It is a panel of ROWS rather than a
+   form, so it keeps .modal-content's card and only its own width, head line and
+   row metrics — the prototype's side panel restated in this app's vocabulary.
+   --------------------------------------------------------------------------- */
+/* Wider than a 500px popup because a row is a whole card title over a project code
+   and a bucket name, and both have to sit on their own lines at reading width. */
+.archive-panel { max-width: 560px; }
+/* The head is the count and the close, spread to the box's two ends the way a
+   section head is everywhere else in the app (.notif-head, .modal-foot). The form
+   around the ✕ is a real GET submit, so it carries no margin of its own. */
+.archive-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    padding-bottom: 11px; margin-bottom: 13px; border-bottom: 1px solid var(--input-border);
+}
+html[data-theme="dark"] .archive-head { border-bottom-color: rgba(255, 255, 255, .12); }
+/* Same size as a wide popup's own heading (.modal-wide h3), so opening the Archive
+   does not look like a smaller kind of window. */
+.archive-title { font-size: 17px; margin: 0; }
+.archive-head form { margin: 0; }
+.archive-empty { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
+/* One put-away card per row: its title, where it came from, and the two things
+   that can still be done to it. The border keeps the rows apart when several
+   arrive from one column. */
+.archive-item {
+    border: 1px solid var(--input-border); border-radius: 9px; padding: 10px 12px; margin-bottom: 9px;
+}
+.archive-item:last-child { margin-bottom: 0; }
+.at-title { font-size: 13px; font-weight: 700; color: var(--title); margin-bottom: 3px; }
+.at-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+/* The two answers, on one line. Each is its own POST (a form cannot live inside a
+   form), so the row lays the forms out rather than the buttons and neither form
+   adds a margin the other does not have. */
+.at-actions { display: flex; align-items: center; gap: 6px; }
+.archive-item form { margin: 0; }
+/* Spelled out rather than left to `.btn-sm`, for the Stage 72 reason: `.ghost-btn`
+   is written later in this file with 11px 18px padding and 13.5px text, so an
+   unscoped *Restore* and *Delete permanently* would stand at two heights side by
+   side. This puts the ghost row on the same metrics `.submit.btn-sm` gives its
+   neighbour — and it is three classes strong, so no source order can undo it. */
+.at-actions .ghost-btn.btn-sm {
+    padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5;
+}
+/* The header's 🗄 while its panel is open: the same pressed reading the pin gives
+   (Stage: `.pin-btn.on`), on the bare .icon-btn box. .icon-btn has no border, so
+   the ring that marks the accent goes inside the box instead of replacing one. */
+.icon-btn.archive-btn.on {
+    background: var(--accent-soft); color: var(--accent-strong);
+    box-shadow: inset 0 0 0 1px var(--accent);
+}

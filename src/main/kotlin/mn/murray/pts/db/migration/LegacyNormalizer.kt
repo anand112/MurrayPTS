@@ -41,7 +41,9 @@ object LegacyNormalizer {
         }
         if (recategorised != out.projects) out = out.copy(projects = recategorised)
 
-        // 2. Project statuses -> Ongoing / On hold / Not started / Blocked / Completed.
+        // 2. Project statuses -> Not started / In progress / On hold / Blocked / Completed.
+        // Stage 96 folded the legacy *On track* and the app's own former *Ongoing* into *In progress*,
+        // so imported data lands on the same five words the picker shows and the board sorts by.
         val restatus = out.projects.map { it.copy(status = migrateStatus(it.status)) }
         if (restatus != out.projects) out = out.copy(projects = restatus)
 
