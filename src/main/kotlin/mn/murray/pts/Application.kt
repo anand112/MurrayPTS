@@ -41,6 +41,7 @@ import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.html.respondHtml
 import io.ktor.server.netty.Netty
+import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.request.receiveParameters
@@ -421,6 +422,13 @@ fun main() {
     val port = AppConfig.port
     val host = AppConfig.host
     val server = embeddedServer(Netty, port = port, host = host) {
+        install(StatusPages) {
+        exception<Throwable> { call, cause -> log.error("Unhandled error on ${call.request.httpMethod.value} ${call.request.path()}", cause)
+            call.respondText("Something went wrong. Please go back and try again.", status = HttpStatusCode.InternalServerError)
+    }
+        status(HttpStatusCode.NotFound) { call, _ -> call.respondText("Page not found.", status = HttpStatusCode.NotFound)
+    }
+}
         install(SecurityHeaders)
         // Only meaningful (and only safe) behind a proxy we trust — see AppConfig.trustProxy.
         // Lets Ktor read X-Forwarded-For/-Host/-Proto so redirects, the client IP used for
