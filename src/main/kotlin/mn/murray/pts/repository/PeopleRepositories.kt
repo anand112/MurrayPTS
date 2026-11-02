@@ -123,6 +123,7 @@ object UserRepository {
         mustChangePassword = r[Users.mustChangePassword],
         createdAt = r[Users.createdAt],
         updatedAt = r[Users.updatedAt],
+        roleId = r[Users.roleId],
     )
 
     fun findAll(): List<User> = transaction {
@@ -146,6 +147,11 @@ object UserRepository {
             ?.get(Users.mustChangePassword) ?: false
     }
 
+    /**
+     * Insert one account. [roleId] is the role it is filed under; left null, the account is filed under the
+     * role its legacy [access] word (and super-admin flag) has always resolved to — the same mapping V21's
+     * backfill applies — so a caller that names no role still lands somewhere sensible rather than nowhere.
+     */
     fun insert(
         employeeNumber: String,
         name: String,
@@ -155,8 +161,10 @@ object UserRepository {
         positionId: Int?,
         isSuperAdmin: Boolean,
         mustChangePassword: Boolean,
+        roleId: Int? = null,
     ) = transaction {
         val now = Instant.now().toString()
+        val assigned = roleId ?: RoleRepository.legacyRoleId(access, isSuperAdmin)
         Users.insert {
             it[Users.employeeNumber] = employeeNumber
             it[Users.name] = name
@@ -166,6 +174,7 @@ object UserRepository {
             it[Users.positionId] = positionId
             it[Users.isSuperAdmin] = isSuperAdmin
             it[Users.mustChangePassword] = mustChangePassword
+            it[Users.roleId] = assigned
             it[createdAt] = now
             it[updatedAt] = now
         }
@@ -196,6 +205,15 @@ object UserRepository {
     fun updatePosition(empNo: String, positionId: Int?) = transaction {
         Users.update({ Users.employeeNumber eq empNo }) {
             it[Users.positionId] = positionId
+            it[updatedAt] = Instant.now().toString()
+        }
+    }
+
+    /** File an account under a role, keeping the legacy `access` word in step. */
+    fun updateRole(empNo: String, roleId: Int?, accessWord: String) = transaction {
+        Users.update({ Users.employeeNumber eq empNo }) {
+            it[Users.roleId] = roleId
+            it[Users.access] = accessWord
             it[updatedAt] = Instant.now().toString()
         }
     }

@@ -1,5 +1,6 @@
 package mn.murray.pts.service
 
+import mn.murray.pts.domain.Currency
 import mn.murray.pts.domain.PROJECT_BUCKET_MAX
 import mn.murray.pts.domain.PROJECT_STATUSES
 import mn.murray.pts.domain.PROJECT_TYPES
@@ -92,7 +93,17 @@ object ProjectService {
 
         val revenue = parseRevenue(draft.revenue)
         if (revenue == null && draft.revenue.trim().isNotEmpty()) {
-            errors += ProjectField.REVENUE to "Enter revenue as a number, like 1250000."
+            errors += ProjectField.REVENUE to "Enter revenue as a number, like 1,250,000."
+        }
+
+        // **Stage 109: a new project picks the currency its revenue is in, and tugrik is the pick when the form
+        // says nothing.** The choice is stored as the ISO code and it is settled here, once: [ProjectRepository.update]
+        // never writes the column, so the header strip has no say and a project cannot change the money it is
+        // counted in after the fact — the same permanence the project number has. Nothing converts anything: the
+        // stored figure is the figure the manager typed, and only its sign changes on the page.
+        val currency = Currency.of(draft.currency.ifBlank { Currency.DEFAULT.code })
+        if (currency == null) {
+            errors += ProjectField.CURRENCY to "Choose a currency: tugrik, US dollar or yuan."
         }
 
         // **Stage 104 puts a bucket line back on the create form, as an addition rather than a choice.** Since
@@ -145,6 +156,7 @@ object ProjectService {
             client = client,
             start = start,
             revenue = revenue ?: 0.0,
+            currency = currency ?: Currency.DEFAULT,
         )
         // **Stage 100: the board starts as the category's Settings list, all of it. Stage 104 appends what this
         // form named.** The three phases V16 gave every board that already exists are not added here any more; a
@@ -238,7 +250,7 @@ object ProjectService {
 
         val revenue = parseRevenue(draft.revenue)
         if (revenue == null && draft.revenue.trim().isNotEmpty()) {
-            errors += ProjectField.REVENUE to "Enter revenue as a number, like 1250000."
+            errors += ProjectField.REVENUE to "Enter revenue as a number, like 1,250,000."
         }
         val invoiced = parseRevenue(draft.invoiced)
         if (invoiced == null && draft.invoiced.trim().isNotEmpty()) {
@@ -288,6 +300,13 @@ object ProjectService {
  */
 enum class ProjectField {
     TYPE, CODE, NAME, CLIENT, START, END, STATUS, MANAGER, REVENUE, INVOICED,
+
+    /**
+     * The currency picker that sits under Revenue in the create popup (**Stage 109**). It is refused only for a
+     * value the app cannot name — a hand-made post or a stale form — since a missing one means tugrik and the
+     * page offers no other kind of answer. The message belongs under the picker itself, like every other field's.
+     */
+    CURRENCY,
     /**
      * The create popup's bucket line. Since **Stage 104** it does name an input — the Add bucket box — so a
      * message here is either a name that broke a rule (too long, twice on the board, already one of the
@@ -320,6 +339,12 @@ data class ProjectDraft(
     val revenue: String = "",
     val invoiced: String = "",
     val newBuckets: List<String> = emptyList(),
+    /**
+     * The currency Revenue was typed in (**Stage 109**), posted from the picker under the amount as an ISO code.
+     * It defaults to tugrik, so a draft built without one — the header strip's edit, a test's minimal form — reads
+     * as the money every project held before the choice existed, and a blank post means the same thing.
+     */
+    val currency: String = Currency.DEFAULT.code,
 )
 
 /** `projectId` on success, field-keyed `errors` when the form has to stay open. */
@@ -349,9 +374,19 @@ private fun isIsoDate(value: String): Boolean = try {
     false
 }
 
-/** Accepts `1 250 000` and `1,250,000.00`; rejects negatives and anything non-numeric. */
+/**
+ * Accepts `1 250 000`, `1,250,000.00` and — since **Stage 108**, when revenue began printing with its currency's
+ * sign — `₮ 1,250,000`, sign and non-breaking space included, so a figure copied out of a revenue cell can be
+ * pasted back into an input. Since **Stage 109** that sign may be any of [Currency]'s, `$` and `¥` included, and
+ * every one of them is stripped the same way: the amount is a plain number on disk whoever's money it is.
+ * Rejects negatives and anything non-numeric.
+ */
 private fun parseRevenue(raw: String): Double? {
-    val cleaned = raw.trim().replace(" ", "").replace(",", "")
+    var cleaned = raw.trim()
+        .replace("\u00A0", "")
+        .replace(" ", "")
+        .replace(",", "")
+    Currency.entries.forEach { cleaned = cleaned.replace(it.symbol, "") }
     if (cleaned.isEmpty()) return null
     val value = cleaned.toDoubleOrNull() ?: return null
     return if (value < 0.0 || !value.isFinite()) null else value

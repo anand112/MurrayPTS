@@ -13,6 +13,26 @@ import org.jetbrains.exposed.sql.Table
  * Booleans map to SQLite INTEGER 0/1. Timestamps are ISO-8601 TEXT (UTC).
  */
 
+/**
+ * The roles an account signs in under (V21, Stage 110). A role is a row rather than an enum because the
+ * sheet that manages it adds, renames and rewrites them; the four the migration seeds are only the
+ * starting catalogue. [isDefault] marks the one a new account is filed under.
+ */
+object Roles : Table("roles") {
+    val id = integer("id").autoIncrement()
+    val name = varchar("name", 64).uniqueIndex()
+    val sortOrder = integer("sort_order").default(0)
+    val isDefault = bool("is_default").default(false)
+    override val primaryKey = PrimaryKey(id)
+}
+
+/** The chips one role holds, one row per permission key (`Permission.key`). */
+object RolePermissions : Table("role_permissions") {
+    val roleId = integer("role_id").references(Roles.id, onDelete = ReferenceOption.CASCADE)
+    val permission = varchar("permission", 48)
+    override val primaryKey = PrimaryKey(roleId, permission)
+}
+
 object Positions : Table("positions") {
     val id = integer("id").autoIncrement()
     val name = varchar("name", 255).uniqueIndex()
@@ -38,6 +58,12 @@ object Users : Table("users") {
     val email = varchar("email", 255).default("")
     val positionId = integer("position_id")
         .references(Positions.id, onDelete = ReferenceOption.SET_NULL).nullable()
+    // V21: the role this account signs in under. Since Stage 110 this is what decides access; `position_id`
+    // above is now only the job title printed on the sheet. Nullable so a hand-written row and the moment
+    // between V21 adding the column and its backfill filling it both still read, falling back to the
+    // default role (see [mn.murray.pts.repository.RoleRepository.roleOf]).
+    val roleId = integer("role_id")
+        .references(Roles.id, onDelete = ReferenceOption.SET_NULL).nullable()
     val isSuperAdmin = bool("is_super_admin").default(false)
     val mustChangePassword = bool("must_change_password").default(false)
     val createdAt = text("created_at")
@@ -62,6 +88,9 @@ object Projects : Table("projects") {
     // How much of the contract has actually been invoiced (V11). Kept beside revenue, not derived from it:
     // what is billed and what was quoted are two different facts and management enters the first by hand.
     val invoiced = double("invoiced").default(0.0)
+    // The ISO code of the currency revenue and invoiced are written in (V20, Stage 109). Tugrik unless the
+    // create form chose otherwise; the view signs every revenue figure with the symbol it names.
+    val currency = varchar("currency", 8).default("MNT")
     // One of domain/PROJECT_TYPES (nine letter-coded categories since V3); stores the label.
     val type = varchar("type", 128).default("")
     val createdAt = text("created_at")
@@ -171,8 +200,10 @@ object Tasks : Table("tasks") {
      * Whether this card is off every board, in the Archive (V18).
      *
      * A flag on the row rather than a copy of the row, on purpose: the card's plan ([TaskChecklistItems]) and its
-     * log ([TaskNotes]) hang off this id, and the promise the archive panel makes — *restore it as it left* — only
-     * holds if those children were never moved. Existing rows read false, so upgrading changes no board.
+     * log ([TaskNotes]) hang off this id, and the promise the archive's restore route makes — *restore it as it
+     * left* — only holds if those children were never moved. (No page prints that route since Stage 106; the flag
+     * is how the cards a removed column takes with it stay in the database.) Existing rows read false, so
+     * upgrading changes no board.
      */
     val archived = bool("archived").default(false)
     /**

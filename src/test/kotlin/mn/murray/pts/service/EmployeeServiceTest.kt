@@ -7,6 +7,7 @@ import mn.murray.pts.domain.Member
 import mn.murray.pts.domain.autoEmail
 import mn.murray.pts.repository.PositionRepository
 import mn.murray.pts.repository.ProjectRepository
+import mn.murray.pts.repository.RoleRepository
 import mn.murray.pts.repository.TaskRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.UserRepository
@@ -34,17 +35,20 @@ import java.io.File
  *  * **A row is a person, not an account.** The sheet is the roster *plus* any account that is not on
  *    it, so a colleague with no login is still a row — and the popup opened on that row creates the
  *    account rather than editing one that does not exist.
- *  * **The Role column answers "what may this account do"**, which is
- *    [mn.murray.pts.security.Authorization.effectiveRole] and not the `access` column. Two of the
- *    fixture's accounts are deliberately the two things at once: [positioned] is filed under a Manager
- *    position while its own column says Viewer, and [adminAccess] is the other way round — which is also
- *    the row the delete bar reads differently, because that bar compares the raw column.
+ *  * **The Role column answers "what may this account do"**, which since **Stage 110** is the role the
+ *    account is filed under — [mn.murray.pts.security.Authorization.roleOf] — and not the legacy `access`
+ *    column, nor the *level* of its position. Two of the fixture's accounts are deliberately mismatched with
+ *    the rules this retires: [positioned] is filed under a Manager-level job while its own word says Viewer,
+ *    and signs in as an Employee (a position is a title now); [adminAccess] holds the raw `Admin` word under
+ *    a Manager-level job, which is also the row the delete bar answers for differently — that bar asks the
+ *    target's role for its *Manage roles & permissions* chip.
  *  * **What one reader may do to a row is decided per row**, and the answer for the trash is the *word*
  *    the button prints, so the reason a greyed bin cannot press is measured here rather than trusted to
  *    the stylesheet.
- *  * **The popup writes through [UserService] and never around it**, so the legacy rules — a manager's
- *    new account is a Viewer whose password is its own number, only an administrator sets a position, a
- *    role or a password — stay in one place. The refusals below check that nothing was written at all,
+ *  * **The popup writes through [UserService] and never around it**, so the rules live in one place: a new
+ *    account added without the people rights starts as the catalogue's default role with its own number as
+ *    password, only *Manage employees* sets a position or a password, and only *Manage roles & permissions*
+ *    decides which role a person signs in under. The refusals below check that nothing was written at all,
  *    not just that the answer was "no".
  *
  * The rest is the sheet's own arithmetic: which rows the three controls leave, where a valueless row
@@ -65,13 +69,13 @@ class EmployeeServiceTest {
     /** An ordinary account, with two open cards and one closed one. */
     private val worker = "EMP0002"
 
-    /** Viewer in its own column, Manager through the position it is filed under. */
+    /** Viewer in its own column and filed under a Manager-level job — the account that used to read as a Manager. */
     private val positioned = "EMP0003"
 
     /** On the roster and nowhere else — the row that has no account to delete. */
     private val noAccount = "EMP0004"
 
-    /** Raw `Admin` in its own column, Manager through its position: what the delete bar compares. */
+    /** Raw `Admin` in its own column under a Manager-level job: what V21 backfilled to Administrator. */
     private val adminAccess = "EMP0005"
 
     /** No department, no position link, and ten open cards — the sheet's two fallbacks and its number order. */
@@ -222,15 +226,16 @@ class EmployeeServiceTest {
     }
 
     @Test
-    fun `the role column prints what the account can actually do`() {
+    fun `the role column prints the role the account is filed under`() {
         val sheet = asManager()
-        assertEquals("Manager", row(sheet, positioned).role, "the sheet printed the access column over the position's level")
-        assertEquals("Viewer", row(sheet, worker).role)
-        assertEquals("Manager", row(sheet, manager).role)
-        assertEquals("Admin", row(sheet, "EMP0000").role, "the super admin was not read through the same rule")
-        // The other direction: a raw `Admin` filed under a Manager position reads as a Manager here —
-        // and that is the row the delete bar answers for differently, on purpose.
-        assertEquals("Manager", row(sheet, adminAccess).role, "the column printed the override rather than the position")
+        // Stage 110 took this column off the two things it used to add up. A Manager-level job no longer lifts
+        // an account out of the default role, and a raw `Admin` word is only a label — what prints is the role
+        // the app itself asks before every write.
+        assertEquals("Employee", row(sheet, positioned).role, "the position's old level still decided the role")
+        assertEquals("Employee", row(sheet, worker).role)
+        assertEquals("Project Manager", row(sheet, manager).role)
+        assertEquals("Owner", row(sheet, "EMP0000").role, "the super admin was not read through the same rule")
+        assertEquals("Administrator", row(sheet, adminAccess).role, "the column printed the access word over the role")
 
         // The popup asks the other question — which field to write — so it reads the account itself.
         val account = EmployeeService.account(positioned)!!
@@ -284,18 +289,26 @@ class EmployeeServiceTest {
     @Test
     fun `the two pickers are exact and answer together`() {
         assertEquals(listOf(worker, noAccount), rows(asManager(EmployeeFilter(position = "Engineer"))).sorted())
+        // The role picker is the catalogue (Stage 110), and it answers for the same word the Role column prints,
+        // so a picker left on *Employee* cannot leave a row the sheet labelled *Project Manager*.
         assertEquals(
-            listOf(manager, positioned, adminAccess),
-            rows(asManager(EmployeeFilter(role = "Manager"))).sorted(),
-            "the role picker is not the three levels the sheet prints",
+            listOf(manager),
+            rows(asManager(EmployeeFilter(role = "Project Manager"))),
+            "the role picker is not the catalogue the sheet prints",
         )
-        assertEquals(listOf("EMP0000"), rows(asManager(EmployeeFilter(role = "Admin"))),
-            "the picker answered for the access column rather than the level the sheet prints")
+        assertEquals(
+            listOf(worker, positioned, noDepartment),
+            rows(asManager(EmployeeFilter(role = "Employee"))).sorted(),
+            "one role's holders are not the accounts filed under it",
+        )
+        assertEquals(listOf("EMP0000"), rows(asManager(EmployeeFilter(role = "Owner"))),
+            "the picker answered for the access column rather than the role the sheet prints")
+        assertEquals(listOf(adminAccess), rows(asManager(EmployeeFilter(role = "Administrator"))))
         // Both at once is the row they agree about, and neither is a row that only one of them leaves.
-        assertEquals(listOf(worker), rows(asManager(EmployeeFilter(position = "Engineer", role = "Viewer"))))
-        assertEquals(emptyList<String>(), rows(asManager(EmployeeFilter(position = "Engineer", role = "Admin"))))
+        assertEquals(listOf(worker), rows(asManager(EmployeeFilter(position = "Engineer", role = "Employee"))))
+        assertEquals(emptyList<String>(), rows(asManager(EmployeeFilter(position = "Engineer", role = "Administrator"))))
         assertFalse(EmployeeFilter().isActive, "an uncut sheet claims a filter it has not been given")
-        assertTrue(EmployeeFilter(role = "Viewer").isActive, "a picker nobody moved is not the view on screen")
+        assertTrue(EmployeeFilter(role = "Employee").isActive, "a picker nobody moved is not the view on screen")
     }
 
     @Test
@@ -375,17 +388,18 @@ class EmployeeServiceTest {
             listOf("EMP0000", manager, worker, positioned, noAccount, adminAccess, noDepartment),
             rows(asManager(EmployeeFilter(column = EmployeeColumn.EMPLOYEE))), "the number column is not read as a number",
         )
-        // Ranked Viewer, Manager, Admin — and a person with no login has no rank, so it goes last.
+        // Ranked by the catalogue's own order — Owner, Administrator, Project Manager, Employee — and a person
+        // with no login holds no role, so their row goes last.
         assertEquals(
-            listOf(worker, noDepartment, positioned, manager, adminAccess, "EMP0000", noAccount),
-            rows(asManager(EmployeeFilter(column = EmployeeColumn.ROLE))), "the role column is not ranked",
+            listOf("EMP0000", adminAccess, manager, worker, positioned, noDepartment, noAccount),
+            rows(asManager(EmployeeFilter(column = EmployeeColumn.ROLE))), "the role column is not the catalogue order",
         )
-        // Ties inside one rank are broken by the name, so a head click cannot shuffle the sheet.
-        val managers = asManager(EmployeeFilter(column = EmployeeColumn.ROLE)).rows.filter { it.role == "Manager" }
+        // Ties inside one role are broken by the name, so a head click cannot shuffle the sheet.
+        val employees = asManager(EmployeeFilter(column = EmployeeColumn.ROLE)).rows.filter { it.role == "Employee" }
         assertEquals(
-            listOf(positioned, manager, adminAccess),
-            managers.map { it.employeeNumber },
-            "three Managers printed in an order the sheet does not choose",
+            listOf(worker, positioned, noDepartment),
+            employees.map { it.employeeNumber },
+            "three Employees printed in an order the sheet does not choose",
         )
     }
 
@@ -437,7 +451,10 @@ class EmployeeServiceTest {
     fun `the bin prints the rule that refuses it`() {
         val viewer = asViewer()
         listOf(positioned, manager, "EMP0000", noAccount, worker).forEach {
-            assertEquals("Only management can delete an account.", row(viewer, it).deleteBlocked, "a Viewer was offered a live bin")
+            assertEquals(
+                "Only somebody who manages employees can delete an account.", row(viewer, it).deleteBlocked,
+                "a reader without the people chip was offered a live bin",
+            )
         }
         // Greyed rather than absent, so the column stays lined up and the reason is on the button that is
         // already asking the question.
@@ -447,8 +464,8 @@ class EmployeeServiceTest {
         assertNull(row(management, worker).deleteBlocked, "management was barred from an ordinary account")
         assertEquals("You cannot delete your own account.", row(management, manager).deleteBlocked)
         assertEquals(
-            "Managers cannot delete Admin accounts.", row(management, adminAccess).deleteBlocked,
-            "the bar reads the account's own level, as the delete route does — not the role the column prints",
+            "Only somebody who manages roles can delete that account.", row(management, adminAccess).deleteBlocked,
+            "the bar reads the target's *Manage roles & permissions* chip, as the delete route does",
         )
         assertEquals("The Super Admin account cannot be deleted.", row(management, "EMP0000").deleteBlocked)
         assertEquals("This person has no account to delete yet — the pencil creates one.", row(management, noAccount).deleteBlocked)
@@ -470,7 +487,7 @@ class EmployeeServiceTest {
         // the sheet is not willing to show — including for a reader who may not edit anybody.
         val asPeer = EmployeeService.row(positioned, worker, false, false)
         assertNotNull(asPeer, "a Viewer cannot even read a row the sheet prints for them")
-        assertEquals("Manager", asPeer!!.role, "the popup's row was built on different rules than the sheet's")
+        assertEquals("Employee", asPeer!!.role, "the popup's row was built on different rules than the sheet's")
         assertFalse(asPeer.mayEdit, "the row answered with an editor its reader may not use")
         assertNotNull(EmployeeService.row(noAccount, manager, true, true), "a roster-only row was invisible to the route")
         assertNull(EmployeeService.account("EMP9999"), "an unknown number answered with an account")
@@ -498,60 +515,81 @@ class EmployeeServiceTest {
     @Test
     fun `an administrator's new account is the one the popup described`() {
         val result = create("EMP0000", canManage = true, canAdmin = true, email = "tuyaa@murray.mn",
-            position = "Project Manager", role = "Manager", password = "opd2026")
+            position = "Site Supervisor", role = "Project Manager", password = "opd2026")
         assertTrue(result.saved, "the create was refused: ${result.errors}")
         val account = UserRepository.findByEmpNo("EMP0023")!!
-        assertEquals("Manager", account.access)
+        // The role is what the account is filed under; the `access` word is only the label V21 kept in step
+        // with it, so a database read by the old importer still says something true.
+        assertEquals(RoleRepository.findByName("Project Manager")!!.id, account.roleId, "the role was not filed")
+        assertEquals("Manager", account.access, "the legacy label drifted from the role")
         assertEquals("tuyaa@murray.mn", account.email)
-        assertEquals(managerPos, account.positionId, "the catalog link was not written")
+        assertEquals(supervisorPos, account.positionId, "the catalog link was not written")
         assertFalse(account.mustChangePassword, "a password somebody typed is not a default to change")
         assertTrue(PasswordHasher.verify("opd2026", account.passwordHash), "the password written is not the one typed")
         assertFalse(result.isEdit, "a create came back as an edit")
         // The roster gets its row from the same call, so the new account is a person on the sheet the
-        // moment it exists — and the sheet reads it through the same four joins as every other row.
+        // moment it exists — and the sheet reads it through the same joins as every other row.
         val onSheet = row(EmployeeService.sheet(EmployeeFilter(), "EMP0000", true, true), "EMP0023")
         assertEquals("Tuyaa Jamsran", onSheet.name)
-        assertEquals("Project Manager", onSheet.position)
-        assertEquals("Manager", onSheet.role)
+        assertEquals("Site Supervisor", onSheet.position)
+        assertEquals("Project Manager", onSheet.role)
         assertEquals(0, onSheet.openTasks, "a brand new account was not counted")
     }
 
     @Test
-    fun `the popup writes the account's own level and the sheet prints what that adds up to`() {
-        // The two pickers write two columns, and the app's locked rule reads the position first: an
-        // account typed as a Manager but filed under a Viewer job *is* a Viewer, and the Role column
-        // says so rather than repeating the word the picker was left on. This is the pair [adminAccess]
-        // is on the sheet for, reached the other way round — through the write.
-        val result = create("EMP0000", canManage = true, canAdmin = true, position = "Engineer", role = "Manager")
+    fun `the popup writes the role and the sheet prints it whatever the job says`() {
+        // The old rule read the position's *level* before the account's own word. Stage 110 reversed that: the
+        // role the picker names is the whole answer and a position is a job title. This is the pairing that used
+        // to need a hand-edited database — a Manager-level job with somebody else's rights over it — reached the
+        // way a reader does it, through the popup.
+        val result = create("EMP0000", canManage = true, canAdmin = true, position = "Project Manager", role = "Administrator")
         assertTrue(result.saved, "the create was refused: ${result.errors}")
-        assertEquals("Manager", UserRepository.findByEmpNo("EMP0023")!!.access, "the picker's word was not stored")
-        assertEquals("Viewer", row(EmployeeService.sheet(EmployeeFilter(), "EMP0000", true, true), "EMP0023").role,
-            "the sheet printed the override rather than the level the app enforces")
+        val account = UserRepository.findByEmpNo("EMP0023")!!
+        assertEquals(managerPos, account.positionId, "the job title the picker named was not stored")
+        assertEquals(RoleRepository.findByName("Administrator")!!.id, account.roleId, "the role the picker named was not filed")
+        assertEquals("Admin", account.access, "the label did not follow the role it stands for")
+
+        val onSheet = row(EmployeeService.sheet(EmployeeFilter(), "EMP0000", true, true), "EMP0023")
+        assertEquals("Administrator", onSheet.role, "the sheet printed the job's old level rather than the role")
+        assertEquals("Project Manager", onSheet.position, "the Role column pushed the job title out of its own column")
     }
 
     @Test
-    fun `a manager's new account starts as a Viewer whose password is its own number`() {
+    fun `a manager's new account starts as the default role whose password is its own number`() {
         val result = create(manager, canManage = true, canAdmin = false)
         assertTrue(result.saved, "a manager's create was refused: ${result.errors}")
         val account = UserRepository.findByEmpNo("EMP0023")!!
-        assertEquals("Viewer", account.access, "a manager gave an account a level it may not give")
+        assertEquals(RoleRepository.defaultRole().id, account.roleId, "a manager gave an account a role it may not give")
+        assertEquals("Viewer", account.access, "the default role's legacy label drifted")
         assertTrue(account.mustChangePassword, "the default password was not flagged for change")
         assertTrue(PasswordHasher.verify("EMP0023", account.passwordHash), "the default password is not the number")
         assertEquals(autoEmail("Tuyaa Jamsran"), account.email, "a blank address left the field blank")
         assertNull(account.positionId, "a manager's create picked a catalog position")
+        // The nine chips a Project Manager holds do not include either people chip, so this reader files a new
+        // colleague in the catalogue's default and cannot decide anything wider — which is what the sheet's
+        // Role column then prints.
+        assertEquals("Employee", row(EmployeeService.sheet(EmployeeFilter(), manager, true, false), "EMP0023").role)
     }
 
     @Test
     fun `a manager's popup asks for nothing about roles, and a hand-built post is refused`() {
-        // The create form a manager is served has three fields, so the three it does not print are the
-        // three this check is about: a POST built by hand cannot bring itself a role.
+        // The create form a Project Manager is served has three fields, so the three it does not print are the
+        // three this check is about: a POST built by hand cannot bring itself a role, a position or a password.
+        // Stage 110 names the chip that was over-reached — *Manage roles & permissions* for a role, *Manage
+        // employees* for a position and a password — and lands both on the form's own full-width line, because
+        // a reason under a picker this reader was never shown is a refusal the page has nowhere to print.
         listOf(
-            create(manager, true, false, role = "Admin") to "a role",
-            create(manager, true, false, position = "Project Manager") to "a position",
-            create(manager, true, false, password = "opd2026") to "a password",
-        ).forEach { (result, what) ->
-            assertFalse(result.saved, "a manager set $what")
-            assertEquals("Only an administrator can set a position, a role or a password.", result.error(EmployeeField.PERMISSION))
+            create(manager, true, false, role = "Employee") to
+                (EmployeeField.PERMISSION to "Only somebody who manages roles can set a role."),
+            create(manager, true, false, position = "Project Manager") to
+                (EmployeeField.PERMISSION to "Only somebody who manages employees can set a position or a password."),
+            create(manager, true, false, password = "opd2026") to
+                (EmployeeField.PERMISSION to "Only somebody who manages employees can set a position or a password."),
+        ).forEach { (result, expected) ->
+            val (field, message) = expected
+            assertFalse(result.saved, "a manager set ${field.name.lowercase()}")
+            assertEquals(field, result.errors.keys.singleOrNull(), "$message did not land under exactly one field: ${result.errors}")
+            assertEquals(message, result.error(field))
             assertNull(UserRepository.findByEmpNo("EMP0023"), "the account was written before the refusal")
         }
     }
@@ -559,11 +597,14 @@ class EmployeeServiceTest {
     @Test
     fun `an edit changes the account and keeps the name`() {
         val result = create(worker, canManage = true, canAdmin = true, edit = positioned,
-            name = "Somebody Else Entirely", email = "ganbold@murray.mn", position = "Engineer", role = "Viewer")
+            name = "Somebody Else Entirely", email = "ganbold@murray.mn", position = "Engineer", role = "Employee")
         assertTrue(result.saved, "the edit was refused: ${result.errors}")
         val account = UserRepository.findByEmpNo(positioned)!!
         assertEquals("ganbold@murray.mn", account.email)
         assertEquals(engineerPos, account.positionId, "the edit left the catalog link where it was")
+        // The role moved, and the legacy word moved with it — which here means no visible change at all, since
+        // Employee has always printed as Viewer.
+        assertEquals(RoleRepository.findByName("Employee")!!.id, account.roleId, "the edit left the role where it was")
         assertEquals("Viewer", account.access)
         // The name is not among the fields an edit writes: projects and cards name their people in those
         // words, so a rename here would leave them pointing at a name that no longer exists.
@@ -596,7 +637,7 @@ class EmployeeServiceTest {
     @Test
     fun `every refusal the popup can bring back belongs under its own field`() {
         val cases = listOf(
-            create(worker, false, false) to ("PERMISSION" to "Only management can add an account."),
+            create(worker, false, false) to ("PERMISSION" to "Only somebody who manages employees can add an account."),
             create("EMP0000", true, false, employeeNumber = "", name = "Tuyaa") to
                 ("EMP_NO" to "Every account is signed in by its employee number."),
             create("EMP0000", true, true, employeeNumber = worker) to
@@ -605,14 +646,16 @@ class EmployeeServiceTest {
                 ("EMP_NO" to "An employee number is letters and digits, like EMP0023."),
             create("EMP0000", true, true, name = "   ") to
                 ("NAME" to "Write the name the sheet should print."),
-            create("EMP0000", true, true, role = "Owner") to
-                ("ROLE" to "Choose one of the three roles on the list."),
+            // A name the catalogue does not hold. *Owner* is on it now, so the word that has to be refused is
+            // one the sheet could never have printed — the picker is not free text.
+            create("EMP0000", true, true, role = "Auditor") to
+                ("ROLE" to "Choose one of the roles on the list."),
             create("EMP0000", true, true, position = "Foreman") to
                 ("POSITION" to "That position is no longer in the catalog."),
             create(worker, true, true, edit = "EMP0099", name = "Nobody") to
                 ("ROW" to "That account is no longer on the sheet."),
             create(worker, true, false, edit = positioned, name = "Ganbold Erdene") to
-                ("PERMISSION" to "Only an administrator can change an account."),
+                ("PERMISSION" to "Only somebody who manages employees can change an account."),
         )
         cases.forEach { (result, expected) ->
             val (fieldName, message) = expected
@@ -628,12 +671,12 @@ class EmployeeServiceTest {
     @Test
     fun `a refusal keeps the words that were typed`() {
         val result = create("EMP0000", true, true, employeeNumber = "EMP0023", name = "Tuyaa Jamsran",
-            email = "tuyaa@murray.mn", role = "Owner")
+            email = "tuyaa@murray.mn", role = "Auditor")
         assertFalse(result.saved)
         assertEquals("tuyaa@murray.mn", result.values.email, "the popup threw the address away")
         assertEquals("EMP0023", result.values.employeeNumber, "the popup threw the number away")
         assertEquals("Tuyaa Jamsran", result.values.name, "the popup threw the name away")
-        assertEquals("Owner", result.values.role, "the popup reset the picker the reader had just used")
+        assertEquals("Auditor", result.values.role, "the popup reset the picker the reader had just used")
         assertFalse(result.isEdit, "a create came back stating it was an edit")
     }
 
@@ -654,9 +697,16 @@ class EmployeeServiceTest {
     }
 
     @Test
-    fun `the two pickers offer the catalog and the three roles`() {
+    fun `the two pickers offer the catalog and the role list`() {
         assertEquals(listOf("Engineer", "Project Manager", "Site Supervisor"), EmployeeService.positionNames().take(3),
             "the position picker is not the catalog in a stable order")
-        assertEquals(listOf("Viewer", "Manager", "Admin"), EmployeeService.roles(), "the role picker is not the app's three levels")
+        // The role picker is the catalogue in its own order — the same four rows the Access control table prints
+        // — and not the three words the old `access` column held. Stage 110 made the roles the answer, so the
+        // popup that files a person has to offer exactly what the sheet then prints.
+        assertEquals(
+            listOf("Owner", "Administrator", "Project Manager", "Employee"),
+            EmployeeService.roles(), "the role picker is not the catalogue in its own order",
+        )
+        assertEquals("Employee", EmployeeService.defaultRoleName(), "the popup's default is not the catalogue's default")
     }
 }

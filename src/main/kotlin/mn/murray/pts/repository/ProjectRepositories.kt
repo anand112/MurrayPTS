@@ -12,6 +12,7 @@ import mn.murray.pts.db.TeamMembers
 import mn.murray.pts.db.TypeDefaultBuckets
 import mn.murray.pts.domain.Bucket
 import mn.murray.pts.domain.ChecklistItem
+import mn.murray.pts.domain.Currency
 import mn.murray.pts.domain.PROJECT_BUCKET_MAX
 import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.Project
@@ -61,6 +62,7 @@ object ProjectRepository {
         start = r[Projects.startDate],
         revenue = r[Projects.revenue],
         invoiced = r[Projects.invoiced],
+        currency = Currency.of(r[Projects.currency]) ?: Currency.DEFAULT,
     )
 
     fun findAll(): List<Project> = transaction {
@@ -99,6 +101,7 @@ object ProjectRepository {
         start: String = "",
         revenue: Double = 0.0,
         invoiced: Double = 0.0,
+        currency: Currency = Currency.DEFAULT,
     ): Int = transaction {
         val now = Instant.now().toString()
         Projects.insert {
@@ -113,6 +116,7 @@ object ProjectRepository {
             it[Projects.startDate] = start
             it[Projects.revenue] = revenue
             it[Projects.invoiced] = invoiced
+            it[Projects.currency] = currency.code
             it[createdAt] = now
             it[updatedAt] = now
         } get Projects.id
@@ -325,9 +329,10 @@ object ProjectBucketRepository {
      *
      * Archived cards are left out (V18). Since a lane's removal now archives its work instead of refusing it, this
      * count is no longer the reason a bucket cannot come off — it is the number the popup prints in the sentence
-     * that says what *will* happen, "its N cards go to Archive". Either way an archived card must not be counted as
-     * standing in a column: it left the board, and a card that counts twice, once here and once in the archive
-     * panel, is a card a reader will try to find on the column it is not on. [mn.murray.pts.repository.TaskRepository.archiveLane]
+     * that says what *will* happen, "its N cards leave the board with it" (Stage 106 retired the panel that used to
+     * list them). Either way an archived card must not be counted as
+     * standing in a column: it left the board, and a card that counts twice, once here and once in the archive, is
+     * a card a reader will try to find on the column it is not on. [mn.murray.pts.repository.TaskRepository.archiveLane]
      * already nulls its lane, so this clause is a second gate over the same fact rather than the only one.
      */
     fun cardCounts(projectId: Int): Map<Int, Int> = transaction {

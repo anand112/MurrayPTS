@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import mn.murray.pts.db.Migrations
 import mn.murray.pts.domain.BUCKET_DOT_COLOURS
+import mn.murray.pts.domain.Currency
 import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.domain.Member
 import mn.murray.pts.domain.PROJECT_TYPES
@@ -85,11 +86,6 @@ class ProjectsPageRenderTest {
     private fun occurrences(html: String, needle: String): Int =
         Regex(Regex.escape(needle)).findAll(html).count()
 
-    /** The Archive panel's own block, from its id to the script the page loads for it. */
-    private fun archivePanel(html: String): String =
-        html.substringAfter("id=\"projectArchive\"")
-            .substringBefore("<script src=\"/static/js/archive-modal.js\"")
-
     @Test
     fun `the create popup asks nothing about the project's lanes`() {
         val html = render { projectsContent(manager, null, canManage = true) }
@@ -116,8 +112,8 @@ class ProjectsPageRenderTest {
             )
         }
         assertFalse(roundTrip.contains("name=\"lane"), "a rejected create re-asked about lanes")
-        // The nine fields the form does have are all present and keep their values.
-        listOf("type", "code", "name", "client", "start", "end", "status", "manager", "revenue").forEach { name ->
+        // The ten fields the form does have are all present and keep their values.
+        listOf("type", "code", "name", "client", "start", "end", "status", "manager", "revenue", "currency").forEach { name ->
             assertTrue(roundTrip.contains("name=\"$name\""), "the popup lost its $name field")
         }
     }
@@ -387,7 +383,7 @@ class ProjectsPageRenderTest {
 
     @Test
     fun `a viewer's project page cannot set the manager`() {
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         assertFalse(html.contains("/manager\""), "a Viewer was served the set-manager form")
         assertFalse(html.contains("Set manager"), "a Viewer was served the set-manager button")
         // Two things a Viewer keeps, because they are theirs rather than management's:
@@ -401,7 +397,7 @@ class ProjectsPageRenderTest {
 
     @Test
     fun `management edits the manager in the header strip, not a separate panel`() {
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         // Stage 60: the manager is now one field of the project's editable header strip, which posts to the
         // project's own update route. The *separate* set-manager panel that used to sit under the board stayed
         // gone — one control over the field, on the strip. `/app/projects/{id}/manager` still exists for the
@@ -420,7 +416,7 @@ class ProjectsPageRenderTest {
 
     @Test
     fun `management's header is an editable strip and a whole-project delete`() {
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         // The fields the screenshot puts in reach of management, as inputs on one form.
         listOf("name", "client", "type", "start", "end", "status", "manager", "revenue", "invoiced").forEach { n ->
             assertTrue(html.contains("name=\"$n\""), "the editable strip is missing its $n field")
@@ -431,11 +427,14 @@ class ProjectsPageRenderTest {
         // The screenshot shows management's progress as a bare figure, not a bar: the read-only cell prints the
         // percentage and nothing draws a `.bar` under it. (The Viewer's card keeps its bar; this is the strip.)
         assertFalse(html.contains("class=\"bar\""), "management's progress cell grew a bar back")
-        // The two whole-project actions in the head: a personal pin, the copy-link icon, and a delete behind a
-        // confirm — in that left-to-right order, matching the screenshot.
+        // The whole-project actions in the head: a personal pin and a delete behind a confirm — in that
+        // left-to-right order, matching the screenshot. **Stage 106** took the copy-link icon out at the user's
+        // request (with the Archive opener beside it), so neither an icon, its script hook, nor the Archive's panel
+        // is printed here any more.
         assertTrue(html.contains("action=\"/app/projects/${project.id}/pin\""), "the pin left the header")
         assertTrue(html.contains("Pin for me"), "the pin is not the personal control the screenshot shows")
-        assertTrue(html.contains("data-copy-link"), "the copy-link icon button between the pin and the delete is gone")
+        assertFalse(html.contains("data-copy-link"), "the copy-link icon button came back")
+        assertFalse(html.contains("head-copy"), "the copy-link button's markup came back")
         assertTrue(html.contains("action=\"/app/projects/${project.id}/delete\""), "there is no delete route")
         assertTrue(html.contains("Delete project"), "the delete button is missing")
         assertTrue(html.contains("data-confirm="), "the delete is not behind a confirmation")
@@ -447,18 +446,84 @@ class ProjectsPageRenderTest {
     fun `management's money fields read as comma-grouped text, not bare numbers`() {
         // The screenshot prints REVENUE as "5,000,000" and INVOICED as "0". A numeric <input> cannot display a
         // grouped value, so the strip renders these as text fields carrying the grouped amount — and a save is
-        // safe because the service's revenue parsing strips the commas back off. Zero shows as "0", not blank.
+        // safe because the service's revenue parsing strips the commas back off. Since **Stage 108** revenue also
+        // carries the tugrik sign (with the non-breaking space the money formatter puts after it); invoiced does
+        // not, because the ask was revenue. Zero shows as "0", not blank.
         val id = ProjectRepository.insert(
             code = "S-09", name = "Concentrator liner", status = "In progress", progress = 0,
             managerEmpNo = "EMP0001", due = "2027-03-30", type = "Site projects",
             revenue = 5_000_000.0, invoiced = 0.0,
         )
         val grouped = ProjectRepository.findById(id)!!
-        val html = render { projectDetailContent(manager, grouped, canManage = true) }
-        assertTrue(html.contains("value=\"5,000,000\""), "revenue is not the comma-grouped figure the picture shows")
+        val html = render { projectDetailContent(manager, grouped, canEdit = true) }
+        assertTrue(html.contains("value=\"₮\u00A05,000,000\""), "revenue is not the tugrik figure the strip should carry")
         assertTrue(html.contains("name=\"revenue\"") && html.contains("name=\"invoiced\""), "a money field left the strip")
         // The zero amount prints as "0" (the field the picture shows), which the grouped form of 0.0 guarantees.
         assertTrue(html.contains("value=\"0\""), "an un-invoiced project shows a blank box, not the 0 the picture has")
+    }
+
+    @Test
+    fun `revenue is written and shown in the project's own currency on every surface that carries it`() {
+        // **Stage 108** put the currency's sign on revenue wherever it is read — the board's column, the
+        // management strip's box and the Viewer's read-only cell — and said what unit it was wherever it is typed.
+        // **Stage 109** made that unit the project's own: these two projects sit on one board and wear different
+        // signs. A project with nothing filed under it keeps the em dash, not "$ 0".
+        val id = ProjectRepository.insert(
+            code = "S-11", name = "Crusher reline", status = "In progress", progress = 0,
+            managerEmpNo = "EMP0001", due = "2027-04-30", type = "Site projects",
+            revenue = 12_500_000.0, invoiced = 0.0, currency = Currency.USD,
+        )
+        val saved = ProjectRepository.findById(id)!!
+        val money = "\$\u00A012,500,000"
+
+        val strip = render { projectDetailContent(manager, saved, canEdit = true) }
+        assertTrue(strip.contains("value=\"$money\""), "the revenue box does not open on the project's dollars")
+        val revenueTag = Regex("<input[^>]*name=\"revenue\"[^>]*>").find(strip)?.value.orEmpty()
+        assertTrue(revenueTag.contains("inputmode=\"numeric\""), "the revenue box no longer asks for a numeric keypad")
+
+        val readOnly = render { projectDetailContent(viewer, saved, canEdit = false) }
+        assertTrue(readOnly.contains(money), "the Viewer's read-only line hides the project's currency")
+
+        val board = render { projectsContent(manager, null, canManage = true) }
+        assertTrue(board.contains("<span class=\"money\">$money</span>"), "the board's revenue column ignores the project's currency")
+        assertTrue(board.contains("<span class=\"money\">—</span>"), "a project with no revenue lost its em dash")
+        // The write begins with the sign too: the popup's box is a text field (it must hold a grouped or signed
+        // amount), and its placeholder says what unit the digits are in.
+        assertTrue(board.contains("name=\"revenue\""), "the create popup lost its revenue field")
+        assertTrue(board.contains("placeholder=\"₮ 0\""), "the create popup no longer says the amount is in tugrik")
+    }
+
+    @Test
+    fun `the create popup's currency picker offers tugrik, the US dollar and the yuan, and opens on tugrik`() {
+        val board = render { projectsContent(manager, null, canManage = true) }
+        val picker = Regex("<select[^>]*id=\"projectCurrency\"[^>]*>.*?</select>", RegexOption.DOT_MATCHES_ALL)
+            .find(board)?.value.orEmpty()
+        assertTrue(picker.isNotEmpty(), "the create popup lost its currency picker")
+        val labels = Regex("<option[^>]*>([^<]*)</option>").findAll(picker).map { it.groupValues[1].trim() }.toList()
+        assertEquals(listOf("Tugrik (₮)", "US dollar (\$)", "Yuan (¥)"), labels)
+        val mnt = Regex("<option[^>]*value=\"MNT\"[^>]*>").find(picker)?.value.orEmpty()
+        assertTrue(mnt.contains("selected"), "tugrik is not the pick the popup opens on")
+        val usd = Regex("<option[^>]*value=\"USD\"[^>]*>").find(picker)?.value.orEmpty()
+        assertTrue(usd.isNotEmpty() && !usd.contains("selected"), "the popup opens on US dollar")
+        // The sign the script repaints the amount box's placeholder with travels on the option itself.
+        assertTrue(usd.contains("data-symbol=\"\$\""), "the US dollar option lost its sign")
+        val cny = Regex("<option[^>]*value=\"CNY\"[^>]*>").find(picker)?.value.orEmpty()
+        assertTrue(cny.contains("data-symbol=\"¥\""), "the yuan option lost its sign")
+    }
+
+    @Test
+    fun `a refused create opens the picker on the currency it was refused with`() {
+        val form = ProjectForm(
+            values = ProjectDraft(
+                type = "Site projects", code = "S-01", name = "Haul road", revenue = "2,500,000", currency = "CNY",
+            ),
+            errors = mapOf(ProjectField.CURRENCY to "Choose a currency: tugrik, US dollar or yuan."),
+        )
+        val html = render { projectsContent(manager, null, form, canManage = true) }
+        val yuan = Regex("<option[^>]*value=\"CNY\"[^>]*>").find(html)?.value.orEmpty()
+        assertTrue(yuan.contains("selected"), "the refused form did not keep the yuan the reader chose")
+        assertTrue(html.contains("placeholder=\"¥ 0\""), "the amount box's hint did not follow the chosen money")
+        assertTrue(html.contains("Choose a currency: tugrik, US dollar or yuan."), "the refusal is not under the picker")
     }
 
     @Test
@@ -467,7 +532,7 @@ class ProjectsPageRenderTest {
         // and nowhere else: the dashed `+ Add bucket` box adds, a column's `⋯` retitles and removes, and the one
         // rule that panel existed to enforce — a bucket with work filed in it does not go — is stated by that
         // popup's own count line and its unpressable `Remove bucket`, which the tests below pin.
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         assertFalse(html.contains("id=\"projectBuckets\""), "the bucket panel came back")
         assertFalse(html.contains("Save buckets"), "the panel's save button came back")
         assertFalse(html.contains("Project buckets"), "the panel's caption came back")
@@ -487,7 +552,7 @@ class ProjectsPageRenderTest {
         // names as its manager — not every management account, and not the readers of this project's work. Stage 79
         // moved where that right is drawn, from the panel under the header to the board's box and menus, so this
         // pin moves with it.
-        val theirs = render { projectDetailContent(manager, project, canManage = false) }
+        val theirs = render { projectDetailContent(manager, project, canEdit = false) }
         assertTrue(theirs.contains("name=\"laneadd\" value=\"1\""), "the project's own manager was refused the add box")
         assertEquals(
             DEFAULT_PROJECT_BUCKETS.size, occurrences(theirs, "class=\"kcol-menu\""),
@@ -499,7 +564,7 @@ class ProjectsPageRenderTest {
         )
         // A Viewer holds neither right, so they are served neither the openers nor a form whose every button the
         // route would refuse.
-        val reader = render { projectDetailContent(viewer, project, canManage = false) }
+        val reader = render { projectDetailContent(viewer, project, canEdit = false) }
         assertFalse(reader.contains("/buckets/save"), "a Viewer was served a writer of this project's buckets")
         assertFalse(reader.contains("projectLaneModal"), "a Viewer was handed the bucket popup")
     }
@@ -510,7 +575,7 @@ class ProjectsPageRenderTest {
         // question too — and a manager who is not management sees the field without the box, rather than a box that
         // would be refused. Since **Stage 79** this is the page's only bucket-add form at all.
         val mine = render {
-            projectDetailContent(manager, project, canManage = true, lane = LaneForm(open = true))
+            projectDetailContent(manager, project, canEdit = true, lane = LaneForm(open = true))
         }
         // Read the popup block rather than the whole form or the page: the scope sentence sits *above* the form, so
         // it belongs to the popup rather than to the POST.
@@ -533,7 +598,7 @@ class ProjectsPageRenderTest {
         // wider write and was stopped by the name rules should not have to ask again.
         val refused = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 lane = LaneForm(typed = "Dewatering", open = true, nameError = "A bucket name is too long.", forType = true),
             )
         }
@@ -543,7 +608,7 @@ class ProjectsPageRenderTest {
         assertTrue(inputTag(keptBox, "name=\"also_type\"").contains("checked"), "the refusal threw the tick away")
         // The project's own manager, who is not management: the same field, and no box beside it.
         val theirs = render {
-            projectDetailContent(manager, project, canManage = false, lane = LaneForm(open = true))
+            projectDetailContent(manager, project, canEdit = false, lane = LaneForm(open = true))
         }
         val theirModal = theirs.substringAfter("id=\"projectLaneModal\"")
             .substringBefore("<script src=\"/static/js/lane-modal.js\"")
@@ -555,12 +620,15 @@ class ProjectsPageRenderTest {
             theirModal.contains("It belongs to this project"),
             "the manager's add box says nothing about where the name goes",
         )
-        assertTrue(theirModal.contains("is only told about it if management tick the box"), "the box is management's, and the popup never said so")
+        assertTrue(
+            theirModal.contains("is only told about it by an account that manages project types"),
+            "the tick belongs to *Manage project types*, and the popup offered a reader without it no answer at all",
+        )
     }
 
     @Test
     fun `a viewer's project page stays a read-only card with no strip or delete`() {
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         // None of management's writes are offered to a Viewer: no update form, no delete, no save button, and no
         // control of any kind inside the field row. Since Stage 71 the row itself is SHARED with management —
         // the same `.edit-strip` run, so the two headers cannot drift apart — which is exactly why this asserts
@@ -931,7 +999,7 @@ class ProjectsPageRenderTest {
         )
         ChecklistRepository.setDone(steps.first(), true)
 
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         rollUpVocabulary.forEach {
             assertFalse(html.contains(it), "the strip came back, and printed $it")
         }
@@ -992,7 +1060,7 @@ class ProjectsPageRenderTest {
         card("Set out the haul road", "In progress", "EMP0002")
         card("Survey the start line", "In progress", "EMP0003")
         card("Standby the crew", "Completed", "EMP0003")
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         assertTrue(html.contains("Set out the haul road"), "this reader's own card left their page")
         assertTrue(html.contains("Survey the start line"), "a colleague's card was hidden — the board is not whole")
         assertTrue(html.contains("Standby the crew"), "a colleague's finished card was hidden")
@@ -1011,7 +1079,7 @@ class ProjectsPageRenderTest {
 
     @Test
     fun `an empty project says so in the board's own heading instead of a strip`() {
-        val empty = render { projectDetailContent(manager, project, canManage = true) }
+        val empty = render { projectDetailContent(manager, project, canEdit = true) }
         rollUpVocabulary.forEach { assertFalse(empty.contains(it), "an empty page printed $it") }
         // The invitation to write the first card is the board's, and it is still there.
         assertTrue(empty.contains("nothing assigned yet, create the first one"), "the empty heading is wrong")
@@ -1022,7 +1090,7 @@ class ProjectsPageRenderTest {
             DEFAULT_PROJECT_BUCKETS.size, occurrences(empty, "class=\"kcol-add\""),
             "the empty board's columns did not each offer the first card",
         )
-        val theirs = render { projectDetailContent(viewer, project, canManage = false) }
+        val theirs = render { projectDetailContent(viewer, project, canEdit = false) }
         assertTrue(theirs.contains("nothing assigned to this project yet"), "the Viewer's line is wrong")
     }
 
@@ -1041,12 +1109,12 @@ class ProjectsPageRenderTest {
         // separate columns of one row — and what changes on the page is nothing. The columns answer "which phase of
         // this project", and a card's state prints on the card and moves through its Done button or popup, never
         // through a column of its own.
-        val before = render { projectDetailContent(manager, project, canManage = true) }
+        val before = render { projectDetailContent(manager, project, canEdit = true) }
         DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(before.contains("<span class=\"kcol-title\">$it</span>"), "$it is not a column yet")
         }
         filedCard("Standby the crew")
-        val after = render { projectDetailContent(manager, project, canManage = true) }
+        val after = render { projectDetailContent(manager, project, canEdit = true) }
         DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(
                 after.contains("<span class=\"kcol-title\">$it</span>"),
@@ -1085,7 +1153,7 @@ class ProjectsPageRenderTest {
         // chosen swatch falls back to — which is every column on this board, because nothing here picked one.
         // Since **Stage 83** the popup's closed add half draws no swatch row, so the only dots on the page are
         // the heads themselves.
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         assertEquals(
             DEFAULT_PROJECT_BUCKETS.size, occurrences(html, "</span><span class=\"kcol-title\">"),
             "a lane head lost its dot",
@@ -1111,7 +1179,7 @@ class ProjectsPageRenderTest {
         val lane = TaskService.lanesOf(project.id).first()
         val third = TaskService.lanesOf(project.id)[2]
         TaskService.renameLane(project.id, lane.id, lane.name, "EMP0001", canManage = true, colourSlot = 4)
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         assertTrue(
             html.contains("class=\"bucket-dot dot-4\"></span><span class=\"kcol-title\">${lane.name}</span>"),
             "${lane.name} was picked a colour and still wears its position",
@@ -1131,7 +1199,7 @@ class ProjectsPageRenderTest {
         val lane = TaskService.lanesOf(project.id).first()
         val html = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 lane = LaneForm(laneId = lane.id, nameError = "That name is already taken", colourSlot = 3),
             )
         }
@@ -1143,7 +1211,7 @@ class ProjectsPageRenderTest {
     fun `the board's bucket controls are for the reader who may write them`() {
         // `mayEditLanes` is one right and three controls: a column's `⋯`, the dashed box, and the popup they fill.
         // A Viewer's page has none of them, and a hand-built POST is refused again by every route.
-        val theirs = render { projectDetailContent(viewer, project, canManage = false) }
+        val theirs = render { projectDetailContent(viewer, project, canEdit = false) }
         assertFalse(theirs.contains("lane-add-box"), "a Viewer was offered a bucket to add")
         assertFalse(theirs.contains("kcol-menu"), "a Viewer was offered a bucket to manage")
         assertFalse(theirs.contains("projectLaneModal"), "a Viewer was handed the bucket popup")
@@ -1151,7 +1219,7 @@ class ProjectsPageRenderTest {
         DEFAULT_PROJECT_BUCKETS.forEach {
             assertTrue(theirs.contains("<span class=\"kcol-title\">$it</span>"), "a Viewer lost a board column")
         }
-        val ours = render { projectDetailContent(manager, project, canManage = true) }
+        val ours = render { projectDetailContent(manager, project, canEdit = true) }
         assertEquals(1, occurrences(ours, "class=\"lane-add-box\""), "the run of columns has no add box")
         assertTrue(ours.contains("name=\"laneadd\" value=\"1\""), "the add box opens nothing")
         assertTrue(ours.contains("data-live-target=\"#projectLaneModal\""), "an opener swaps a block that is not there")
@@ -1162,7 +1230,7 @@ class ProjectsPageRenderTest {
         // Stage 75 took the standard-lane exception out of [mn.murray.pts.service.TaskService.renameLane] and
         // [removeLane], so a `⋯` over **Engineering** answers yes to both asks — and Stage 51's rule that a control
         // whose every button says no is a dead one is therefore what makes it *appear* over the opening lanes now.
-        val plain = render { projectDetailContent(manager, project, canManage = true) }
+        val plain = render { projectDetailContent(manager, project, canEdit = true) }
         assertEquals(
             DEFAULT_PROJECT_BUCKETS.size, occurrences(plain, "class=\"kcol-menu\""),
             "an opening bucket was left without a menu",
@@ -1175,7 +1243,7 @@ class ProjectsPageRenderTest {
         // Adding a bucket gives that column its own menu as well: the count follows the board, not the number of
         // lanes somebody typed a name for.
         TaskService.addLane(project.id, "QAQC", "EMP0001", canManage = true)
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         assertEquals(
             DEFAULT_PROJECT_BUCKETS.size + 1, occurrences(html, "class=\"kcol-menu\""),
             "the extra bucket has no menu",
@@ -1192,7 +1260,7 @@ class ProjectsPageRenderTest {
         // matter far more than it did: with the opening lanes no longer protected by the service, an add that
         // posted only its own name would read as a request to untick every lane it left out — Engineering first.
         TaskService.addLane(project.id, "QAQC", "EMP0001", canManage = true)
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         // Since Stage 79 this popup is the page's one `/buckets/save` form, but read from the popup still costs
         // nothing and keeps the assertion about *this* form rather than about whatever else the page grows.
         val form = html.substringAfter("id=\"projectLaneModal\"")
@@ -1220,7 +1288,7 @@ class ProjectsPageRenderTest {
         val lane = TaskService.addLane(project.id, "QAQC", "EMP0001", canManage = true).bucket!!
         val opened = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 lane = LaneForm(laneId = lane.id),
             )
         }
@@ -1249,26 +1317,24 @@ class ProjectsPageRenderTest {
         assertFalse(modal.contains("card filed in it"), "an empty column was described as holding work")
         assertTrue(modal.contains("Nothing is filed in it"), "the popup did not say why removal is safe here")
         // File a card in the column and the popup, the board and the rename all stay exactly where they were —
-        // and since **Stage 81** so does `Remove bucket`: an occupied column comes off with its cards, and the
-        // popup says where they go instead of greying the button. That is the prototype's third answer, ported:
-        // the reader is told the consequence before the press, not stopped by it.
+        // and since **Stage 81** so does `Remove bucket`: an occupied column comes off with its cards. That is the
+        // prototype's third answer, ported: the reader is told the consequence before the press, not stopped by
+        // it. Since **Stage 106** the sentence promises nothing beyond the board, because no page shows the
+        // archived cards any more.
         card("Hold the QAQC gate", inBucket = lane.id)
         val held = render {
-            projectDetailContent(manager, project, canManage = true, lane = LaneForm(laneId = lane.id))
+            projectDetailContent(manager, project, canEdit = true, lane = LaneForm(laneId = lane.id))
         }
         assertTrue(
-            held.contains("its 1 card goes to Archive"),
-            "an occupied column did not say where its work goes",
+            held.contains("its 1 card leaves the board with it"),
+            "an occupied column did not say what happens to its work",
         )
-        assertTrue(
-            held.contains("restore it from the 🗄 panel"),
-            "the popup did not say where the card can be got back",
-        )
+        assertFalse(held.contains("Archive"), "the popup still promises an Archive the page no longer shows")
         val del = held.substringAfter("<form action=\"/app/projects/${project.id}/buckets/delete\"")
             .substringBefore("</form>")
         assertFalse(del.contains("disabled=\"disabled\""), "a column with work in it was refused its removal")
         assertTrue(del.contains("data-confirm="), "the press does not ask first")
-        assertTrue(del.contains("Its 1 card will be moved to Archive"), "the confirm hides what happens to the card")
+        assertTrue(del.contains("Its 1 card will leave the board with it"), "the confirm hides what happens to the card")
         // The stylesheet has to agree with the attribute. The last lane is the one column whose button is shut,
         // and a shut button that paints like an open one would be the wrong picture on the screen. The red is
         // pinned in the same breath because base.css writes `button.submit`, which a lone `.danger-btn` loses to.
@@ -1290,14 +1356,14 @@ class ProjectsPageRenderTest {
             assertTrue(TaskService.removeLane(project.id, it.id, "EMP0001", canManage = true).ok)
         }
         val last = render {
-            projectDetailContent(manager, project, canManage = true, lane = LaneForm(laneId = lane.id))
+            projectDetailContent(manager, project, canEdit = true, lane = LaneForm(laneId = lane.id))
         }
         val lastDel = last.substringAfter("<form action=\"/app/projects/${project.id}/buckets/delete\"")
             .substringBefore("</form>")
         assertTrue(lastDel.contains("disabled=\"disabled\""), "the last column offered its own removal")
         assertTrue(last.contains("A board keeps at least one bucket"), "the last column did not say why")
         // …and a page for a reader who may not write lanes gets no popup at all, however the URL is built.
-        val denied = render { projectDetailContent(viewer, project, canManage = false, lane = LaneForm(laneId = lane.id)) }
+        val denied = render { projectDetailContent(viewer, project, canEdit = false, lane = LaneForm(laneId = lane.id)) }
         assertFalse(denied.contains("projectLaneModal"), "a Viewer was handed the bucket popup open")
     }
 
@@ -1309,7 +1375,7 @@ class ProjectsPageRenderTest {
         // is read — so what these two pages pin is that the renderer honours the choice: field or board, never both.
         val refused = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 bucketNote = "This project already has a bucket called QAQC.", bucketNoteIsError = true,
                 lane = LaneForm(
                     typed = "QAQC", open = true,
@@ -1330,7 +1396,7 @@ class ProjectsPageRenderTest {
         // A write that landed has no field to answer, so its sentence is the board's.
         val landed = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 bucketNote = "QAQC is on the board.", noteOnBoard = true,
             )
         }
@@ -1342,7 +1408,7 @@ class ProjectsPageRenderTest {
         // there is no field up to put it under.
         val closed = render {
             projectDetailContent(
-                manager, project, canManage = true,
+                manager, project, canEdit = true,
                 bucketNote = "This project already has a bucket called QAQC.", bucketNoteIsError = true,
                 noteOnBoard = true,
             )
@@ -1355,84 +1421,60 @@ class ProjectsPageRenderTest {
         assertFalse(closed.contains("field-err"), "a board sentence was printed as a field's refusal")
     }
 
-    // --- the Archive (Stage 81, V18) ----------------------------------------------------------------
+    // --- the Archive's departure (Stage 106) --------------------------------------------------------
 
     @Test
-    fun `the header offers the Archive to the board's writers and draws it shut`() {
-        val html = render { projectDetailContent(manager, project, canManage = true) }
-        assertTrue(html.contains("class=\"icon-btn archive-btn\""), "the header lost its Archive button")
-        assertTrue(html.contains("aria-label=\"Show the archived tasks\""), "the button does not name its action")
-        assertTrue(html.contains("name=\"archive\" value=\"1\""), "the button says nothing to the URL")
-        val panel = archivePanel(html)
-        assertFalse(panel.contains("display:block"), "a page with no ?archive=1 came back with the panel up")
-        assertTrue(panel.contains("Archived tasks (0)"), "the panel does not count what is in it")
-        assertTrue(panel.contains("No archived tasks."), "an empty archive left the reader guessing")
-        // The panel's state is the URL's, like every popup here: a plain GET form with no key shuts it, so the
-        // same click works with scripts off and is one more block swap with them on.
-        assertTrue(
-            panel.contains("<form action=\"/app/projects/${project.id}\" method=\"get\""),
-            "the close is not a plain GET back to this page",
-        )
-        // A reader with no right to reshape the board is handed neither the button nor the panel.
+    fun `no page prints the Archive opener, its panel or the copy-link button`() {
+        // **Stage 106 took the 🗄 and the 📋 out of the project page's head at the user's request**, and the panel
+        // went with its only opener. What a page may not print is therefore a control, a panel or a script for a
+        // view that no longer exists — whichever reader is looking at it. The rows themselves stay, which is the
+        // test below.
         listOf(
-            render { projectDetailContent(viewer, project, canManage = false) },
-            render { projectDetailContent(viewer, project, canManage = false, archiveOpen = true) },
-        ).forEach { denied ->
-            assertFalse(denied.contains("archive-btn"), "a Viewer was offered the Archive")
-            assertFalse(denied.contains("projectArchive"), "a Viewer was handed the panel")
-            assertFalse(denied.contains("archive-modal.js"), "a Viewer was sent a script for a panel they lack")
+            render { projectDetailContent(manager, project, canEdit = true) },
+            render { projectDetailContent(viewer, project, canEdit = false) },
+        ).forEach { html ->
+            listOf(
+                "archive-btn", "Show the archived tasks", "name=\"archive\"", "id=\"projectArchive\"",
+                "archive-modal.js", "Archived tasks", "head-copy", "data-copy-link",
+            ).forEach { needle ->
+                assertFalse(html.contains(needle), "the page still prints $needle")
+            }
         }
+        // The two controls the head keeps are still there, so nothing else left with the icons.
+        val head = render { projectDetailContent(manager, project, canEdit = true) }
+        assertTrue(head.contains("Pin for me"), "the pin left with the icons")
+        assertTrue(head.contains("Delete project"), "the delete left with the icons")
     }
 
     @Test
-    fun `the archive panel prints a put-away card with where it came from and the two things it can do`() {
-        val lane = TaskService.addLane(project.id, "QAQC", "EMP0001", canManage = true).bucket!!
-        val cardId = card("Hold the QAQC gate", inBucket = lane.id)
-        assertTrue(TaskService.archiveCard(cardId, "EMP0001", canManage = true))
-        val html = render { projectDetailContent(manager, project, canManage = true, archiveOpen = true) }
-        assertTrue(html.contains("id=\"projectArchive\" style=\"display:block\""), "?archive=1 did not open the panel")
-        val panel = archivePanel(html)
-        assertTrue(panel.contains("Archived tasks (1)"), "the title does not count the card")
-        assertTrue(panel.contains("class=\"at-title\">Hold the QAQC gate<"), "the row does not name the card")
-        assertTrue(
-            panel.contains("S-01 · was in &quot;QAQC&quot;"),
-            "the row does not say where the card came from",
-        )
-        // The prototype's two buttons, each its own POST — a form cannot live inside a form — and both swap the
-        // panel and the columns behind it, because restoring puts a card back on the board.
-        assertTrue(panel.contains("<form action=\"/app/projects/${project.id}/archive/restore\""), "no Restore")
-        assertTrue(panel.contains("<form action=\"/app/projects/${project.id}/archive/delete\""), "no Delete")
-        assertEquals(2, occurrences(panel, "name=\"taskId\" value=\"$cardId\""), "a row button names the wrong card")
-        assertEquals(2, occurrences(panel, "data-live-extra=\"#projectBoard\""), "a row button leaves the board stale")
-        assertTrue(panel.contains(">Restore<"))
-        assertTrue(panel.contains(">Delete permanently<"))
-        assertTrue(panel.contains("Permanently delete Hold the QAQC gate?"), "the permanent delete asks nothing")
-        assertTrue(panel.contains("This cannot be undone."))
-        // A column's removal is the other way in, and its row keeps the column's name even though the column is
-        // gone — that is what the snapshot is for.
-        assertTrue(TaskService.removeLane(project.id, lane.id, "EMP0001", canManage = true).ok)
-        val after = render { projectDetailContent(manager, project, canManage = true, archiveOpen = true) }
-        assertTrue(after.contains("was in &quot;QAQC&quot;"), "the archived card lost the column it came from")
-        assertTrue(archivePanel(after).contains("Archived tasks (1)"), "the panel counted a card twice or not at all")
-    }
-
-    @Test
-    fun `an archived card is off the board, its column's count and the page's own list`() {
+    fun `an archived card is on no page while its row waits for the routes that still answer`() {
         val lane = TaskService.addLane(project.id, "QAQC", "EMP0001", canManage = true).bucket!!
         val held = card("Hold the QAQC gate", inBucket = lane.id)
         val stayed = card("Sign the gate sheet", inBucket = lane.id)
         assertTrue(TaskService.archiveCard(held, "EMP0001", canManage = true))
-        val html = render { projectDetailContent(manager, project, canManage = true) }
-        // The board is the page's own list of cards, and an archived one is not on it; its column's count drops
-        // with it, which is the figure the lane head prints. The panel is drawn closed further down the page, so
-        // the board is everything before it.
-        val board = html.substringBefore("id=\"projectArchive\"")
-        assertFalse(board.contains(">Hold the QAQC gate<"), "an archived card stayed on the board")
-        assertTrue(board.contains(">Sign the gate sheet<"), "archiving one card took its neighbour too")
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
+        // An archived card is on no page since Stage 106: not the board, and not a panel below it.
+        assertFalse(html.contains(">Hold the QAQC gate<"), "an archived card stayed on the page")
+        assertTrue(html.contains(">Sign the gate sheet<"), "archiving one card took its neighbour too")
         // The lane head's count reads the same filtered rows: QAQC holds one card now, not two.
-        assertEquals(1, occurrences(board, "class=\"kcol-count\">1<"), "the column still counts the archived card")
-        assertTrue(archivePanel(html).contains("Archived tasks (1)"))
-        assertNotNull(stayed)
+        assertEquals(1, occurrences(html, "class=\"kcol-count\">1<"), "the column still counts the archived card")
+        // The row itself is untouched in the database, with the column it left from still remembered — that half of
+        // Stage 81 was kept on purpose, because the restore route is still there for a hand-built POST.
+        val waiting = TaskService.archived(project.id).single()
+        assertEquals(held, waiting.id)
+        assertEquals("QAQC", waiting.archivedLane, "the row forgot the column it left from")
+        // A column that goes takes its live cards with it, and they too are named by no header — the popup says
+        // they leave the board, and the page shows nothing of them afterwards.
+        assertTrue(TaskService.removeLane(project.id, lane.id, "EMP0001", canManage = true).ok)
+        val after = render { projectDetailContent(manager, project, canEdit = true) }
+        assertFalse(after.contains(">Hold the QAQC gate<"), "the archived card came back when its column went")
+        assertFalse(after.contains(">Sign the gate sheet<"), "the removed column left its card on the page")
+        assertEquals(2, TaskService.archived(project.id).size, "the removed column's cards are not in the archive")
+        assertEquals(
+            "QAQC",
+            TaskService.archived(project.id).first { it.id == stayed }.archivedLane,
+            "the snapshot lost the removed column's name",
+        )
     }
 
     // --- the detail card's own layout ---------------------------------------------------------------
@@ -1441,7 +1483,7 @@ class ProjectsPageRenderTest {
     fun `the nine read-only fields are one row of caption-over-value cells, with no pair and no row of their own`() {
         // The read-only card is what a Viewer gets (Stage 60 gave management an editable strip instead), so this
         // layout test reads the page as a Viewer does.
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         val strip = detailStrip(html)
         // Nine cells, all of them the same object management's header uses: an `.ef` div holding an `.ef-label`
         // caption and one value. Stage 71's promise is that there is no tenth shape on the row — no wrapper that
@@ -1555,7 +1597,7 @@ class ProjectsPageRenderTest {
         // Two cards, one finished at 100 and one not begun at 0, so the project is at 50. The steps alone
         // would answer 2 of 3 and the row's own column says 40 — the bar follows the cards, each counted
         // once, and neither of those.
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         // Management's progress cell prints the figure as plain text (no bar), so the percentage the checklists
         // add up to is what this test reads — the number, not a bar width.
         assertEquals("50%", pctSpan(html), "the figure is not the average of the cards on it")
@@ -1567,7 +1609,7 @@ class ProjectsPageRenderTest {
         card("Set out the haul road")
         // Cards, but no plan on any of them: unmeasured is not 0%, and the figure falls back to the one this page
         // showed before checklists measured anything, rather than claim one nobody wrote.
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         assertEquals("40%", pctSpan(html), "an unmeasured project lost its own number")
     }
 
@@ -1582,7 +1624,7 @@ class ProjectsPageRenderTest {
         // shows BOTH cards to this Viewer — the whole project, each with its holder — but only the reader's own
         // card opens an editor; the colleague's is read-only. The bar and the board agree on the whole project;
         // the difference between the two readers is only what they may edit.
-        val html = render { projectDetailContent(viewer, project, canManage = false) }
+        val html = render { projectDetailContent(viewer, project, canEdit = false) }
         assertEquals("50%", pctSpan(html), "the bar was narrowed to this reader's slice")
         // The card states its own figure as the one percentage it prints; the count the boxes add up to is
         // in the editor its click opens, which is the only place the boxes are now.

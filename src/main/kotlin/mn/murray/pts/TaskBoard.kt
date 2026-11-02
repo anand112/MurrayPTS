@@ -314,17 +314,21 @@ fun taskRedirect(back: String, projectId: Int, edit: Int = 0): String {
         isOtherBack(back) -> "/app/other-tasks"
         else -> "/app/assigned-tasks"
     }
-    // The Assigned page's Other-tasks bucket filter (Stage 88) rides the same token `back` does, so opening a
-    // card, saving it, adding a step, writing a note or answering a refusal all land the reader on the board
-    // they were reading rather than on the unfiltered one. Only that page has the filter; a project page and
-    // the shared backlog are never sent a `bucket`.
-    val bucket = if (back.startsWith("$BACK_ASSIGNED:")) bucketOfBack(back) else 0
+    // The Assigned page's two filters ride the same token `back` does, so opening a card, saving it, adding a
+    // step, writing a note or answering a refusal all land the reader on the board they were reading rather
+    // than on the unfiltered one: its Other-tasks bucket (Stage 88) and, since Stage 107, the project the
+    // projects board above it was narrowed to. Only that page has those filters; a project page and the shared
+    // backlog are never sent a `bucket` or a `project`.
+    val assigned = back == BACK_ASSIGNED || back.startsWith("$BACK_ASSIGNED:")
+    val bucket = if (assigned) bucketOfBack(back) else 0
+    val project = if (assigned) projectOfBack(back) else 0
     // Since Stage 93 the shared backlog's own Bucket picker rides the same token in `show` — the key its filter
     // form posts, because `?bucket=` on that URL already names a column's popup.
     val picked = bucketOfOtherBack(back)
     val query = listOfNotNull(
         if (edit > 0) "edit=$edit" else null,
         if (bucket > 0) "bucket=$bucket" else null,
+        if (project > 0) "project=$project" else null,
         if (picked > 0) "show=$picked" else null,
     ).joinToString("&")
     return if (query.isEmpty()) page else "$page?$query"
@@ -342,12 +346,42 @@ const val BACK_PROJECT = "project"
  * card makes out of that page: the popup opener, the save, a step tick, a note, a delete and a refusal all post
  * `back` and are answered through [taskRedirect], which reads the id back out of the token. Anything that
  * cannot be read as a bucket id is the unfiltered page, never an error.
+ *
+ * Since **Stage 107** the projects board above the Other-task board has a picker of its own, so the same token
+ * carries both filters — see [backForFilters]; this is that function with the project left whole, kept because
+ * a bucket-only board is still the common shape and reads better as `assigned:3` than `assigned:3:0`.
  */
-fun backForBucket(bucketId: Int): String = if (bucketId > 0) "$BACK_ASSIGNED:$bucketId" else BACK_ASSIGNED
+fun backForBucket(bucketId: Int): String = backForFilters(bucketId, 0)
 
-/** Which Other-tasks bucket a [backForBucket] token names; 0 for `assigned` and for anything unrecognised. */
-fun bucketOfBack(back: String): Int =
-    if (back.startsWith("$BACK_ASSIGNED:")) back.removePrefix("$BACK_ASSIGNED:").trim().toIntOrNull() ?: 0 else 0
+/**
+ * Both Assigned-page filters in one `back` token: plain `assigned` when neither is on, `assigned:<bucket>`
+ * when only the Other-tasks bucket is chosen, and `assigned:<bucket>:<project>` when the projects board is
+ * narrowed too — a `0` in either slot meaning *every* bucket or project (**Stage 107**).
+ *
+ * One token rather than two fields because every card action already carries exactly one `back` and the page
+ * it answers on is built from it: [taskRedirect] reads both ids out and rebuilds the same URL, so a card
+ * opened, saved, stepped, noted, deleted or refused from a doubly-filtered board comes back to that board.
+ * The ids are written from the board's own data, never from a post, so a hand-built token can only name a
+ * filter a URL could name anyway.
+ */
+fun backForFilters(bucketId: Int, projectId: Int): String = when {
+    bucketId <= 0 && projectId <= 0 -> BACK_ASSIGNED
+    projectId <= 0 -> "$BACK_ASSIGNED:$bucketId"
+    else -> "$BACK_ASSIGNED:${bucketId.coerceAtLeast(0)}:$projectId"
+}
+
+/** The ids inside an [backForFilters] token, in order; empty for `assigned` and for anything unrecognised. */
+private fun assignedParts(back: String): List<String> =
+    if (back.startsWith("$BACK_ASSIGNED:")) back.removePrefix("$BACK_ASSIGNED:").split(':') else emptyList()
+
+/** Which Other-tasks bucket a [backForFilters] token names; 0 for `assigned` and for anything unrecognised. */
+fun bucketOfBack(back: String): Int = assignedParts(back).getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+
+/**
+ * Which project a [backForFilters] token names (**Stage 107**); 0 for a token without that slot, for `assigned`
+ * and for anything unrecognised — a bucket-only `assigned:3` is the whole projects board, never a guess.
+ */
+fun projectOfBack(back: String): Int = assignedParts(back).getOrNull(1)?.trim()?.toIntOrNull() ?: 0
 
 /**
  * The `back` token for the **shared** Other-tasks board, carrying the bucket its own picker is showing
@@ -421,10 +455,10 @@ fun taskDraftOf(form: Parameters): TaskDraft = TaskDraft(
 /**
  * Which page a posted card action came from; anything unrecognised is the general board.
  *
- * The general board's answer is normalised through [backForBucket], so a token that carries a bucket filter
- * (`assigned:3`, Stage 88) survives the round trip while a hand-built or unrecognised one lands on the
- * unfiltered board rather than being echoed back. The shared backlog's `other:<id>` (Stage 93) is normalised the
- * same way through [backForOtherBucket].
+ * The general board's answer is normalised through [backForFilters], so a token that carries one or both page
+ * filters (`assigned:3`, Stage 88; `assigned:0:5` and `assigned:3:5`, Stage 107) survives the round trip while a
+ * hand-built or unrecognised one lands on the unfiltered board rather than being echoed back. The shared
+ * backlog's `other:<id>` (Stage 93) is normalised the same way through [backForOtherBucket].
  */
 fun backOf(form: Parameters): String {
     val raw = form["back"].orEmpty().trim()
@@ -432,7 +466,7 @@ fun backOf(form: Parameters): String {
         raw == BACK_PROJECT -> BACK_PROJECT
         raw == BACK_OTHER -> BACK_OTHER
         raw.startsWith("$BACK_OTHER:") -> backForOtherBucket(bucketOfOtherBack(raw))
-        else -> backForBucket(bucketOfBack(raw))
+        else -> backForFilters(bucketOfBack(raw), projectOfBack(raw))
     }
 }
 
@@ -1829,7 +1863,8 @@ private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int) {
             // **Delete task** in either world, exactly as it did before Stage 81's archive button replaced it.
             // Archiving is still how a card enters this project's Archive, but its trigger is removing the bucket
             // the card stands in (Stage 81), not a button on the card — so a live card's one destructive answer is
-            // the delete, and the Archive panel keeps Restore / Delete permanently for what the bucket took away.
+            // the delete. Since **Stage 106** no page shows the archived rows; the routes that restore or destroy
+            // one are still there.
             if (state.canEditAll) taskDeleteForm(task, back, projectId)
         }
     }
@@ -1853,10 +1888,11 @@ private fun DIV.modalNotes(state: TaskForm, back: String, projectId: Int) {
  *
  * **Since Stage 84 this is every card's button again.** Stage 81 had replaced it on a project card with the
  * **Archive task** button (`/app/tasks/archive`); Stage 84 took that button off the popup at the user's request and
- * put the delete back in its place, in both worlds. The page still archives — removing a bucket sends its cards to
- * the project's Archive (Stage 81) — and the Archive panel still destroys an archived card permanently; what a live
- * project card offers is the one destructive answer it offered before Stage 81. The right is unchanged and still
- * management's alone: a project's own manager is not management, and neither is the card's assignee.
+ * put the delete back in its place, in both worlds. The page still archives — removing a bucket takes its cards off
+ * the board with it (Stage 81) — and since **Stage 106** no page shows archived cards, though the routes that
+ * restore or destroy one remain; what a live project card offers is the one destructive answer it offered before
+ * Stage 81. The right is unchanged and still management's alone: a project's own manager is not management, and
+ * neither is the card's assignee.
  */
 private fun kotlinx.html.DIV.taskDeleteForm(task: TaskItem, back: String, projectId: Int) {
     form(action = "/app/assigned-tasks/delete", method = FormMethod.post, classes = "opener-form task-del") {

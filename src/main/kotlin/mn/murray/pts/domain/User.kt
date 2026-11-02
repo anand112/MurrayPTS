@@ -19,6 +19,8 @@ data class AccessRow(
     val access: String,
     val password: String = "",
     val email: String = "",
+    /** The role the account is filed under (Stage 110), for display. Empty on a roster row with no account. */
+    val role: String = "",
 ) {
     /** Effective password: the stored one, or the employee number when none has been set yet. */
     fun effectivePassword(): String = password.ifEmpty { employeeNumber }
@@ -35,19 +37,23 @@ fun autoEmail(name: String): String {
 
 /**
  * DB-backed user account (v2). Unlike the legacy [AccessRow], the password is stored as a
- * bcrypt [passwordHash] and the role can derive from the linked [positionId]'s permission
- * level. This is the type repositories/services/routes use; [AccessRow] exists only for the
- * one-shot JSON import.
+ * bcrypt [passwordHash] and access is decided by the [roleId] it is filed under (V21, Stage 110).
+ *
+ * [access] and [positionId] are kept as labels: `access` mirrors the role's old three-way word for rows
+ * written before V21 (`Owner`/`Administrator` → Admin, `Project Manager` → Manager, else Viewer), and
+ * [positionId] is the job title printed on the sheet. Neither decides a right any more — a role does.
  */
 data class User(
     val employeeNumber: String,
     val name: String,
     val passwordHash: String,
-    val access: String,                 // account-level override: Viewer | Manager | Admin
+    val access: String,                 // legacy label, written in step with roleId
     val email: String,
     val positionId: Int?,
     val isSuperAdmin: Boolean,
     val mustChangePassword: Boolean,
     val createdAt: String,
     val updatedAt: String,
+    /** The assigned role's id; null falls back to the default role (see RoleRepository.roleFor). */
+    val roleId: Int? = null,
 )

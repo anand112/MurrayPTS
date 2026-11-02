@@ -7,7 +7,10 @@
    On a **project's** page the columns are that project's lanes (V7), and a drop there refiles the card
    through /app/tasks/bucket instead. That one is done in place: the card node is moved into the column it was
    dropped on and both counts are rewritten, because a reader who is putting cards where they belong must not
-   have the board restart under their hands every time they let one go. The Done/Reopen button on those cards
+   have the board restart under their hands every time they let one go. Since **Stage 105** the move happens
+   on the drop and the write follows it, instead of the other way round — the reply used to be awaited, and
+   since the route answers with a redirect that meant the browser fetched the whole board page first: the card
+   hung, then jumped. The Done/Reopen button on those cards
    is still a status change, so it keeps the reload the status board has always had — and that reload is what
    brings the sidebar's open-card count back in step.
 
@@ -115,10 +118,22 @@ document.addEventListener('drop', function(e){
   var bucket = col.getAttribute('data-lane');
   var id = card.getAttribute('data-id');
   if (!bucket || !id || card.closest('.kcol') === col) return;
+  // **Stage 105: the card lands on the drop, not on the reply.** It used to wait for the POST to finish, and
+  // `/app/tasks/bucket` answers with a redirect back to the board — so `fetch` followed it and downloaded the
+  // whole project page before `file()` ran. That pause is the delay a reader felt: the card snapped back to
+  // where it was lifted from and jumped a beat later. Nothing about the move needs the server — it is three
+  // local DOM writes — so it happens now, and the reply is asked for with `redirect: 'manual'` so the page
+  // behind the redirect is never fetched at all. What must not happen is a board that says one thing while
+  // the database says another: a write that did not land reloads the board, which is the only path that does.
+  file(card, col);
   var fd = new FormData(); fd.append('id', id); fd.append('bucket', bucket);
-  window.fetch('/app/tasks/bucket', { method: 'POST', body: fd, credentials: 'same-origin' })
-    .then(function(){ file(card, col); })
-    .catch(function(){ /* the card stays where it was; the board never claimed to have moved it */ });
+  window.fetch('/app/tasks/bucket', { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' })
+    .then(function (r) {
+      // A 302 arrives here as an opaque redirect (`type` 'opaqueredirect', `status` 0, `ok` false) and is a
+      // success. Anything that is neither a redirect nor 2xx is a write that did not land.
+      if (r.type !== 'opaqueredirect' && !r.ok) location.reload();
+    })
+    .catch(function () { location.reload(); });
 });
 
 /* Put the card in its new column, in front of the finished run so that a card dragged out of the folded cards
@@ -145,7 +160,12 @@ document.addEventListener('drop', function(e){
    narrowed board with cards that lift, columns that never highlight and drops that do nothing. */
 function file(card, col) {
   var from = card.closest('.kcol');
-  var anchor = col.querySelector('.kdone-btn') || col.querySelector('.kcol-empty');
+  // **The anchor has to be a child of the column.** `.kdone-btn` sits *inside* the `▸ Completed N` form, and
+  // `insertBefore` with a reference that is not this node's child throws `NotFoundError` — a drop into a column
+  // with finished cards in it used to move nothing at all (the throw died inside a promise's `.then`). Stage 105
+  // anchors on the toggle form itself, which is the first of the finished run and a direct child, and falls back
+  // to the "Nothing here." line as before.
+  var anchor = col.querySelector('.kcol-done-toggle') || col.querySelector('.kcol-empty');
   if (anchor) { col.insertBefore(card, anchor); } else { col.appendChild(card); }
   count(from); count(col);
   if (from.getAttribute('data-lane') === '0' && !from.querySelector('.kcard')) {

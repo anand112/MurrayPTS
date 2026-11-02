@@ -34,6 +34,7 @@ import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.tr
 import mn.murray.pts.repository.ProjectRepository
+import mn.murray.pts.security.Authorization
 import mn.murray.pts.service.BucketDefaultsService
 import mn.murray.pts.service.DueDateAlertService
 import mn.murray.pts.service.EmployeeColumn
@@ -60,7 +61,9 @@ enum class PasswordStatus(val isError: Boolean, val text: String) {
     USER_UPDATED(false, "Account updated."),
     CANNOT_DELETE_SELF(true, "You cannot delete your own account."),
     CANNOT_DELETE_SUPER(true, "The Super Admin account cannot be deleted."),
-    CANNOT_DELETE_ADMIN(true, "Managers cannot delete Admin accounts."),
+    // Stage 110: the bar reads the target's *Manage roles & permissions* chip, so the sentence names the right
+    // rather than the old "Admin" word — which is no longer anything the sheet prints.
+    CANNOT_DELETE_ADMIN(true, "Only somebody who manages roles can delete that account."),
     USER_EXISTS(true, "User name is taken."),
     MAIL_SENT(false, "Test email sent — check the inbox the message was addressed to."),
     MAIL_LOGGED(true, "Nothing left this machine: mail is in log-only mode."),
@@ -68,7 +71,7 @@ enum class PasswordStatus(val isError: Boolean, val text: String) {
     MAIL_NO_ADDRESS(true, "No email on file for this account — set one on the Team sheet first."),
     MAIL_ENABLED(false, "Outbound mail is now enabled — PTS can send."),
     MAIL_DISABLED(true, "Outbound mail is now switched off — PTS will not send until it is enabled again."),
-    MAIL_REFUSED(true, "Only a Super Admin can turn outbound mail on or off."),
+    MAIL_REFUSED(true, "Only somebody who manages email settings can turn outbound mail on or off."),
     // The lane add carries no text of its own since Stage 98: the receipt from BucketDefaultsService.add is
     // already a whole sentence naming the bucket, the category and how many boards took the new column, and
     // "Default lane added." in front of it would say the same thing twice (the TYPE_* pattern below).
@@ -136,6 +139,19 @@ fun DIV.settingsContent(
     form: EmployeeForm,
     canManage: Boolean,
     canAdmin: Boolean = false,
+    /**
+     * Stage 110: the page's panels are four different chips, so the four flags are carried apart. [canManage]
+     * is *Manage employees* (the sheet), [canAdmin] *Manage employees* again for the popup's position and
+     * password fields, [canSetRoles] *Manage roles & permissions* for its Role picker, [canTypes] *Manage
+     * project types* for the two catalogue panels, and [canEmail] *Manage email settings* for the mail panel's
+     * switch and its outbound test — the card's two status lines print for [canManage] too, so the people who
+     * answer "why was I never emailed" can read it.
+     * Their defaults keep the pre-110 call sites (and their tests) coherent: who could open the page before
+     * could see all of it.
+     */
+    canSetRoles: Boolean = canAdmin,
+    canTypes: Boolean = canManage,
+    canEmail: Boolean = canAdmin,
     note: PasswordStatus? = null,
     mailStatus: PasswordStatus? = null,
     mailDetail: String? = null,
@@ -166,18 +182,25 @@ fun DIV.settingsContent(
 
     // The three panels below the account card are the settings *of the app*, not of the account: which
     // categories projects are filed under, which buckets a freshly created project starts with, and whether
-    // outbound mail may leave this machine. All three are management's — a Viewer's page stops at their own
-    // account — and all three are now a print of state the *database* holds: the categories are the V14
-    // catalogue, the per-category buckets the V12 one, and the mail switch the V13 one. The order is the one
-    // the work flows in: name the kinds of job, decide what each one's board looks like, then say whether
-    // anybody is told about them by email.
-    if (canManage) {
+    // outbound mail may leave this machine. Stage 110 split the old one `canManage` block into the two chips
+    // they belong to — *Manage project types* for the catalogues, *Manage email settings* for the mail panel —
+    // so a role that holds one of them sees that panel and only that panel. The order is the one the work flows
+    // in: name the kinds of job, decide what each one's board looks like, then say whether anybody is told
+    // about them by email.
+    if (canTypes) {
         projectTypesPanel(typeNote, typeDetail, typeBeingEdited)
         bucketDefaultsPanel(bucketDefaultsType, bucketNote, bucketDetail, filter)
-        emailPanel(session.employeeNumber, canAdmin, mailStatus, mailDetail)
+    }
+    // The mail card is the one app panel whose *reading* is wider than its *writing*: whoever manages people
+    // has to be able to see why a colleague was never emailed, so the delivery mode and their own address
+    // print for them read-only, while the switch and the outbound test — the two presses that change what
+    // leaves the machine — print only for a reader holding *Manage email settings*. Printing the card for the
+    // second group alone would also leave a `MAIL_REFUSED` answer with no card to land on.
+    if (canEmail || canManage) {
+        emailPanel(session.employeeNumber, canMail = canEmail, mailStatus = mailStatus, mailDetail = mailDetail)
     }
 
-    if (canManage) {
+    if (canManage || canTypes || canEmail) {
         employeeModal(form)
         script(src = "/static/js/employee-modal.js") {}
     }
@@ -265,7 +288,7 @@ private fun DIV.teamToolbar(filter: EmployeeFilter, sheet: EmployeeSheet, bucket
                 name = "role"
                 attributes["data-autosubmit"] = "true"
                 tsOption("", "All roles", filter.role)
-                ACCESS_LEVELS.forEach { tsOption(it, it, filter.role) }
+                EmployeeService.roles().forEach { tsOption(it, it, filter.role) }
             }
         }
         // Clear answers the three controls and nothing else: the order is not one of them, and a reader
@@ -408,10 +431,16 @@ private fun TBODY.teamRow(row: EmployeeRow, filter: EmployeeFilter) {
     }
 }
 
-/** The app's own three-way colour for an access level, the same one the Access control page prints. */
-private fun roleChip(role: String): String = when (role) {
-    "Admin" -> "atrisk"
-    "Manager" -> "planning"
+/**
+ * The app's own colour for a role, the same one the Access control page prints.
+ *
+ * Since Stage 110 the name beside a person is one of the catalogue's rows rather than one of three rank words,
+ * so any role that is not one of the three seeded ones takes the last of these — colour is decoration, and what
+ * a role may do is written in its chips on Access control, not in the tint of its chip here.
+ */
+internal fun roleChip(role: String): String = when (role) {
+    "Owner", "Administrator" -> "atrisk"
+    "Project Manager" -> "planning"
     else -> "done"
 }
 
@@ -502,8 +531,8 @@ private fun DIV.accountCard(session: UserSession) {
             span { +user.position }
         }
         div("set-row") {
-            span("set-key") { +"Access level" }
-            span { +user.access }
+            span("set-key") { +"Role" }
+            span { +user.role.ifEmpty { "—" } }
         }
         p("task-meta") {
             +"Use the 🎨 button in the sidebar to cycle the accent colour and 🌙 for dark mode. Preferences are stored in your browser."
@@ -674,11 +703,17 @@ private fun projectCountByType(type: String): String =
  * The answer comes back as this card's own flash line, in place, with the server's reason beside it when the
  * send was refused or logged instead of delivered.
  *
- * The two status lines print for management (a Manager reads the delivery mode and their own address), but the
- * test button prints for an **admin** only — the same right [mn.murray.pts.Application]'s `/app/settings/email-test`
- * re-checks, so the panel never offers a press the route would silently bounce.
+ * The two status lines print for anybody who manages employees (a Project Manager reads the delivery mode and
+ * their own address), but the switch and the test button print only for a reader holding *Manage email settings*
+ * — the same chip [mn.murray.pts.Application]'s `/app/settings/mail-switch` and `/app/settings/email-test`
+ * re-check, so the panel never offers a press the route would silently bounce.
  */
-private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: PasswordStatus? = null, mailDetail: String? = null) {
+private fun DIV.emailPanel(
+    empNo: String,
+    canMail: Boolean,
+    mailStatus: PasswordStatus? = null,
+    mailDetail: String? = null,
+) {
     val mode = DueDateAlertService.currentMode()
     val address = DueDateAlertService.emailFor(empNo)
     val sending = MailSwitch.enabled()
@@ -688,17 +723,18 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
         p("panel-caption") {
             +("Due-date alerts and assignment notices go out over the SMTP server configured in " +
                 "data/.env (PTS_SMTP_*). Change those keys and restart — a password does not belong in a " +
-                "web form. Independently, a Super Admin must turn outbound mail **on** below before the " +
-                "system is allowed to send anything at all; while it is off every message stays in the log.")
+                "web form. Independently, outbound mail has to be turned **on** here — by an account that " +
+                "manages email settings — before the system is allowed to send anything at all; while it is " +
+                "off every message stays in the log.")
         }
         flashBanner(mailStatus, mailDetail)
         div("set-row") {
             span("set-key") { +"Delivery mode" }
             span("email-mode") { +mode }
         }
-        // Management that cannot move the switch still reads whether mail may leave the machine at all. An
-        // admin's checkbox below *is* that state, printed as the control rather than twice.
-        if (!canAdmin) {
+        // Management that cannot move the switch still reads whether mail may leave the machine at all. A reader
+        // holding the chip has that same state printed as the control below, rather than twice.
+        if (!canMail) {
             div("set-row") {
                 span("set-key") { +"Outbound mail" }
                 span(if (sending) "email-switch on" else "email-switch off") {
@@ -711,11 +747,12 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
             span { +address.ifBlank { "(no email on file for $empNo — set one on the Team sheet)" } }
         }
         // The master switch is the one control that decides whether the whole installation may email anyone,
-        // so it prints as a form for a Super Admin only — the same right `/app/settings/mail-switch` re-checks.
+        // so it prints as a form for a reader holding *Manage email settings* only — the same chip
+        // `/app/settings/mail-switch` re-checks.
         // The box carries the state (ticked = sending, and the route reads anything but "true" as off, so a
         // hand-typed value cannot quietly arm the mailer) and *Save settings* is the no-JavaScript path to the
         // same write. Only a press that would turn sending on is confirmed: stopping mail asks nothing of anyone.
-        if (canAdmin) {
+        if (canMail) {
             form(action = "/app/settings/mail-switch", method = FormMethod.post, classes = "mail-switch") {
                 attributes["data-live-target"] = "#emailBoard"
                 label("check-row") {
@@ -740,11 +777,12 @@ private fun DIV.emailPanel(empNo: String, canAdmin: Boolean, mailStatus: Passwor
         // The answer comes back as this card's own flash line, in place, with the server's reason beside it when the
         // send was refused or logged instead of delivered.
         //
-        // It prints only when there is an address to send to *and* the reader is an admin — the test is the one
+        // It prints only when there is an address to send to *and* the reader holds *Manage email settings* — the
+        // test is the one
         // control on the page that opens a connection out of the machine, so it is gated exactly as the
         // `/app/alerts/test` endpoint it mirrors is. When the master switch is still off this button is honest about
         // it: the press would only come back "logged", so the line beside it already says what to do about that.
-        if (address.isNotBlank() && canAdmin) {
+        if (address.isNotBlank() && canMail) {
             form(action = "/app/settings/email-test", method = FormMethod.post, classes = "opener-form") {
                 attributes["data-live-target"] = "#emailBoard"
                 button(type = ButtonType.submit, classes = "submit") {
@@ -929,7 +967,8 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                         "They sign in with the number and the password you set here. Leave the password " +
                             "blank and the number is it; you can set a new one here at any time."
                     } else {
-                        "They sign in with their employee number as the password, as a Viewer."
+                        "They sign in with their employee number as the password, and start in the " +
+                            "${form.defaultRole} role — the one the catalogue hands out by default."
                     }
                     )
             }
@@ -976,6 +1015,17 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                     }
                     if (form.maySetRoles) {
                         div("field") {
+                            label { +"Role" }
+                            select {
+                                name = "role"
+                                id = "employeeRole"
+                                form.roles.forEach { tsOption(it, it, form.role.ifEmpty { form.defaultRole }) }
+                            }
+                            form.error(EmployeeField.ROLE)?.let { p("field-err") { +it } }
+                        }
+                    }
+                    if (form.maySetProfile) {
+                        div("field") {
                             label { +"Position" }
                             select {
                                 name = "position"
@@ -984,15 +1034,6 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                                 form.positions.forEach { tsOption(it, it, form.position) }
                             }
                             form.error(EmployeeField.POSITION)?.let { p("field-err") { +it } }
-                        }
-                        div("field") {
-                            label { +"Role" }
-                            select {
-                                name = "role"
-                                id = "employeeRole"
-                                ACCESS_LEVELS.forEach { tsOption(it, it, form.role.ifEmpty { "Viewer" }) }
-                            }
-                            form.error(EmployeeField.ROLE)?.let { p("field-err") { +it } }
                         }
                         div("field") {
                             label { +"Password" }
@@ -1045,10 +1086,16 @@ data class EmployeeForm(
     val role: String = "",
     val open: Boolean = false,
     val mayAdd: Boolean = false,
+    /** *Manage roles & permissions*: the Role picker. */
     val maySetRoles: Boolean = false,
+    /** *Manage employees*: the position picker and the password box. */
+    val maySetProfile: Boolean = maySetRoles,
     val errors: Map<EmployeeField, String> = emptyMap(),
     val filter: EmployeeFilter = EmployeeFilter(),
     val positions: List<String> = emptyList(),
+    /** The role catalogue, in its own order (V21), and the role a new account starts in. */
+    val roles: List<String> = emptyList(),
+    val defaultRole: String = "",
 ) {
     val isEdit: Boolean get() = edit.isNotBlank()
     val isOpen: Boolean get() = open || errors.isNotEmpty()
@@ -1089,36 +1136,51 @@ fun employeeFormOf(
     positionName: String,
     mayAdd: Boolean,
     mayEdit: Boolean,
+    maySetRoles: Boolean = mayEdit,
 ): EmployeeForm {
+    val roles = EmployeeService.roles()
+    val fallback = EmployeeService.defaultRoleName()
     val wanted = query["edit"].orEmpty().trim().uppercase()
     if (wanted.isNotEmpty()) {
-        if (row == null || !mayEdit) return EmployeeForm()
+        if (row == null || !(mayEdit || maySetRoles)) return EmployeeForm()
         return EmployeeForm(
             edit = if (row.hasAccount) wanted else "",
             employeeNumber = wanted,
             name = row.name,
             email = account?.email.orEmpty(),
             position = positionName,
-            role = account?.access.orEmpty(),
+            role = account?.let { Authorization.roleOf(it).name }.orEmpty(),
             open = true,
             mayAdd = mayAdd,
-            maySetRoles = mayEdit,
+            maySetRoles = maySetRoles,
+            maySetProfile = mayEdit,
             filter = employeeFilterOf(query),
             positions = EmployeeService.positionNames(),
+            roles = roles,
+            defaultRole = fallback,
         )
     }
     return EmployeeForm(
         open = query["new"] == "1" && mayAdd,
         mayAdd = mayAdd,
-        maySetRoles = mayEdit,
-        role = "Viewer",
+        maySetRoles = maySetRoles,
+        maySetProfile = mayEdit,
+        role = fallback,
         filter = employeeFilterOf(query),
         positions = EmployeeService.positionNames(),
+        roles = roles,
+        defaultRole = fallback,
     )
 }
 
 /** The popup as a refusal states it: the words that were typed, and the reason each field was not taken. */
-fun employeeFormOf(result: EmployeeResult, mayAdd: Boolean, maySetRoles: Boolean, filter: EmployeeFilter): EmployeeForm {
+fun employeeFormOf(
+    result: EmployeeResult,
+    mayAdd: Boolean,
+    maySetRoles: Boolean,
+    filter: EmployeeFilter,
+    maySetProfile: Boolean = maySetRoles,
+): EmployeeForm {
     val draft = result.values
     return EmployeeForm(
         edit = draft.edit,
@@ -1130,9 +1192,12 @@ fun employeeFormOf(result: EmployeeResult, mayAdd: Boolean, maySetRoles: Boolean
         open = true,
         mayAdd = mayAdd,
         maySetRoles = maySetRoles,
+        maySetProfile = maySetProfile,
         errors = result.errors,
         filter = filter,
         positions = EmployeeService.positionNames(),
+        roles = EmployeeService.roles(),
+        defaultRole = EmployeeService.defaultRoleName(),
     )
 }
 

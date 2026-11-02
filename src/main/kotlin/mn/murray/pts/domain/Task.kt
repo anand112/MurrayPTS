@@ -76,7 +76,7 @@ data class TaskItem(
     // The project's own **id**, 0 when the card belongs to no project. [project] is its name, which is what every
     // board prints and groups by, but a name is not an address: the archive rules have to look this project's
     // lanes up by row ([mn.murray.pts.service.TaskService.mayEditLanes],
-    // [mn.murray.pts.service.TaskService.restoreCard]), and a project renamed while an archive panel sits open
+    // [mn.murray.pts.service.TaskService.restoreCard]), and a project renamed while an archive write is in flight
     // must not turn the cards it holds into cards filed under nothing. It sits after [started] rather than beside
     // [project] because the demo cards in [mn.murray.pts.DemoData] are built positionally.
     val projectId: Int = 0,
@@ -88,9 +88,9 @@ data class TaskItem(
     // written on.
     val notes: List<TaskNote> = emptyList(),
     // Whether this card is off every board, in the Archive (V18). A board never shows one —
-    // [mn.murray.pts.repository.TaskRepository.findByKind] leaves them in the database — and the archive panel on
-    // a project page is read through [mn.murray.pts.repository.TaskRepository.findArchived], which is the only
-    // place this is true of a card a reader sees.
+    // [mn.murray.pts.repository.TaskRepository.findByKind] leaves them in the database — and since **Stage 106** no
+    // page shows one either: the project page's archive panel went with its opener. [mn.murray.pts.repository
+    // .TaskRepository.findArchived] is what the restore and delete routes read a row through.
     val archived: Boolean = false,
     // Which lane the card was filed in when it left the board, as [archivedLane]'s name and the day it happened.
     // The id is a **hint, not a promise**: the lane it points at may have been removed with the card's own column,

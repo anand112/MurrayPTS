@@ -426,18 +426,23 @@ class SettingsRenderTest {
     @Test
     fun `the role column prints what the account can actually do`() {
         val html = page()
-        assertTrue(row(html, worker).contains("<td class=\"t-role\"><span class=\"chip done\">Viewer</span></td>"), "an ordinary account is not the app's quiet chip")
-        assertTrue(row(html, manager).contains("<td class=\"t-role\"><span class=\"chip planning\">Manager</span></td>"), "a manager is not the admin's chip")
-        assertTrue(row(html, superAdmin).contains("<td class=\"t-role\"><span class=\"chip atrisk\">Admin</span></td>"), "the super admin is not printed as Admin")
+        // Stage 110: the column prints the role the account is filed under, and a role is one of the
+        // catalogue's names rather than the old three-level word. The tint follows the rights, not the word:
+        // the two roles that hold *Manage roles & permissions* are the ones that read as a risk.
+        assertTrue(row(html, worker).contains("<td class=\"t-role\"><span class=\"chip done\">Employee</span></td>"), "an ordinary account is not the catalogue's default role")
+        assertTrue(row(html, manager).contains("<td class=\"t-role\"><span class=\"chip planning\">Project Manager</span></td>"), "a manager is not the admin's chip")
+        assertTrue(row(html, superAdmin).contains("<td class=\"t-role\"><span class=\"chip atrisk\">Owner</span></td>"), "the super admin is not printed as Owner")
         // Two rows are deliberately two things at once, and the column answers the question the app asks
-        // before a write: a Viewer filed under a Manager position *is* a Manager.
-        assertTrue(row(html, positioned).contains("<td class=\"t-role\"><span class=\"chip planning\">Manager</span></td>"), "the position's level was ignored")
-        assertTrue(row(html, adminAccess).contains("<td class=\"t-role\"><span class=\"chip planning\">Manager</span></td>"), "an Admin under a Manager position printed the account's word")
-        // A colleague with no login has no level at all — which is a gap in the row, not a failure of it.
+        // before a write: since Stage 110 the *role* is the answer and a position is only the job title
+        // beside it, so a Viewer-level account filed under a Manager position prints Employee — which is
+        // what the routes it is refused by say it is.
+        assertTrue(row(html, positioned).contains("<td class=\"t-role\"><span class=\"chip done\">Employee</span></td>"), "the position's level was read as a role")
+        assertTrue(row(html, adminAccess).contains("<td class=\"t-role\"><span class=\"chip atrisk\">Administrator</span></td>"), "an Administrator under a Manager position printed the job instead of the role")
+        // A colleague with no login has no role at all — which is a gap in the row, not a failure of it.
         assertTrue(row(html, noAccount).contains("<td class=\"t-role\"><span class=\"ts-none\">—</span></td>"), "a person with no account was given a role")
-        assertEquals(2, occurrences(html, "chip done"), "the Viewer rows changed chip")
-        assertEquals(3, occurrences(html, "chip planning"), "the Manager rows changed chip")
-        assertEquals(1, occurrences(html, "chip atrisk"), "the Admin rows changed chip")
+        assertEquals(3, occurrences(html, "chip done"), "the Employee rows changed chip")
+        assertEquals(1, occurrences(html, "chip planning"), "the Project Manager rows changed chip")
+        assertEquals(2, occurrences(html, "chip atrisk"), "the rows holding the people risk changed chip")
     }
 
     @Test
@@ -521,7 +526,12 @@ class SettingsRenderTest {
         )
         val roles = selectNamed(toolbar(html), "role")
         assertTrue(roles.contains("<option value=\"\" selected=\"selected\">All roles</option>"))
-        assertEquals(listOf("", "Viewer", "Manager", "Admin"), options(roles), "the role picker is not the app's three levels")
+        // Stage 110: the picker lists the role catalogue in its own order, not the distinct roles the current
+        // rows happen to hold — a role nobody is filed under today is still one to file somebody under.
+        assertEquals(
+            listOf("", "Owner", "Administrator", "Project Manager", "Employee"),
+            options(roles), "the role picker is not the catalogue, in its own order",
+        )
 
         // The count is a field of the toolbar rather than a sibling of it — the one number that describes
         // exactly what these three controls leave — and it stays outside the region it is the companion to.
@@ -710,7 +720,7 @@ class SettingsRenderTest {
             superAdmin to "The Super Admin account cannot be deleted.",
             manager to "You cannot delete your own account.",
             noAccount to "This person has no account to delete yet — the pencil creates one.",
-            adminAccess to "Managers cannot delete Admin accounts.",
+            adminAccess to "Only somebody who manages roles can delete that account.",
         )
         blocked.forEach { (employeeNumber, why) ->
             val button = bin(html, employeeNumber)
@@ -718,10 +728,11 @@ class SettingsRenderTest {
             assertTrue(button.contains("disabled"), "$employeeNumber's bin presses anyway")
             assertFalse(button.contains("data-confirm"), "a bin that cannot press still asks for confirmation")
         }
-        // The super-admin rule is read before the self rule, and the bar that refuses an administrator
-        // compares the account's raw `access` — so the row printing "Manager" is the row titled "Admin".
+        // The super-admin rule is read before the self rule, and the bar that refuses an account holding the
+        // people risk reads its *Manage roles & permissions* chip — so the row printing "Administrator" is the
+        // row whose bin says it cannot be deleted.
         assertTrue(row(html, superAdmin).contains("cannot be deleted"))
-        assertTrue(row(html, adminAccess).contains("chip planning\">Manager"), "the column stopped printing the effective role")
+        assertTrue(row(html, adminAccess).contains("chip atrisk\">Administrator"), "the column stopped printing the effective role")
         listOf(worker, positioned, noDepartment).forEach {
             val button = bin(html, it)
             assertFalse(button.contains("disabled"), "$it's bin is greyed for a manager who may delete it")
@@ -816,7 +827,14 @@ class SettingsRenderTest {
             "the popup's position picker is not the catalog, in order",
         )
         assertTrue(selectNamed(modal(asAdmin), "position").contains("<option value=\"\" selected=\"selected\">— Follow the roster —</option>"), "the popup forces a job the roster already has")
-        assertTrue(selectNamed(modal(asAdmin), "role").contains("<option value=\"Viewer\" selected=\"selected\">Viewer</option>"), "the popup opens on no role")
+        // The role picker is the catalogue too, and a create opens on its default rather than on nothing:
+        // the popup always states the role the account will be filed under (Stage 110).
+        assertEquals(
+            listOf("Owner", "Administrator", "Project Manager", "Employee"),
+            options(selectNamed(modal(asAdmin), "role")),
+            "the popup's role picker is not the catalogue, in its own order",
+        )
+        assertTrue(selectNamed(modal(asAdmin), "role").contains("<option value=\"Employee\" selected=\"selected\">Employee</option>"), "the popup opens on no role")
         val password = tag(asAdmin, "employeePassword")
         assertTrue(password.contains("placeholder=\"Blank means their employee number\""), "the password field does not say what blank means")
         assertTrue(password.contains("minlength=\"${MIN_PASSWORD_LENGTH}\""), "the field can type past what the service refuses")
@@ -827,7 +845,12 @@ class SettingsRenderTest {
         listOf("position", "role", "password").forEach {
             assertFalse(modal(asManager).contains("name=\"$it\""), "a manager was offered the $it field")
         }
-        assertTrue(asManager.contains("They sign in with their employee number as the password, as a Viewer."), "the manager's create does not say what it makes")
+        // Stage 110: the caption names the role a reader without *Manage roles & permissions* is handing out,
+        // because that is the thing they cannot choose and therefore have to be told.
+        assertTrue(
+            asManager.contains("They sign in with their employee number as the password, and start in the Employee role"),
+            "the manager's create does not say what it makes",
+        )
         assertTrue(tag(asManager, "employeeModal").contains("style=\"display:block\""), "management's add button opened nothing")
     }
 
@@ -846,11 +869,13 @@ class SettingsRenderTest {
         assertTrue(tag(html, "employeePassword").contains("placeholder=\"Leave blank to keep the current password\""), "the edit does not say blank keeps the password")
         assertTrue(html.contains("<button type=\"submit\" class=\"submit\">Save account</button>"))
 
-        // The pickers are filled from the *account* while the columns print what it adds up to — two
-        // different questions, and a popup that answered the second one could not be saved.
+        // The pickers are filled from the *account* — the role it is filed under, the catalog entry its
+        // `positionId` points at — so the popup writes the fields as they are, while the two columns print
+        // the same two answers back. This row is an Administrator filed under a Site Supervisor job: one
+        // word says what it may do, the other what it is called.
         val two = adminPage(form = editForm(adminAccess))
-        assertTrue(selectNamed(modal(two), "role").contains("<option value=\"Admin\" selected=\"selected\">Admin</option>"), "the role picker was filled with the effective role")
-        assertTrue(row(two, adminAccess).contains("chip planning\">Manager"), "the column stopped printing the effective role")
+        assertTrue(selectNamed(modal(two), "role").contains("<option value=\"Administrator\" selected=\"selected\">Administrator</option>"), "the role picker was not the role the account holds")
+        assertTrue(row(two, adminAccess).contains("chip atrisk\">Administrator"), "the column stopped printing the effective role")
     }
 
     @Test
@@ -898,26 +923,27 @@ class SettingsRenderTest {
             listOf(
                 "There is already an account with that number.",
                 "Write the name the sheet should print.",
-                "Choose one of the three roles on the list.",
+                "Choose one of the roles on the list.",
                 "A password is $MIN_PASSWORD_LENGTH characters or more.",
             ),
             Regex("<p class=\"field-err\">([^<]*)</p>").findAll(modal(html)).map { it.groupValues[1] }.toList(),
             "the reasons are not the fields' own, in the order the fields print",
         )
 
-        // A permission the reader does not have is not one field's fault, so it owns the row's full width.
+        // A permission the reader does not have is not one field's fault, so it owns the row's full width —
+        // and their popup prints no Role picker at all, which is exactly why the reason cannot live there.
         val overReach = EmployeeService.save(
-            EmployeeDraft(employeeNumber = "EMP0024", name = "New Person", role = "Admin"),
+            EmployeeDraft(employeeNumber = "EMP0024", name = "New Person", role = "Employee"),
             manager, canManage = true, canAdmin = false,
         )
         assertFalse(overReach.saved)
         val refused = page(form = employeeFormOf(overReach, mayAdd = true, maySetRoles = false, filter = EmployeeFilter()))
         assertEquals(
-            listOf("Only an administrator can set a position, a role or a password."),
+            listOf("Only somebody who manages roles can set a role."),
             Regex("<p class=\"field-err full\">([^<]*)</p>").findAll(modal(refused)).map { it.groupValues[1] }.toList(),
             "the permission refusal is not printed as the form's own line",
         )
-        assertFalse(modal(refused).contains("<p class=\"field-err\">Only an administrator"), "the full-width refusal also printed inside a field")
+        assertFalse(modal(refused).contains("<p class=\"field-err\">Only somebody"), "the full-width refusal also printed inside a field")
         // An answer that has a reason in it is an open popup, whatever the opener said.
         val stillOpen = page(form = EmployeeForm(errors = mapOf(EmployeeField.NAME to "Write the name the sheet should print.")))
         assertTrue(tag(stillOpen, "employeeModal").contains("style=\"display:block\""), "a refusal was answered with a closed form")
@@ -928,7 +954,7 @@ class SettingsRenderTest {
     fun `the note under the heading says what happened to an account`() {
         assertTrue(page(note = PasswordStatus.USER_ADDED).contains("<div class=\"flash ok\">User added.</div>"), "an added account is not flashed green")
         assertTrue(
-            page(note = PasswordStatus.CANNOT_DELETE_ADMIN).contains("<div class=\"flash err\">Managers cannot delete Admin accounts.</div>"),
+            page(note = PasswordStatus.CANNOT_DELETE_ADMIN).contains("<div class=\"flash err\">Only somebody who manages roles can delete that account.</div>"),
             "a refused delete is not flashed red beside the row that is still there",
         )
         assertFalse(page().contains("class=\"flash"), "the page prints a banner nobody asked for")
@@ -948,7 +974,12 @@ class SettingsRenderTest {
         assertEquals(manager, setRow(html, "Employee number").substringAfter(">").substringBefore("<"))
         assertEquals("Munkhtsetseg Otchontoor", setRow(html, "Display name").substringAfter(">").substringBefore("<"))
         assertEquals("Project Manager", setRow(html, "Position").substringAfter(">").substringBefore("<"))
-        assertEquals("Manager", setRow(html, "Access level").substringAfter(">").substringBefore("<"))
+        // Stage 110 renamed the card's fourth row from "Access level" to "Role" and prints the catalogue's
+        // name for the account rather than the raw `access` word — here the same words the Position row
+        // happens to use, because a position is a job title and a role is what the account may do, and this
+        // fixture is a Project Manager in both.
+        assertEquals("Project Manager", setRow(html, "Role").substringAfter(">").substringBefore("<"))
+        assertFalse(html.contains(">Access level<"), "the retired access-word row is back on the card")
 
         // Stage 99 retired the self-service password box: no heading, no form, no fields, for any role.
         assertFalse(html.contains("Change Password"), "the retired password section is still printed")
@@ -1374,12 +1405,13 @@ class SettingsRenderTest {
     // --- Stage 62: the master switch for outbound mail ---------------------------------------------------
 
     /**
-     * The switch that lets the installation email anyone at all is a **Super Admin's** alone, layered on top
-     * of the operator's `data/.env`. The email card's read-only lines print for management (a manager reads
-     * whether mail can leave and their own address), but the tick box and its Save print only for an admin —
-     * the same right `/app/settings/mail-switch` re-checks — and a Viewer is not shown the card at all.
+     * The switch that lets the installation email anyone at all belongs to *Manage email settings* alone
+     * (Stage 110), layered on top of the operator's `data/.env`. The email card's read-only lines print for
+     * anybody who manages employees — they are the ones asked why a colleague was never told — while the tick
+     * box and its Save print only for a chip-holder, the same right `/app/settings/mail-switch` re-checks. A
+     * Reader with neither is not shown the card at all.
      *
-     * Since Stage 63 the admin's half is a checkbox carrying the state rather than a button offering its
+     * Since Stage 63 the chip-holder's half is a checkbox carrying the state rather than a button offering its
      * opposite, so the read-back is `checked` and the warning rides on the Save that would arm the mailer.
      */
     @Test
@@ -1434,7 +1466,7 @@ class SettingsRenderTest {
             "a disabled switch is not flashed red",
         )
         assertTrue(
-            page(mailStatus = PasswordStatus.MAIL_REFUSED).contains("Only a Super Admin can turn outbound mail"),
+            page(mailStatus = PasswordStatus.MAIL_REFUSED).contains("Only somebody who manages email settings can turn outbound mail"),
             "a refused switch press has no line of its own",
         )
     }

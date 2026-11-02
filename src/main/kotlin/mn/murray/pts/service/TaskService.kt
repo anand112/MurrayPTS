@@ -311,9 +311,10 @@ object TaskService {
      */
     fun openableBy(id: Int, callerEmpNo: String, canManage: Boolean): TaskItem? {
         val task = TaskRepository.findById(id) ?: return null
-        // Stage 81: an archived card is not on any board, so it has no popup to open. Its two controls live in
-        // the project's Archive panel — Restore and Delete permanently — and a hand-typed `?edit=` for a card
-        // somebody put away must land on the ordinary page rather than on an editor for work that is not there.
+        // Stage 81: an archived card is not on any board, so it has no popup to open. Its two controls used to
+        // live in the project's Archive panel and are now reachable only by a hand-built POST (Stage 106 retired
+        // the panel); either way a hand-typed `?edit=` for a card somebody put away must land on the ordinary page
+        // rather than on an editor for work that is not there.
         if (task.archived) return null
         if (canManage) return task
         // Stage 86: a project card is on a board the whole team reads. A backlog card is only ever on a
@@ -348,13 +349,14 @@ object TaskService {
     fun updateAssigned(id: Int, draft: TaskDraft, callerEmpNo: String, canManage: Boolean): TaskSaveResult {
         val existing = TaskRepository.findById(id)
             ?: return TaskSaveResult(null, mapOf(TaskField.TITLE to "That task no longer exists."), draft)
-        // Stage 81: the archive is a place a card waits, not a place it is edited. Restore is the one way back
-        // to a board, and until then the card takes no write — a hand-built POST naming it changes nothing, the
-        // same answer the popup gives by not opening on an archived id at all (see [openableBy]).
+        // Stage 81: the archive is a place a card waits, not a place it is edited. Until it is back on a board the
+        // card takes no write — a hand-built POST naming it changes nothing, the same answer the popup gives by not
+        // opening on an archived id at all (see [openableBy]). **Stage 106** took the panel's Restore button out of
+        // the app, so the message no longer sends the reader to one; it says what is true of the row.
         if (existing.archived) {
             return TaskSaveResult(
                 null,
-                mapOf(TaskField.PERMISSION to "That task is in this project's Archive. Restore it before changing it."),
+                mapOf(TaskField.PERMISSION to "That task is archived, and an archived task cannot be changed."),
                 draft,
             )
         }
@@ -488,8 +490,8 @@ object TaskService {
      */
     fun deleteAssigned(id: Int, callerEmpNo: String, canManage: Boolean): Boolean {
         if (!canManage) return false
-        // Stage 81: a project card's permanent delete is the Archive panel's, one deliberate step after the card
-        // has left the board. A hand-built POST naming an archived row has no control behind it and is refused.
+        // Stage 81: a project card's permanent delete is the archived-card route's, one deliberate step after the
+        // card has left the board. A hand-built POST naming an archived row has no control behind it and is refused.
         if (TaskRepository.findById(id)?.archived == true) return false
         return TaskRepository.delete(id) > 0
     }
@@ -570,7 +572,9 @@ object TaskService {
      * column nobody chose — a card that has gone missing from its reader's point of view, whatever the foreign key
      * calls it. The prototype this board was copied from had a third answer and the ask was to port it: every card
      * filed in the column is flagged archived with its lane remembered, the lane row then goes, and the cards can
-     * be put back one at a time from the project's archive panel with their steps and their log intact.
+     * be put back one at a time by [restoreCard] with their steps and their log intact. **Since Stage 106** no page
+     * prints a control for that, so [removeLane]'s sentence only promises that the cards leave the board; the
+     * restore route is still there for a hand-built POST, and the rows are untouched.
      * [TaskRepository.archiveLane] runs **before** the delete for exactly that reason — after it, the cards have
      * lost the lane the snapshot exists to name.
      *
@@ -606,22 +610,25 @@ object TaskService {
     /** The day an archive line is written, in the `yyyy-MM-dd` every other date in this app prints. */
     private fun archiveDay(): String = LocalDate.now(ZoneOffset.UTC).toString()
 
-    /** This project's archived cards, newest first — the rows of its archive panel. */
+    /** This project's archived cards, newest first — the rows nothing prints since Stage 106 retired the panel. */
     fun archived(projectId: Int): List<TaskItem> = TaskRepository.findArchived(projectId)
 
     /**
      * Take one card off its project's board and into the Archive.
      *
+     * **No page prints a control for this since Stage 106** (the card-level route is kept for the same reason as
+     * the panel's own two — see `Application.kt`), so in practice the archive is written by [removeLane].
+     *
      * The right is the board's, not the card's: [mayEditLanes] — management, or the account this project names as
      * its manager. That is the same line that removes the column the card stands in, and it is deliberately not
      * [openableBy]: an assignee may book their own time on a card, tick its steps and write its log, while taking
      * the card off somebody else's board is the project's call — as it has been for every destructive write here
-     * since [deleteAssigned]. The card's lane is snapshotted off the row, so the panel can say where it came from
-     * and [restoreCard] can put it back there.
+     * since [deleteAssigned]. The card's lane is snapshotted off the row, so [restoreCard] can put it back there
+     * and the row keeps the name of the column it left.
      *
      * A backlog card is refused, because it has no lane and no project: the Other tasks board is cut by status
      * (Stage 57) and its columns are a shared list, so archiving one of its cards would be a card vanishing from a
-     * board into a panel that lives on a page it does not belong to. That board keeps management's **Delete
+     * board into an archive that belongs to a page it does not stand on. That board keeps management's **Delete
      * task**, exactly as the prototype's standalone card keeps its delete.
      */
     fun archiveCard(taskId: Int, callerEmpNo: String, canManage: Boolean): Boolean {
@@ -667,13 +674,13 @@ object TaskService {
     /**
      * Delete an archived card for good, with its plan and its log.
      *
-     * The prototype's second button on every archive row. Since **Stage 84** it shares the job with the live card
-     * popup's **Delete task** — Stage 81 had removed that button in favour of *Archive task*, and Stage 84 put it
-     * back — so this is the permanent delete for a card *already in* the Archive, not the project page's only one.
-     * It is gated on the card actually being archived: a live card is not reachable from this panel, and a
-     * route that would delete one handed to it by hand is a card destroyed by a click meant to restore it. The
-     * right is the same [mayEditLanes] line as the archive itself, because whoever may put a card away may agree
-     * it is gone.
+     * **No page prints a control for this since Stage 106**: Stage 81 put it on the Archive panel's rows, and that
+     * panel went with its opener. The route answers a hand-built POST and nothing else. Since **Stage 84** the
+     * permanent delete a reader can actually press is the live card popup's **Delete task** — Stage 81 had removed
+     * that button in favour of *Archive task*, and Stage 84 put it back. It is gated on the card actually being
+     * archived: a live card is not reachable here, and a route that would delete one handed to it by hand is a card
+     * destroyed by a click meant to restore it. The right is the same [mayEditLanes] line as the archive itself,
+     * because whoever may put a card away may agree it is gone.
      *
      * The children need no cleanup. `task_checklist_items` and `task_notes` cascade from the card and
      * `PRAGMA foreign_keys` is on for every connection, so dropping the row takes its steps, its notes and its
@@ -781,17 +788,18 @@ object TaskService {
      *     category lists them, so the picker treats them exactly like every other lane. A name the naming rules
      *     would refuse is still refused at the field, through [BucketDefaultsService.nameProblem], which has no
      *     standard-name branch left to switch off (Stage 100).
-     *   * **a bucket that holds cards comes off with its work in it, and the work goes to Archive**. Until
+     *   * **a bucket that holds cards comes off with its work in it, and the work leaves the board with it**. Until
      *     Stage 81 this was the picker's refusal — "still has cards in it, move them to another bucket first",
      *     which made the reader relocate every card by hand before the column they had already decided against
      *     could be taken away. The prototype this page was copied from answers a third way, and it is the one
      *     shipped: the lane's cards are flagged archived with [TaskRepository.archiveLane] in the same breath the
-     *     lane row is dropped, so they leave the board *as a set* and can be put back one at a time from the
-     *     project's archive panel, plan and log and all. Two older answers to the same situation are worth
-     *     naming, because both are still true of the schema: [removeLane] alone would have let the cards fall to
-     *     no bucket under `ON DELETE SET NULL` and reappear on an **Unsorted** column nobody chose, and dropping
-     *     the cards with the lane was never on the table — the schema's `ON DELETE SET NULL` exists precisely so
-     *     that a lane's removal cannot delete work.
+     *     lane row is dropped, so they leave the board *as a set*, plan and log and all. **Since Stage 106** no page
+     *     prints them afterwards — the restore and permanent-delete routes still answer a hand-built POST, but the
+     *     sentence this save closes with promises only that the work left the board. Two older answers to the same
+     *     situation are worth naming, because both are still true of the schema: [removeLane] alone would have let
+     *     the cards fall to no bucket under `ON DELETE SET NULL` and reappear on an **Unsorted** column nobody
+     *     chose, and dropping the cards with the lane was never on the table — the schema's `ON DELETE SET NULL`
+     *     exists precisely so that a lane's removal cannot delete work.
      *   * **a name the category does not know is this project's, unless the form ticks otherwise**. Since
      *     Stage 77 [alsoForType] is that tick, and it is off by default: a bucket named here goes on this board
      *     and nowhere else, which is what "every project has its own buckets" means in practice — the column a
@@ -828,6 +836,11 @@ object TaskService {
         callerEmpNo: String,
         canManage: Boolean,
         alsoForType: Boolean = false,
+        // Stage 110: naming a column on *this* board is MANAGE_BUCKETS, but offering the name to the
+        // category's catalogue is MANAGE_PROJECT_TYPES — two chips that a custom role may hold apart. The
+        // default keeps the pre-110 call sites (and their tests) coherent: whoever could run a board could
+        // also widen its category.
+        canManageTypes: Boolean = canManage,
     ): LaneSaveResult {
         if (!mayEditLanes(projectId, callerEmpNo, canManage)) return LaneSaveResult.refused(LaneError.DENIED)
         val project = ProjectRepository.findById(projectId) ?: return LaneSaveResult.refused(LaneError.NO_PROJECT)
@@ -865,7 +878,7 @@ object TaskService {
         // `also_type` anyway — a hand-built form, or a page left open while their role changed — is refused
         // rather than silently given the project-local answer, because the box they pressed said it would go
         // further than one board.
-        if (extra != null && alsoForType && !canManage) {
+        if (extra != null && alsoForType && !canManageTypes) {
             return LaneSaveResult.refused(
                 LaneError.CATALOGUE_DENIED,
                 "Only management adds a new bucket to the ${project.type} catalogue.",
@@ -875,9 +888,10 @@ object TaskService {
         // Every lane the picker is about to take off, not just the first, and the work standing in them. Since
         // **Stage 81** an occupied lane is not a refusal: the untidy answer Stage 73 made the reader fix by hand
         // ("move them to another bucket first") became the prototype's third way — the column and everything in it
-        // go to Archive together, and a person who wants a card back gets it from the project's archive panel.
+        // leave the board together, flagged archived. Since **Stage 106** no panel lists them, so the closing
+        // sentence says the work left rather than where to go and find it.
         // The count is kept for the closing sentence, because a reader who just took three cards off the board
-        // should be told where they went rather than left to find the column empty.
+        // should be told how much left with the columns rather than left to find them empty.
         val leaving = onBoard.filter { lane -> wanted.none { it.equals(lane.name, ignoreCase = true) } }
         val held = leaving.sumOf { counts[it.id] ?: 0 }
         if (wanted.isEmpty()) {
@@ -912,7 +926,7 @@ object TaskService {
             // the board gets the lane either way, and `ProjectBucketRepository.insert` is the only write a
             // caller who is not management can cause here. Neither row is given a colour (Stage 83): a new
             // bucket is painted by its place in the run, on this board and on the boards it later seeds.
-            if (alsoForType && canManage && known.none { it.equals(name, ignoreCase = true) }) {
+            if (alsoForType && canManageTypes && known.none { it.equals(name, ignoreCase = true) }) {
                 TypeDefaultBucketRepository.insert(project.type, stored)
                 widened += stored
             }
@@ -929,9 +943,10 @@ object TaskService {
             !widened.isEmpty() -> " — ${widened.joinToString()} added to the ${project.type} catalogue, so new " +
                 "projects of that category are offered it"
             // Stage 81: the sentence names the work the untick took off the board, because a card that has gone
-            // quiet on a column the reader just removed looks exactly like a card that has gone missing. Where it
-            // can be found is the half of the answer the panel's own title cannot give from behind a board.
-            held > 0 -> " — $held ${if (held == 1) "card" else "cards"} went to Archive"
+            // quiet on a column the reader just removed looks exactly like a card that has gone missing. **Stage
+            // 106** retired the panel that used to list those cards, so the half of the answer that still holds is
+            // that the work left the board with its column — it is not destroyed.
+            held > 0 -> " — $held ${if (held == 1) "card" else "cards"} left the board with it"
             else -> ""
         }
         return LaneSaveResult(now, null, "Saved: $board$also.")

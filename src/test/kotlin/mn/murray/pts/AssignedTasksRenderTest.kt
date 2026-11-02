@@ -64,8 +64,8 @@ class AssignedTasksRenderTest {
 
     private fun render(block: DIV.() -> Unit): String = createHTML().div(block = block)
 
-    private fun page(canManage: Boolean, state: TaskForm? = null, bucketId: Int = 0): String = render {
-        assignedTasksContent(if (canManage) manager else engineer, canManage, state, bucketId)
+    private fun page(canManage: Boolean, state: TaskForm? = null, bucketId: Int = 0, projectId: Int = 0): String = render {
+        assignedTasksContent(if (canManage) manager else engineer, canManage, state, bucketId, projectId)
     }
 
     /** A card of this board: assigned work, sitting in [status] and owned by [assignee]. */
@@ -517,5 +517,132 @@ class AssignedTasksRenderTest {
         assertEquals("assigned:7", backOf(made), "a posted bucket filter was dropped")
         val junk = Parameters.build { append("back", "assigned:'; drop table tasks; --") }
         assertEquals("assigned", backOf(junk), "a hand-built back token was echoed back")
+    }
+
+    // --- Stage 107: the projects board's own picker ----------------------------------------------
+
+    @Test
+    fun `the project picker lists every project and opens on all projects`() {
+        val road = projectRow()
+        val crusher = projectRow(code = "S-02", name = "Crusher service")
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        assigned("Service the jaw", assignee = "EMP0002", projectId = crusher)
+        val html = page(canManage = false)
+        val filter = formWithClass(html, "assigned-project-filter")
+        assertTrue(filter.isNotEmpty(), "the projects board has no project picker")
+        assertTrue(filter.contains("name=\"project\""), "the picker has no project field")
+        assertTrue(filter.contains("data-autosubmit"), "picking a project would wait for a second press")
+        assertTrue(filter.contains("action=\"/app/assigned-tasks\""), "the picker does not come back here")
+        assertTrue(filter.contains(">S-01 · Haul road widening</option>"), "the first project is not offered")
+        assertTrue(filter.contains(">S-02 · Crusher service</option>"), "the second project is not offered")
+        assertTrue(optionFor(filter, "All projects").contains("selected"), "an unfiltered board did not open on All")
+        assertFalse(optionFor(filter, "S-01 · Haul road widening").contains("selected"),
+            "a project was preselected on the whole board")
+        // Both cards are on the board: the picker narrows, it never hides by itself.
+        assertTrue(html.contains("Spread base course") && html.contains("Service the jaw"),
+            "the unfiltered board hid a card")
+    }
+
+    @Test
+    fun `choosing a project narrows the projects board and names it in the scope line`() {
+        val road = projectRow()
+        val crusher = projectRow(code = "S-02", name = "Crusher service")
+        val site = BucketRepository.insert("Site works")
+        backlog("Re-line the crusher", site, assignee = "EMP0002")
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        assigned("Service the jaw", assignee = "EMP0002", projectId = crusher)
+        val html = page(canManage = false, projectId = road)
+        assertTrue(html.contains("Spread base course"), "the chosen project's card is missing")
+        assertFalse(html.contains("Service the jaw"), "a card from another project was left on the projects board")
+        val filter = formWithClass(html, "assigned-project-filter")
+        assertTrue(optionFor(filter, "S-01 · Haul road widening").contains("selected"),
+            "the picker did not open on the chosen project")
+        assertFalse(optionFor(filter, "All projects").contains("selected"), "All projects stayed selected")
+        // It narrows the projects board only: the Other-tasks board below is whole, and neither board loses its
+        // five status columns to a filter.
+        assertTrue(html.contains("Re-line the crusher"), "the project filter hid an Other-task card")
+        assertEquals(2 * TASK_STATUSES.size, occurrences(html, "kcol-head"), "the filter redrew a board")
+        assertTrue(html.contains("Only the cards assigned to you on S-01 · Haul road widening are on this board."),
+            "the scope line did not name the project the board is narrowed to")
+    }
+
+    @Test
+    fun `a project the page no longer has answers with all of them`() {
+        val road = projectRow()
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        val html = page(canManage = false, projectId = 9999)
+        assertTrue(html.contains("Spread base course"), "a stale project id hid the reader's whole board")
+        assertTrue(optionFor(formWithClass(html, "assigned-project-filter"), "All projects").contains("selected"),
+            "a stale project id left the picker on nothing")
+    }
+
+    @Test
+    fun `the two pickers carry each other's choice`() {
+        val hr = BucketRepository.insert("HR")
+        val road = projectRow()
+        backlog("Sign the contract", hr, assignee = "EMP0002")
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        val html = page(canManage = false, bucketId = hr, projectId = road)
+        val projectFilter = formWithClass(html, "assigned-project-filter")
+        assertTrue(projectFilter.contains("name=\"bucket\" value=\"$hr\""),
+            "choosing a project would widen the Other-tasks board: $projectFilter")
+        val bucketFilter = formWithClass(html, "other-bucket-filter")
+        assertTrue(bucketFilter.contains("name=\"project\" value=\"$road\""),
+            "choosing a bucket would widen the projects board: $bucketFilter")
+        val add = formWithClass(html, "kcol-add")
+        assertTrue(add.contains("name=\"bucket\" value=\"$hr\""), "the create line lost the bucket: $add")
+        assertTrue(add.contains("name=\"project\" value=\"$road\""), "the create line lost the project: $add")
+    }
+
+    @Test
+    fun `a project-only filter still comes back to the projects board`() {
+        val road = projectRow()
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        val html = page(canManage = false, projectId = road)
+        // The projects board carries the page's one opener here, and it must come back to the narrowed board.
+        val opener = elementWithId(html, "taskEditOpener").orEmpty()
+        assertTrue(opener.contains("action=\"/app/assigned-tasks?project=$road\""),
+            "the opener lost the project filter: $opener")
+        val save = formWithAction(html, "/app/assigned-tasks/save")
+        assertTrue(save.contains("<input type=\"hidden\" name=\"back\" value=\"assigned:0:$road\">"),
+            "a save from the narrowed projects board would answer on the whole board")
+    }
+
+    @Test
+    fun `the chosen project survives opening, saving and refusing a card beside a bucket`() {
+        val site = BucketRepository.insert("Site works")
+        val road = projectRow()
+        backlog("Re-line the crusher", site, assignee = "EMP0002")
+        assigned("Spread base course", assignee = "EMP0002", projectId = road)
+        val html = page(canManage = false, bucketId = site, projectId = road)
+        // One `back` token carries both filters, and taskRedirect rebuilds both keys from it: opening a card,
+        // saving it and answering a refusal all land on the doubly-filtered page the reader was reading.
+        val opener = elementWithId(html, "taskEditOpener").orEmpty()
+        assertTrue(opener.contains("action=\"/app/assigned-tasks?bucket=$site&amp;project=$road\""),
+            "the opener lost one of the filters: $opener")
+        val save = formWithAction(html, "/app/assigned-tasks/save")
+        assertTrue(save.contains("<input type=\"hidden\" name=\"back\" value=\"assigned:$site:$road\">"),
+            "a save from the filtered board would answer on another page")
+    }
+
+    @Test
+    fun `the project filter is a view token the routes read back`() {
+        assertEquals("assigned:0:5", backForFilters(0, 5))
+        assertEquals("assigned:7:5", backForFilters(7, 5))
+        assertEquals("assigned:7", backForFilters(7, 0))
+        assertEquals("assigned", backForFilters(0, 0))
+        assertEquals(5, projectOfBack("assigned:0:5"))
+        assertEquals(5, projectOfBack("assigned:7:5"))
+        assertEquals(7, bucketOfBack("assigned:7:5"))
+        assertEquals(0, projectOfBack("assigned:7"), "a bucket-only token guessed a project")
+        assertEquals(0, projectOfBack("assigned"))
+        assertTrue(taskRedirect("assigned:0:5", 0).endsWith("?project=5"), "the project filter was lost on the way back")
+        assertTrue(taskRedirect("assigned:7:5", 0).endsWith("?bucket=7&project=5"),
+            "one of the two filters was lost on the way back")
+        assertEquals("/app/assigned-tasks", taskRedirect("assigned", 0), "an unfiltered board grew a project key")
+        val made = Parameters.build { append("back", "assigned:0:5") }
+        assertEquals("assigned:0:5", backOf(made), "a posted project filter was dropped")
+        val half = Parameters.build { append("back", "assigned::5") }
+        assertEquals("assigned:0:5", backOf(half), "a half-written token was not normalised")
     }
 }

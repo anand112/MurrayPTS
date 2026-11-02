@@ -3,6 +3,7 @@ package mn.murray.pts.service
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import mn.murray.pts.db.Migrations
+import mn.murray.pts.domain.Currency
 import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.domain.Member
 import mn.murray.pts.domain.PROJECT_BUCKET_MAX
@@ -76,10 +77,11 @@ class ProjectServiceTest {
         revenue: String = "1,250,000",
         invoiced: String = "",
         newBuckets: List<String> = emptyList(),
+        currency: String = "MNT",
     ) = ProjectDraft(
         type = type, code = code, name = name, client = client,
         start = start, end = end, status = status, managerName = managerName, revenue = revenue,
-        invoiced = invoiced, newBuckets = newBuckets,
+        invoiced = invoiced, newBuckets = newBuckets, currency = currency,
     )
 
     @Test
@@ -157,12 +159,77 @@ class ProjectServiceTest {
         assertNotNull(spaced.projectId)
         assertEquals(2_500_000.0, ProjectService.byId(spaced.projectId!!)!!.revenue)
 
+        // **Stage 108**: a revenue value read off the board ("₮ 3,500,000", non-breaking space included) can be
+        // pasted straight back into a form; the sign and that space are not part of the amount.
+        val signed = ProjectService.create(draft(code = "S-05", revenue = "₮\u00A03,500,000"))
+        assertNotNull(signed.projectId, "a signed tugrik amount was refused")
+        assertEquals(3_500_000.0, ProjectService.byId(signed.projectId!!)!!.revenue)
+
         val text = ProjectService.create(draft(code = "S-03", revenue = "about a billion"))
         assertNull(text.projectId)
         assertTrue(text.errors.containsKey(ProjectField.REVENUE))
+        assertEquals(
+            "Enter revenue as a number, like 1,250,000.",
+            text.errors.getValue(ProjectField.REVENUE),
+            "the refusal should name no unit — Stage 109 made the money a choice",
+        )
 
         val negative = ProjectService.create(draft(code = "S-04", revenue = "-5"))
         assertNull(negative.projectId, "negative revenue is not a typo we should store")
+    }
+
+    @Test
+    fun `a project is counted in tugrik unless the create form chooses otherwise`() {
+        // The form's default pick, and the default this draft never sets, are the same money: every project made
+        // before the choice existed reads this way, and so does one made by a form that posts no currency at all.
+        val plain = ProjectService.create(draft())
+        assertNotNull(plain.projectId, "expected success, got ${plain.errors}")
+        assertEquals(Currency.MNT, ProjectService.byId(plain.projectId!!)!!.currency)
+
+        val blank = ProjectService.create(draft(code = "S-02", currency = ""))
+        assertNotNull(blank.projectId, "a blank currency should mean tugrik, got ${blank.errors}")
+        assertEquals(Currency.MNT, ProjectService.byId(blank.projectId!!)!!.currency)
+
+        // The two other monies, each writing the amount as typed — no rate, no conversion, just a different sign.
+        val dollars = ProjectService.create(draft(code = "S-03", revenue = "\$\u00A02,500,000", currency = "USD"))
+        assertNotNull(dollars.projectId, "expected a USD create to succeed, got ${dollars.errors}")
+        val dollarProject = ProjectService.byId(dollars.projectId!!)!!
+        assertEquals(Currency.USD, dollarProject.currency)
+        assertEquals(2_500_000.0, dollarProject.revenue, "the amount is the number typed, not a conversion")
+
+        // A lowercase code from a hand-made post names the same money; the form always posts the upper case.
+        val yuan = ProjectService.create(draft(code = "S-04", revenue = "¥\u00A04,800,000", currency = "cny"))
+        assertNotNull(yuan.projectId, "expected a CNY create to succeed, got ${yuan.errors}")
+        val yuanProject = ProjectService.byId(yuan.projectId!!)!!
+        assertEquals(Currency.CNY, yuanProject.currency)
+        assertEquals(4_800_000.0, yuanProject.revenue)
+    }
+
+    @Test
+    fun `a currency the app cannot name is refused under its own field`() {
+        val result = ProjectService.create(draft(currency = "EUR"))
+        assertNull(result.projectId, "a currency with no sign in this app must not be stored")
+        assertEquals(ProjectField.CURRENCY, result.errors.keys.firstOrNull(), "the refusal is not under the picker: ${result.errors}")
+        assertTrue(ProjectRepository.findAll().isEmpty(), "a refused create must not write a row")
+    }
+
+    @Test
+    fun `an edit leaves the currency the create chose alone`() {
+        val id = ProjectService.create(draft(revenue = "900,000", currency = "USD")).projectId
+        assertNotNull(id)
+        // The header strip has no currency picker and posts none; the service must not read that silence as "tugrik".
+        val result = ProjectService.update(
+            id!!,
+            ProjectDraft(
+                type = "Site projects", name = "Haul road widening", client = "Oyu Tolgoi LLC",
+                start = "2026-11-01", end = "2027-03-30", status = "In progress",
+                managerName = "Munkhtsetseg", revenue = "\$\u00A0950,000", invoiced = "750,000",
+            ),
+        )
+        assertTrue(result.ok, "expected the edit to save, got ${result.errors}")
+        val saved = ProjectService.byId(id)!!
+        assertEquals(Currency.USD, saved.currency, "the edit changed the money the project is counted in")
+        assertEquals(950_000.0, saved.revenue)
     }
 
     @Test
@@ -252,10 +319,11 @@ class ProjectServiceTest {
         // with it. Stage 100 put the key back for the empty-category refusal alone, and **Stage 104 gave it an
         // input: the popup's Add bucket box.** Pinned here because `ProjectField` is the contract the modal prints
         // its messages against. INVOICED (Stage 60) joins the enum for the detail strip's save messages only; the
-        // create popup builds its boxes field by field and deliberately offers no amount-invoiced box.
+        // create popup builds its boxes field by field and deliberately offers no amount-invoiced box. CURRENCY
+        // joined in **Stage 109**, under the Revenue box it belongs to: the picker under the amount.
         assertEquals(
             listOf("TYPE", "CODE", "NAME", "CLIENT", "START", "END", "STATUS", "MANAGER", "REVENUE",
-                "INVOICED", "BUCKETS"),
+                "INVOICED", "CURRENCY", "BUCKETS"),
             ProjectField.entries.map { it.name },
         )
         val created = ProjectService.create(draft())

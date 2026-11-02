@@ -176,6 +176,33 @@ fun migrateCode(code: String): String {
     return "$letter${upper.substring(dash)}"
 }
 
+/**
+ * **Stage 109 — a project's money is in its own currency.** Until this stage every amount in the app was
+ * tugrik: `projects.revenue` and `projects.invoiced` (V3, V11) were bare `REAL` columns and [mn.murray.pts]
+ * printed `₮` on revenue. The user asked for **USD and CNY to be choosable, with tugrik the default when a
+ * project is created**, so the currency became a column on the row (V20) and this is its vocabulary.
+ *
+ * The stored value is the ISO [code]; the [symbol] is what every revenue cell and both revenue boxes print.
+ * A project that never chose carries [DEFAULT] — tugrik — which is also what an unrecognised code falls back
+ * to in [of], so a hand-edited row can never paint a figure with no sign. Nothing here converts: choosing USD
+ * relabels the amount the reader typed, it does not exchange it.
+ */
+enum class Currency(val code: String, val symbol: String, val label: String) {
+    MNT("MNT", "₮", "Tugrik"),
+    USD("USD", "$", "US dollar"),
+    CNY("CNY", "¥", "Yuan"),
+    ;
+
+    companion object {
+        /** Tugrik is the default a new project opens on and the fallback for a code the app cannot name. */
+        val DEFAULT: Currency = MNT
+
+        /** The currency [code] names, case-insensitively; `null` when it names none (the form's refusal). */
+        fun of(code: String?): Currency? =
+            entries.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) }
+    }
+}
+
 @kotlinx.serialization.Serializable
 data class Project(
     val id: Int,
@@ -192,10 +219,15 @@ data class Project(
     val client: String = "",
     /** Start date, `yyyy-MM-dd`; blank when the project has no recorded kick-off. */
     val start: String = "",
-    /** Contract value in the company's reporting currency; 0.0 when not yet quoted. */
+    /** Contract value in [currency]; 0.0 when not yet quoted. */
     val revenue: Double = 0.0,
     /** How much of the contract has actually been invoiced to the client; 0.0 when nothing billed yet (V11). */
     val invoiced: Double = 0.0,
+    /**
+     * The currency [revenue] and [invoiced] are written in (Stage 109, V20). Chosen when the project is
+     * created and fixed afterwards, like its number; every project written before V20 is [Currency.MNT].
+     */
+    val currency: Currency = Currency.MNT,
 )
 
 /** Old code -> (new code, type, renamed name or null). Applied once to files written before types existed. */

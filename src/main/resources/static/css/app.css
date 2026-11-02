@@ -969,8 +969,8 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
    value is shortened rather than wrapped. `.detail-title` is the project's own name above that row. */
 .detail-title { margin: 6px 0 14px; font-size: 22px; color: var(--title); }
 /* --- Stage 60: the management header of a project page -------------------------------------------
-   The breadcrumb row carries the path on the left and the whole-project actions (Pin for me, the copy-link
-   icon, Delete project) on the right, on the same line. Below it the field strip is an editable form laid out
+   The breadcrumb row carries the path on the left and the whole-project actions (Pin for me and Delete
+   project) on the right, on the same line. Below it the field strip is an editable form laid out
    as ONE full-width row of caption-over-value cells spread across the panel — the reading order of the
    screenshot, not a boxed grid that wraps. */
 .crumb-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -980,11 +980,7 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .crumb-sep { color: var(--muted); font-weight: 400; }
 .crumb-code { color: var(--title); }
 .head-actions { display: flex; align-items: center; gap: 8px; }
-/* The copy-link icon sits between the pin and the delete. It reuses the app's `.icon-btn` box but with a
-   ghost border rather than the filled input background, so it reads as a header action and not a field. */
 .head-actions .opener-form { margin: 0; }
-.head-copy { background: transparent; border: 1px solid var(--input-border); }
-.head-copy:hover { background: var(--input-bg); }
 .edit-panel { padding: 16px 18px; }
 /* One row, fields spread edge to edge like the screenshot. Every cell uses a ZERO flex-basis with a content
    weight, so the ten of them always divide the panel between themselves and never push a later cell onto a
@@ -1237,6 +1233,13 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 .modal-wide .form-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .field.full { grid-column: 1 / -1; }
 .field-hint { display: block; font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+/* --- Stage 109: the currency picker under Revenue in the new-project popup --------------------------------
+   The amount and the money it is in are one answer, so the second box hugs the first: a short gap rather than the
+   form grid's, and `select`'s own field height turned down to something that reads as "and in what?" rather than
+   as a field of the same weight as the amount. Its width stays the base rule's 100%, because it sits directly
+   under the amount box and anything narrower would look like a stray control beside it. */
+.currency-line { margin-top: 6px; }
+.currency-line select { padding: 7px 10px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
 .modal-wide .modal-actions { display: flex; align-items: center; gap: 10px; }
 .modal-wide .modal-actions .submit { flex: 1; margin-top: 0; padding: 11px; font-size: 13.5px; }
 .ghost-btn {
@@ -1364,56 +1367,44 @@ a.notif-item.unread .notif-item-title { color: var(--title); }
 .notif-time { font-size: 10.5px; color: var(--note); margin-top: 3px; }
 
 /* ---------------------------------------------------------------------------
-   Stage 81 — the Archive. projectArchivePanel() in Projects.kt draws it as a
-   .modal block named #projectArchive, so it opens the way every other popup on
-   this page does (the server renders `style="display:block"` from ?archive=1, the
-   header's 🗄 asks for it, archive-modal.js closes it) and the reader never sees
-   a page they have not already been shown. It is a panel of ROWS rather than a
-   form, so it keeps .modal-content's card and only its own width, head line and
-   row metrics — the prototype's side panel restated in this app's vocabulary.
+   Stage 110 — the Roles & permissions table and its popup (AccessControl.kt:
+   rolesPanel / roleRow / roleModal). `#rolesPanel` and `#roleModal` are swapped
+   in place by app.js, so nothing here may depend on a page reload, and the
+   chips are the page's densest text: they read as a set, not as a paragraph.
    --------------------------------------------------------------------------- */
-/* Wider than a 500px popup because a row is a whole card title over a project code
-   and a bucket name, and both have to sit on their own lines at reading width. */
-.archive-panel { max-width: 560px; }
-/* The head is the count and the close, spread to the box's two ends the way a
-   section head is everywhere else in the app (.notif-head, .modal-foot). The form
-   around the ✕ is a real GET submit, so it carries no margin of its own. */
-.archive-head {
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    padding-bottom: 11px; margin-bottom: 13px; border-bottom: 1px solid var(--input-border);
+/* A panel title with its own control beside it — here **+ New role**. The heading keeps the caption's
+   baseline and the button keeps the panel's right edge, which is where the picture puts it. */
+.panel-head {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 6px;
 }
-html[data-theme="dark"] .archive-head { border-bottom-color: rgba(255, 255, 255, .12); }
-/* Same size as a wide popup's own heading (.modal-wide h3), so opening the Archive
-   does not look like a smaller kind of window. */
-.archive-title { font-size: 17px; margin: 0; }
-.archive-head form { margin: 0; }
-.archive-empty { font-size: 12.5px; color: var(--muted); margin: 2px 0 4px; }
-/* One put-away card per row: its title, where it came from, and the two things
-   that can still be done to it. The border keeps the rows apart when several
-   arrive from one column. */
-.archive-item {
-    border: 1px solid var(--input-border); border-radius: 9px; padding: 10px 12px; margin-bottom: 9px;
+.panel-head h3.set-section { margin: 0; }
+
+/* One role's chips, wrapped in its own column. `row-gap` rather than `gap` alone, because a role holding
+   thirteen of them wraps to four lines and the lines have to breathe the same way the columns do. */
+.perm-chips { display: flex; flex-wrap: wrap; gap: 6px 6px; }
+.chip.perm {
+    background: var(--input-bg); border: 1px solid var(--input-border); color: var(--title);
+    font-size: 11px; font-weight: 700; letter-spacing: .01em; padding: 2px 9px;
 }
-.archive-item:last-child { margin-bottom: 0; }
-.at-title { font-size: 13px; font-weight: 700; color: var(--title); margin-bottom: 3px; }
-.at-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
-/* The two answers, on one line. Each is its own POST (a form cannot live inside a
-   form), so the row lays the forms out rather than the buttons and neither form
-   adds a margin the other does not have. */
-.at-actions { display: flex; align-items: center; gap: 6px; }
-.archive-item form { margin: 0; }
-/* Spelled out rather than left to `.btn-sm`, for the Stage 72 reason: `.ghost-btn`
-   is written later in this file with 11px 18px padding and 13.5px text, so an
-   unscoped *Restore* and *Delete permanently* would stand at two heights side by
-   side. This puts the ghost row on the same metrics `.submit.btn-sm` gives its
-   neighbour — and it is three classes strong, so no source order can undo it. */
-.at-actions .ghost-btn.btn-sm {
-    padding: 5px 12px; font-size: 12.5px; font-weight: 600; line-height: 1.5;
+
+/* The table reads left to right as name, rights, headcount — so the rights column is the one that gets
+   the width, and the two number-shaped columns are the ones that shrink to their content. */
+.roles-grid .role-name { font-weight: 700; color: var(--title); white-space: nowrap; }
+.role-default { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+td.role-count, th.role-count-head { text-align: center; width: 1%; white-space: nowrap; }
+td.role-count { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--muted); }
+.roles-grid td:last-child { text-align: right; width: 1%; white-space: nowrap; }
+
+/* The popup's thirteen tick boxes. Two columns on a wide screen, one on a phone — the labels are short
+   and the question is "which of these may it do", so every row should be scannable without reading a
+   heading twice. */
+.perm-picks {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 9px 16px;
+    margin-top: 4px;
 }
-/* The header's 🗄 while its panel is open: the same pressed reading the pin gives
-   (Stage: `.pin-btn.on`), on the bare .icon-btn box. .icon-btn has no border, so
-   the ring that marks the accent goes inside the box instead of replacing one. */
-.icon-btn.archive-btn.on {
-    background: var(--accent-soft); color: var(--accent-strong);
-    box-shadow: inset 0 0 0 1px var(--accent);
+label.perm-pick {
+    display: flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 600;
+    letter-spacing: normal; text-transform: none; color: var(--title); cursor: pointer;
 }
+.perm-pick input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }

@@ -90,21 +90,30 @@ fun navItems(employeeNumber: String): List<NavItem> = listOf(
 )
 
 /**
- * The three sections whose whole job is a management function: the backlog board, the account/password table,
- * and the Settings sheet that *is* the roster. A Viewer is not offered them in the sidebar (Stage 51).
+ * The sections whose link is a permission rather than everyone's page, and the chips that earn it
+ * (Stage 110). The picture has no "view the backlog" or "view settings" chip, so each of these is gated on
+ * the chip of the control inside it: the backlog board is edited by *Edit any task* or reshaped by *Manage
+ * buckets*; Access control is the two people chips; Settings holds the three panels those chips stand for.
  *
  * They are kept here rather than dropped from [navItems] because that list does double duty — the notification
  * bell resolves a stored item's section back to a path through it (see [mn.murray.pts.notificationBell]). Take
  * the items out of [navItems] and a Viewer's backlog-card notification silently falls through to /app/projects.
- * The routes check the role again; a hidden link is presentation, never the right itself.
+ * The routes check the permission again; a hidden link is presentation, never the right itself.
  */
-val MANAGEMENT_ONLY_NAV = setOf("other-tasks", "access-control", "settings")
+val NAV_PERMISSIONS: Map<String, Set<Permission>> = mapOf(
+    "forecasts" to setOf(Permission.VIEW_FORECASTS),
+    "other-tasks" to setOf(Permission.EDIT_ANY_TASK, Permission.MANAGE_BUCKETS),
+    "access-control" to setOf(Permission.MANAGE_EMPLOYEES, Permission.MANAGE_ROLES),
+    "settings" to Authorization.SETTINGS,
+)
 
-/** [navItems] as one account's sidebar should actually print it: the management-only three only for management. */
+/** [navItems] as one account's sidebar should actually print it: a gated link only for a role holding its chip. */
 fun navItemsFor(employeeNumber: String): List<NavItem> {
-    val all = navItems(employeeNumber)
-    return if (Authorization.canManage(employeeNumber)) all
-    else all.filter { it.id !in MANAGEMENT_ONLY_NAV }
+    val permissions = Authorization.permissionsOf(employeeNumber)
+    return navItems(employeeNumber).filter { item ->
+        val needed = NAV_PERMISSIONS[item.id] ?: return@filter true
+        needed.any { it in permissions }
+    }
 }
 
 /**

@@ -266,7 +266,7 @@ class TaskBoardRenderTest {
 
     @Test
     fun `a project page is cut by its buckets and carries no manager panel`() {
-        val html = render { projectDetailContent(manager, project, canManage = true) }
+        val html = render { projectDetailContent(manager, project, canEdit = true) }
         val tasks = html.indexOf("Tasks on this project")
         assertTrue(tasks >= 0, "no task board on the project page")
         // The assignees box is still gone (assignees remain in the data for alerts). The manager panel went in

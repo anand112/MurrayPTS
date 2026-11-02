@@ -263,12 +263,12 @@ private fun DIV.forecastGrid(
                 th(classes = "f-code") { +"Project #" }
                 th(classes = "f-desc") { +"Description" }
                 th(classes = "f-client") { +"Client" }
-                th(classes = "f-rev") { +"Revenue, MNT" }
+                th(classes = "f-rev") { +"Revenue" }
                 th(classes = "f-prev") { +"Invoiced in previous months" }
                 th(classes = "f-forecast") { +"Forecast (current month)" }
                 th(classes = "f-remain") { +"Remainant to next months" }
                 th(classes = "f-imonth") { +"Invoiced month" }
-                th(classes = "f-invoiced") { +"Invoiced amount, MNT" }
+                th(classes = "f-invoiced") { +"Invoiced amount" }
                 th(classes = "f-status") { +"Invoice status" }
             }
         }
@@ -280,12 +280,12 @@ private fun DIV.forecastGrid(
                     attributes["colspan"] = "6"
                     +"Forecast total:"
                 }
-                td("fc-total-num") { span("money") { +formatMoney(group.forecastTotal) } }
+                td("fc-total-num") { span("money") { +bareMoney(group.forecastTotal) } }
                 td("fc-total-label") {
                     attributes["colspan"] = "2"
                     +"Actual invoiced total:"
                 }
-                td("fc-total-num") { span("money") { +formatMoney(group.invoicedTotal) } }
+                td("fc-total-num") { span("money") { +bareMoney(group.invoicedTotal) } }
                 td { }
             }
         }
@@ -321,10 +321,10 @@ private fun DIV.forecastCompleted(
                 th(classes = "d-code") { +"Project #" }
                 th(classes = "d-desc") { +"Description" }
                 th(classes = "d-client") { +"Client" }
-                th(classes = "d-rev") { +"Revenue, MNT" }
-                th(classes = "d-total") { +"Total invoiced, MNT" }
+                th(classes = "d-rev") { +"Revenue" }
+                th(classes = "d-total") { +"Total invoiced" }
                 th(classes = "d-imonth") { +"Invoiced month" }
-                th(classes = "d-invoiced") { +"Invoiced amount, MNT" }
+                th(classes = "d-invoiced") { +"Invoiced amount" }
             }
         }
         tbody { group.completed.forEach { line -> forecastDoneRow(line, month, filter, canManage, refused, totalsId) } }
@@ -335,7 +335,7 @@ private fun DIV.forecastCompleted(
                     attributes["colspan"] = "5"
                     +"Invoiced against these projects:"
                 }
-                td("fc-total-num") { span("money") { +formatMoney(group.completedInvoicedTotal) } }
+                td("fc-total-num") { span("money") { +bareMoney(group.completedInvoicedTotal) } }
                 td { }
                 td { }
             }
@@ -363,10 +363,10 @@ private fun TBODY.forecastRow(
     tr(rowClass(line)) {
         id = "fc-row-$pid"
         identityCells(line, "f")
-        td("f-rev") { span("money") { +formatMoney(line.project.revenue) } }
-        td("f-prev") { span("money dim") { +formatMoney(line.previous) } }
+        td("f-rev") { span("money") { +formatMoney(line.project.currency, line.project.revenue) } }
+        td("f-prev") { span("money dim") { +bareMoney(line.previous) } }
         td("f-forecast") { forecastCell(writes) }
-        td("f-remain") { span("money dim") { +formatMoney(line.remaining) } }
+        td("f-remain") { span("money dim") { +bareMoney(line.remaining) } }
         td("f-imonth") { invoiceMonthCell(writes) }
         td("f-invoiced") { invoiceAmountCell(writes) }
         td("f-status") {
@@ -390,10 +390,10 @@ private fun TBODY.forecastDoneRow(
     tr(rowClass(line)) {
         id = "fc-row-$pid"
         identityCells(line, "d")
-        td("d-rev") { span("money") { +formatMoney(line.project.revenue) } }
+        td("d-rev") { span("money") { +formatMoney(line.project.currency, line.project.revenue) } }
         td("d-total") {
             val covered = line.project.revenue > 0 && line.totalInvoiced >= line.project.revenue
-            span(if (covered) "money fc-covered" else "money") { +formatMoney(line.totalInvoiced) }
+            span(if (covered) "money fc-covered" else "money") { +bareMoney(line.totalInvoiced) }
         }
         td("d-imonth") { invoiceMonthCell(writes) }
         td("d-invoiced") {
@@ -455,7 +455,7 @@ private class RowWrites(val project: ForecastLine, val canManage: Boolean, refus
      * the read-only columns print.
      */
     private fun shown(value: Double): String =
-        if (value == 0.0 && project.isBlank) "" else formatMoney(value)
+        if (value == 0.0 && project.isBlank) "" else bareMoney(value)
 
     // A refused month that is not a month at all is dropped: `<input type="month">` would reject the
     // value as it parsed the markup and print an empty box, which loses more than it keeps.
@@ -468,7 +468,7 @@ private class RowWrites(val project: ForecastLine, val canManage: Boolean, refus
 /** This month's plan, as a figure for a reader who may not write it and a box for one who may. */
 private fun TD.forecastCell(w: RowWrites) {
     if (!w.canManage) {
-        span("money") { +formatMoney(w.project.record.forecast) }
+        span("money") { +bareMoney(w.project.record.forecast) }
         return
     }
     amountField("fc-forecast-${w.pid}", "forecast", forecastFormId(w.pid), w.forecastText(), w.message(ForecastField.FORECAST))
@@ -484,7 +484,7 @@ private fun TD.invoiceMonthCell(w: RowWrites) {
 
 private fun TD.invoiceAmountCell(w: RowWrites) {
     if (!w.canManage) {
-        span("money") { +formatMoney(w.project.record.invoiced) }
+        span("money") { +bareMoney(w.project.record.invoiced) }
         return
     }
     amountField("fc-invoiced-${w.pid}", "invoiced", forecastFormId(w.pid), w.invoicedText(), w.message(ForecastField.INVOICED))
@@ -593,7 +593,13 @@ private fun TD.statusField(id: String, formId: String, value: String, error: Str
  * the em-dash the Projects board uses: on a money grid a dash and a real zero are two different
  * statements, and only one of them is a number the totals can add.
  */
-private fun formatMoney(value: Double): String = java.text.DecimalFormat("#,##0").format(value)
+/**
+ * The sheet's other money cells stay bare grouped figures — the headings no longer name a currency (Stage 109
+ * removed the *MNT* they used to claim), because two projects on one panel may be signed in different ones.
+ * A **revenue** cell is the one money column signed with its project's currency (Stage 108's sign, Stage 109's
+ * project choice), because that is the figure management typed in that unit.
+ */
+private fun bareMoney(value: Double): String = groupedAmount(value)
 
 /** The eleven columns of the running sheet, in the order the header above prints them. */
 private val FC_COLUMNS = listOf(

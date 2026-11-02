@@ -26,6 +26,7 @@ import mn.murray.pts.service.ProjectDraft
 import mn.murray.pts.service.ProjectService
 import mn.murray.pts.service.ProjectTypeResult
 import mn.murray.pts.service.ProjectTypeService
+import mn.murray.pts.service.RoleService
 import mn.murray.pts.service.TaskService
 import mn.murray.pts.service.TodoService
 import mn.murray.pts.service.UserService
@@ -69,6 +70,17 @@ private val SESSION_COOKIE: String = AppConfig.sessionCookieName
 
 /** True when the request came from the page's fetch() handler, which expects fragments instead of redirects. */
 private fun ApplicationCall.isFetch(): Boolean = request.headers["X-Requested-With"] == "fetch"
+
+/**
+ * The one question every route under this file asks (Stage 110): does this account's role hold this chip?
+ *
+ * It is a shorthand, not a second rule — [Authorization.canDo] is the rule, and this only saves every guard
+ * from repeating `session.employeeNumber`. A route asks for the chip its control is about, never for
+ * [Authorization.canManage]: that convenience flag is for drawing a page as an editor's, and a custom role
+ * holding one chip must get exactly that one power.
+ */
+private fun UserSession.may(permission: Permission): Boolean =
+    Authorization.canDo(employeeNumber, permission)
 
 /**
  * Best-effort client IP for rate limiting.
@@ -211,9 +223,9 @@ private fun openingBucketForm(call: ApplicationCall, canManage: Boolean): Bucket
 /**
  * Where one of a project page's bucket writes sends the reader back, and what it says there (Stage 74).
  *
- * Since **Stage 81** this is also how the Archive is answered — a card put away from its popup, and a card
- * restored or destroyed from inside the panel — because the page has one place for a sentence about this board's
- * shape and its work, and one key (`?archive=1`) for whether that panel is up.
+ * Since **Stage 81** this is also how a card put away with its column is answered, because the page has one place
+ * for a sentence about this board's shape and its work. (**Stage 106** retired the Archive panel and its
+ * `?archive=1` key: nothing reads it, nothing echoes it, and a stale bookmark answers the ordinary page.)
  *
  * All three — the dashed box's add, a column's rename, a column's removal — answer the same way the Stage 73
  * picker already did: the outcome in `?buckets=`, the sentence in `?bucketnote=`. The pair of keys that used to
@@ -233,21 +245,12 @@ private fun laneRedirect(
     onBoard: Boolean,
     reopen: LaneForm? = null,
     forType: Boolean = false,
-    /**
-     * Stage 81: keep this project's **Archived tasks** panel up on the way back. The panel's two forms are the
-     * only callers that ask, because a reader working a card out of the Archive is looking at the panel when they
-     * press — a write that landed must redraw the list it just changed rather than throw them back at the board.
-     * A write from the board itself (a bucket removed, a card put away) leaves it shut, and its sentence over the
-     * board says where the card went.
-     */
-    archive: Boolean = false,
 ): String {
     val keys = mutableListOf(
         "buckets=${if (ok) "ok" else "err"}",
         "bucketnote=" + java.net.URLEncoder.encode(note, "UTF-8"),
     )
     if (onBoard) keys += "bucketsrc=board"
-    if (archive) keys += "archive=1"
     // Stage 77: a refused save that was asked with the *also offer it to new projects* tick on says so, so the
     // form that comes back still shows the reader's own answer. A save that landed needs no such key — the
     // sentence it prints already told them whether the category widened.
@@ -469,7 +472,8 @@ fun main() {
 
             get("/app/projects") {
                 val session = call.requireSession() ?: return@get
-                val canManage = Authorization.canManage(session.employeeNumber)
+                // Stage 110: the board is everybody's to read; the opener and its popup are *Create projects*.
+                val canCreate = session.may(Permission.CREATE_PROJECTS)
                 val query = call.request.queryParameters
                 val type = query["type"]?.takeIf { it in PROJECT_TYPES }
                 // The search bar and the two sort pickers are a GET form onto this same route, so the
@@ -483,8 +487,8 @@ fun main() {
                 )
                 call.respondHtml {
                     appPage(session, "projects", "Projects",
-                        actions = { if (canManage) newProjectButton() }) {
-                        projectsContent(it, type, canManage = canManage, filter = filter)
+                        actions = { if (canCreate) newProjectButton() }) {
+                        projectsContent(it, type, canManage = canCreate, filter = filter)
                     }
                 }
             }
@@ -492,12 +496,15 @@ fun main() {
                 val session = call.requireSession() ?: return@get
                 val project = call.parameters["id"]?.toIntOrNull()?.let { id -> DemoData.projects.firstOrNull { it.id == id } }
                 if (project == null) return@get call.respondRedirect("/app/projects")
-                val canManage = Authorization.canManage(session.employeeNumber)
-                // The project page carries its own task board, so its opener is New task, not
-                // New project, and it pre-selects this project in the popup. Its manager may write
-                // cards here too, which is the one thing that widens the opener below management.
-                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canManage)
-                val state = openingTaskForm(call, session, canManage, project.id)
+                // Stage 110 splits the page's old single "management" flag into the four chips its controls
+                // stand for: the header strip and pin are *Edit project details*, the delete button is
+                // *Delete projects*, writing cards is *Edit any task*, and reshaping the columns is
+                // *Manage buckets* (the project's own named manager still widens both board rights inside
+                // [TaskService.mayEditLanes] / [TaskService.mayAddTasks]).
+                val canEdit = session.may(Permission.EDIT_PROJECT_DETAILS)
+                val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
+                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canWriteTasks)
+                val state = openingTaskForm(call, session, canWriteTasks, project.id)
                 // `?lane=` is read by nothing here (Stage 35). The two lane routes still answer a request with
                 // the code they refused it on — `POST /app/projects/{id}/buckets` is a management-only endpoint
                 // with no control pointing at it, so that query is the whole of what its outcome says, and it
@@ -520,24 +527,25 @@ fun main() {
                 // `?lanetyped=` are the popup's own openers — all four are read together, since where the sentence
                 // prints depends on whether the form that earned it is still up. The role is asked here, not only
                 // inside the renderer, so a Viewer's bookmarked `?laneedit=7` opens nothing at all.
-                val mayWriteLanes = TaskService.mayEditLanes(project.id, session.employeeNumber, canManage)
+                val mayWriteLanes = TaskService.mayEditLanes(
+                    project.id, session.employeeNumber, session.may(Permission.MANAGE_BUCKETS),
+                )
                 val laneEntry = openingLaneForm(call, mayWriteLanes, bucketNote, savedCode == "err")
                 // Stage 80: which columns are showing their completed cards is the URL's `showdone` keys, repeated
                 // once per open column. Nothing on the page tracks it in a script, so a reload, a bookmark and
                 // the back button all come back to the same board the reader was looking at.
                 val doneOpen = openDoneLanesOf(call.request.queryParameters)
-                // Stage 81: `?archive=1` is the same arrangement for the Archive panel — the page says whether it
-                // is up, and only for the reader the header's 🗄 is drawn for. A Viewer's bookmarked link gets the
-                // panel closed, because every write behind it would be refused and a panel of rows nobody can act
-                // on is the dead control Stage 51 made a rule about.
-                val archiveOpen = call.request.queryParameters["archive"] == "1" && mayWriteLanes
                 call.respondHtml {
                     appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
                         projectDetailContent(
-                            it, project, canManage, state,
+                            it, project, canEdit, state,
                             bucketNote = bucketNote, bucketNoteIsError = savedCode == "err",
                             noteOnBoard = laneEntry.noteOnBoard, lane = laneEntry.form,
-                            doneOpen = doneOpen, archiveOpen = archiveOpen,
+                            doneOpen = doneOpen,
+                            canDelete = session.may(Permission.DELETE_PROJECTS),
+                            canEditTasks = canWriteTasks,
+                            canManageBuckets = session.may(Permission.MANAGE_BUCKETS),
+                            canWidenBuckets = session.may(Permission.MANAGE_PROJECT_TYPES),
                         )
                     }
                 }
@@ -547,22 +555,31 @@ fun main() {
              *
              * `?new=1` and `?edit=<card>` are the two openers of the card popup, both posted by markup on this
              * page itself — the head's `+ New task` and a card's own click. Nothing else lives here since
-             * Stage 47: the backlog of work with no project is a page of its own, so no view key, no column
-             * popup and no second board belongs to this URL any more.
+             * Stage 47: the backlog of work with no project is a page of its own, so no column popup and no
+             * second board belongs to this URL any more.
+             *
+             * Two view keys narrow the page without leaving it, because the URL is the state and a bookmark or a
+             * back button restores the same view. `?bucket=<id>` (Stage 88) cuts the reader's own Other-tasks
+             * board down to one bucket; `?project=<id>` (Stage 107) cuts the projects board above it down to one
+             * project. Absent, mistyped or pointing at a row that no longer exists all answer the *whole* board,
+             * so an ageing bookmark opens the full page rather than an empty one.
              */
             get("/app/assigned-tasks") {
                 val session = call.requireSession() ?: return@get
-                val canManage = Authorization.canManage(session.employeeNumber)
+                // Stage 110: the board is the reader's own cards; *Edit any task* is what draws it as an
+                // editor's board and what the card routes below ask for.
+                val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
                 // Stage 90: this page's Other-tasks section carries its own `+ Add task` line for every reader,
                 // so this is the one route that opens a backlog create for a non-manager.
-                val state = openingTaskForm(call, session, canManage, allowSelfBacklogCreate = true)
-                // Which Other-tasks bucket the board below is narrowed to (Stage 88). It is a view key like the
-                // calendar's month: absent, mistyped or pointing at a column that no longer exists all answer
-                // **all buckets**, so an ageing bookmark opens the whole board rather than an empty one.
+                val state = openingTaskForm(call, session, canWriteTasks, allowSelfBacklogCreate = true)
+                // Which Other-tasks bucket the board below is narrowed to (Stage 88), and which project the
+                // projects board above it is narrowed to (Stage 107). A value that is not a number is no filter,
+                // which is the same answer a deleted row gets in [assignedTasksContent].
                 val bucket = call.request.queryParameters["bucket"]?.trim()?.toIntOrNull() ?: 0
+                val project = call.request.queryParameters["project"]?.trim()?.toIntOrNull() ?: 0
                 call.respondHtml {
-                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canManage) newTaskButton() }) {
-                        assignedTasksContent(session, canManage, state, otherBucketId = bucket)
+                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canWriteTasks) newTaskButton() }) {
+                        assignedTasksContent(session, canWriteTasks, state, otherBucketId = bucket, projectFilter = project)
                     }
                 }
             }
@@ -603,6 +620,9 @@ fun main() {
              */
             get("/app/forecasts") {
                 val session = call.requireSession() ?: return@get
+                // Stage 110: the money sheet is *View Forecasts tab*. A role without it has no link to this
+                // page and no business reading it by hand either, so the address answers the projects board.
+                if (!session.may(Permission.VIEW_FORECASTS)) return@get call.respondRedirect("/app/projects")
                 val month = ForecastService.monthOr(call.request.queryParameters["month"])
                 val filter = forecastFilterOf(call.request.queryParameters)
                 call.respondForecasts(session, month, filter, refused = null)
@@ -625,7 +645,7 @@ fun main() {
                 val form = call.receiveParameters()
                 val month = ForecastService.monthOr(form["month"])
                 val filter = forecastFilterOfForm(form)
-                if (!Authorization.canManage(session.employeeNumber)) {
+                if (!session.may(Permission.EDIT_FORECAST_AMOUNTS)) {
                     return@post call.respondRedirect(filter.queryFor(month))
                 }
                 val result = ForecastService.save(forecastDraftOf(form), month, canManage = true)
@@ -645,7 +665,9 @@ fun main() {
              */
             get("/app/lessons") {
                 val session = call.requireSession() ?: return@get
-                val canManage = Authorization.canManage(session.employeeNumber)
+                // Stage 110: writing a lesson is *Edit any task*, the chip that already means "may write
+                // shared work"; reading the sheet stays everybody's.
+                val canManage = session.may(Permission.EDIT_ANY_TASK)
                 val query = call.request.queryParameters
                 // The row `?edit=` names is read from the database, never from the form, and the popup's
                 // rights come from that row: a hand-typed id gets a closed popup on the ordinary sheet, and
@@ -669,7 +691,7 @@ fun main() {
              */
             post("/app/lessons/save") {
                 val session = call.requireSession() ?: return@post
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.EDIT_ANY_TASK)
                 val form = call.receiveParameters()
                 val filter = lessonFilterOfForm(form)
                 val result = LessonService.save(lessonDraftOf(form), session.employeeNumber, canManage)
@@ -690,7 +712,7 @@ fun main() {
                     id = form["id"]?.trim()?.toIntOrNull() ?: 0,
                     discussed = form["discussed"]?.trim() == "1",
                     employeeNumber = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 // A row that has gone, or that has changed hands since the page was drawn, has no field on
                 // this sheet to print either answer under — the re-read list is the whole of the reply, and
@@ -706,7 +728,7 @@ fun main() {
                     id = form["id"]?.trim()?.toIntOrNull() ?: 0,
                     archived = form["archived"]?.trim() == "1",
                     employeeNumber = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 // Kept open on purpose: a reader archiving from the archived half of the page (`↩`) would
                 // otherwise be bounced to a sheet with the list they are working through folded shut.
@@ -719,7 +741,7 @@ fun main() {
                 LessonService.remove(
                     id = form["id"]?.trim()?.toIntOrNull() ?: 0,
                     employeeNumber = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(lessonFilterOfForm(form).queryFor())
             }
@@ -740,24 +762,33 @@ fun main() {
              */
             get("/app/other-tasks") {
                 val session = call.requireSession() ?: return@get
-                val canManage = Authorization.canManage(session.employeeNumber)
-                val state = openingTaskForm(call, session, canManage)
-                val bucket = openingBucketForm(call, canManage)
+                // Stage 110: the shared backlog board is drawn as an editor's for a reader who may edit its
+                // cards (*Edit any task*) or reshape its columns (*Manage buckets*) — the same pair the
+                // sidebar link is gated on. Everybody else keeps Stage 51's one-bucket slice of their own work.
+                val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
+                val canBuckets = session.may(Permission.MANAGE_BUCKETS)
+                val canManage = canWriteTasks || canBuckets
+                val state = openingTaskForm(call, session, canWriteTasks)
+                val bucket = openingBucketForm(call, canBuckets)
                 val showBucketId = call.request.queryParameters["show"]?.trim()?.toIntOrNull() ?: 0
                 call.respondOtherTasks(session, canManage, state, bucket, showBucketId)
             }
             sectionRoute("/app/todo", "todo", "To-do") { todoContent(it) }
             get("/app/access-control") {
                 val session = call.requireSession() ?: return@get
-                val canAdmin = Authorization.canAdmin(session.employeeNumber)
-                val canManage = Authorization.canManage(session.employeeNumber)
-                // Stage 51: this page is entirely a management function — it is where accounts, roles and other
-                // people's password status are read and set — so a Viewer who reaches it by URL or a stale
-                // bookmark is sent back to the app rather than shown a read-only copy of the roster's keys.
-                if (!canManage) return@get call.respondRedirect("/app")
-                val status = PasswordStatus.fromCode(call.request.queryParameters["pw"])
-                val detail = call.request.queryParameters["who"]
-                call.respondHtml { appPage(session, "access-control", "Access control") { accessContent(canAdmin, canManage, session.employeeNumber, status, detail) } }
+                // Stage 110: the page is two functions now — the roles table (*Manage roles & permissions*)
+                // and the People sheet (*Manage employees*) — so either chip opens it, and an account with
+                // neither is sent back to the app rather than shown a read-only copy of other people's keys.
+                val canPeople = session.may(Permission.MANAGE_EMPLOYEES)
+                val canRoles = session.may(Permission.MANAGE_ROLES)
+                if (!canPeople && !canRoles) return@get call.respondRedirect("/app")
+                val query = call.request.queryParameters
+                call.respondAccess(
+                    session = session,
+                    roleForm = roleFormOf(query, canRoles),
+                    status = PasswordStatus.fromCode(query["pw"]),
+                    detail = query["who"],
+                )
             }
             /**
              * The Settings page: the Team sheet and the reader's own account.
@@ -775,9 +806,16 @@ fun main() {
             get("/app/settings") {
                 val session = call.requireSession() ?: return@get
                 val query = call.request.queryParameters
-                val canManage = Authorization.canManage(session.employeeNumber)
-                val canAdmin = Authorization.canAdmin(session.employeeNumber)
-                val row = if (canAdmin) EmployeeService.row(query["edit"].orEmpty(), session.employeeNumber, canManage, canAdmin) else null
+                // Stage 110: the page exists for three panels, each a chip of its own. An account holding none
+                // of them has no panel to be shown and is sent back to the app.
+                val canPeople = session.may(Permission.MANAGE_EMPLOYEES)
+                val canRoles = session.may(Permission.MANAGE_ROLES)
+                val canTypes = session.may(Permission.MANAGE_PROJECT_TYPES)
+                val canEmail = session.may(Permission.MANAGE_EMAIL_SETTINGS)
+                if (!canPeople && !canTypes && !canEmail && !session.may(Permission.MANAGE_ROLES)) {
+                    return@get call.respondRedirect("/app")
+                }
+                val row = if (canPeople) EmployeeService.row(query["edit"].orEmpty(), session.employeeNumber, canPeople, canRoles) else null
                 val account = row?.let { EmployeeService.account(it.employeeNumber) }
                 call.respondSettings(
                     session,
@@ -787,8 +825,9 @@ fun main() {
                         row = row,
                         account = account,
                         positionName = account?.let { EmployeeService.positionOf(it) }.orEmpty(),
-                        mayAdd = canManage,
-                        mayEdit = canAdmin,
+                        mayAdd = canPeople,
+                        mayEdit = canPeople || canRoles,
+                        maySetRoles = canRoles,
                     ),
                     note = PasswordStatus.fromCode(query["note"]),
                     mailStatus = PasswordStatus.fromCode(query["mail"]),
@@ -816,7 +855,7 @@ fun main() {
                 val result = ProjectTypeService.add(
                     rawCode = form["code"].orEmpty(),
                     rawName = form["name"].orEmpty(),
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.MANAGE_PROJECT_TYPES),
                 )
                 call.respondTypeAnswer(result, PasswordStatus.TYPE_ADDED)
             }
@@ -834,7 +873,7 @@ fun main() {
                 val result = ProjectTypeService.rename(
                     oldName = form["name"].orEmpty(),
                     rawName = form["newname"].orEmpty(),
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.MANAGE_PROJECT_TYPES),
                 )
                 call.respondTypeAnswer(result, PasswordStatus.TYPE_RENAMED)
             }
@@ -848,7 +887,7 @@ fun main() {
                 val form = call.receiveParameters()
                 val result = ProjectTypeService.remove(
                     code = form["code"].orEmpty(),
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.MANAGE_PROJECT_TYPES),
                 )
                 call.respondTypeAnswer(result, PasswordStatus.TYPE_REMOVED)
             }
@@ -865,15 +904,16 @@ fun main() {
              */
             post("/app/settings/employee/save") {
                 val session = call.requireSession() ?: return@post
-                val canManage = Authorization.canManage(session.employeeNumber)
-                val canAdmin = Authorization.canAdmin(session.employeeNumber)
+                val canPeople = session.may(Permission.MANAGE_EMPLOYEES)
+                val canRoles = session.may(Permission.MANAGE_ROLES)
                 val form = call.receiveParameters()
                 val filter = employeeFilterOfForm(form)
                 val result = EmployeeService.save(
                     draft = employeeDraftOf(form),
                     actor = session.employeeNumber,
-                    canManage = canManage,
-                    canAdmin = canAdmin,
+                    canManage = canPeople,
+                    canAdmin = canPeople,
+                    canSetRoles = canRoles,
                 )
                 if (result.saved) {
                     val note = if (result.isEdit) PasswordStatus.USER_UPDATED else PasswordStatus.USER_ADDED
@@ -882,7 +922,10 @@ fun main() {
                 call.respondSettings(
                     session,
                     filter,
-                    employeeFormOf(result, mayAdd = canManage, maySetRoles = canAdmin, filter = filter),
+                    employeeFormOf(
+                        result, mayAdd = canPeople, maySetRoles = canRoles, filter = filter,
+                        maySetProfile = canPeople,
+                    ),
                 )
             }
 
@@ -900,13 +943,13 @@ fun main() {
                 val form = call.receiveParameters()
                 val filter = employeeFilterOfForm(form)
                 val employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty()
-                if (!Authorization.canManage(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect(filter.queryFor())
                 }
                 val status = UserService.deleteUser(
                     employeeNumber = employeeNumber,
                     callerEmpNo = session.employeeNumber,
-                    callerRole = Authorization.effectiveRole(session.employeeNumber),
+                    callerCanAdmin = session.may(Permission.MANAGE_ROLES),
                 )
                 call.respondRedirect(filter.queryFor(extra = listOf("note=${status.name}")))
             }
@@ -926,7 +969,7 @@ fun main() {
              */
             post("/app/settings/email-test") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMAIL_SETTINGS)) {
                     return@post call.respondRedirect(SETTINGS_PATH)
                 }
                 val to = DueDateAlertService.emailFor(session.employeeNumber)
@@ -957,9 +1000,9 @@ fun main() {
              */
             post("/app/settings/mail-switch") {
                 val session = call.requireSession() ?: return@post
-                val canAdmin = Authorization.canAdmin(session.employeeNumber)
+                val canMail = session.may(Permission.MANAGE_EMAIL_SETTINGS)
                 val target = call.receiveParameters()["on"]?.trim() == "true"
-                if (!MailSwitch.setEnabled(on = target, canAdmin = canAdmin)) {
+                if (!MailSwitch.setEnabled(on = target, canAdmin = canMail)) {
                     return@post call.respondRedirect("$SETTINGS_PATH?mail=${PasswordStatus.MAIL_REFUSED.name}")
                 }
                 val status = if (target) PasswordStatus.MAIL_ENABLED else PasswordStatus.MAIL_DISABLED
@@ -985,7 +1028,7 @@ fun main() {
                 val result = BucketDefaultsService.add(
                     type = category,
                     rawName = form["name"].orEmpty(),
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.MANAGE_PROJECT_TYPES),
                 )
                 val code = if (result.ok) PasswordStatus.LANE_ADDED else PasswordStatus.LANE_REFUSED
                 // Stage 98: the receipt rides the success redirect too. [BucketDefaultsService.add] now says how
@@ -1004,7 +1047,7 @@ fun main() {
                 val form = call.receiveParameters()
                 val category = BucketDefaultsService.typeFor(form["lanes"])
                 val id = form["id"]?.trim()?.toIntOrNull() ?: -1
-                val ok = BucketDefaultsService.remove(id, Authorization.canManage(session.employeeNumber))
+                val ok = BucketDefaultsService.remove(id, session.may(Permission.MANAGE_PROJECT_TYPES))
                 val code = if (ok) PasswordStatus.LANE_REMOVED else PasswordStatus.LANE_REFUSED
                 call.respondRedirect(
                     "$SETTINGS_PATH?lane=$code&lanes=${java.net.URLEncoder.encode(category, "UTF-8")}",
@@ -1013,10 +1056,10 @@ fun main() {
 
             post("/app/projects") {
                 val session = call.requireSession() ?: return@post
-                // Creating a project is management's call. The opener and the popup are hidden from
-                // a Viewer too, but hiding markup is not a check — this route now answers a
-                // hand-built POST exactly the way /app/projects/{id}/manager already does.
-                if (!Authorization.canManage(session.employeeNumber)) {
+                // Creating a project is *Create projects* (Stage 110). The opener and the popup are hidden
+                // without it too, but hiding markup is not a check — this route answers a hand-built POST
+                // exactly the way /app/projects/{id}/manager already does.
+                if (!session.may(Permission.CREATE_PROJECTS)) {
                     return@post call.respondRedirect("/app/projects")
                 }
                 val fields = call.receiveParameters()
@@ -1031,6 +1074,10 @@ fun main() {
                         status = fields["status"].orEmpty(),
                         managerName = fields["manager"].orEmpty(),
                         revenue = fields["revenue"].orEmpty(),
+                        // **Stage 109: the picker under Revenue says which money this is.** A create that posted
+                        // no field at all still lands in tugrik — [mn.murray.pts.service.ProjectDraft] defaults to
+                        // it — and the service refuses a code it cannot name, so nothing here second-guesses.
+                        currency = fields["currency"].orEmpty(),
                         // **Stage 104 put a bucket line back on this form, and this route reads it.** Every
                         // `new_bucket` the popup posts arrives — the hidden twin behind each chip and the name
                         // still sitting in the box alike, since a reader who typed one and pressed Create
@@ -1065,7 +1112,7 @@ fun main() {
             }
             post("/app/projects/{id}/manager") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canManage(session.employeeNumber)) {
+                if (!session.may(Permission.EDIT_PROJECT_DETAILS)) {
                     return@post call.respondRedirect("/app/projects")
                 }
                 val id = call.parameters["id"]?.toIntOrNull()
@@ -1090,7 +1137,7 @@ fun main() {
                 val session = call.requireSession() ?: return@post
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@post call.respondRedirect("/app/projects")
-                if (!Authorization.canManage(session.employeeNumber)) {
+                if (!session.may(Permission.EDIT_PROJECT_DETAILS)) {
                     return@post call.respondRedirect("/app/projects/$id")
                 }
                 val fields = call.receiveParameters()
@@ -1112,13 +1159,20 @@ fun main() {
                 if (result.ok) return@post call.respondRedirect("/app/projects/$id")
                 val project = DemoData.projects.firstOrNull { it.id == id }
                     ?: return@post call.respondRedirect("/app/projects")
-                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, true)
-                val state = openingTaskForm(call, session, true, project.id)
+                // The refusal hands the page back with the strip still open; every other control is drawn
+                // for the chips this reader actually holds, not for the one that let them edit the strip.
+                val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
+                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canWriteTasks)
+                val state = openingTaskForm(call, session, canWriteTasks, project.id)
                 call.respondHtml {
                     appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
                         projectDetailContent(
-                            it, project, canManage = true, state = state,
+                            it, project, canEdit = true, state = state,
                             edit = ProjectForm(result.values, result.errors),
+                            canDelete = session.may(Permission.DELETE_PROJECTS),
+                            canEditTasks = canWriteTasks,
+                            canManageBuckets = session.may(Permission.MANAGE_BUCKETS),
+                            canWidenBuckets = session.may(Permission.MANAGE_PROJECT_TYPES),
                         )
                     }
                 }
@@ -1133,7 +1187,7 @@ fun main() {
                 val session = call.requireSession() ?: return@post
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@post call.respondRedirect("/app/projects")
-                if (!Authorization.canManage(session.employeeNumber)) {
+                if (!session.may(Permission.DELETE_PROJECTS)) {
                     return@post call.respondRedirect("/app/projects")
                 }
                 ProjectService.delete(id, canManage = true)
@@ -1160,7 +1214,7 @@ fun main() {
                     id,
                     call.receiveParameters()["name"].orEmpty(),
                     session.employeeNumber,
-                    Authorization.canManage(session.employeeNumber),
+                    session.may(Permission.MANAGE_BUCKETS),
                 )
                 val error = result.error
                 if (error == LaneError.DENIED || error == LaneError.NO_PROJECT) {
@@ -1202,12 +1256,15 @@ fun main() {
                     fields.getAll("bucket").orEmpty(),
                     fields["new_bucket"].orEmpty(),
                     session.employeeNumber,
-                    Authorization.canManage(session.employeeNumber),
+                    session.may(Permission.MANAGE_BUCKETS),
                     // Stage 77: does a bucket this form names also join the category's default buckets? The tick
                     // is the reader's answer and its absence is the question answered "no" — a new column stays
                     // this project's own. Nothing here defaults it on: a field a browser did not send because the
                     // box was clear means the box is clear.
                     alsoForType = fields["also_type"].orEmpty().isNotEmpty(),
+                    // Stage 110: the tick writes the category's catalogue, so it answers to that chip, not to
+                    // the one that merely runs this board.
+                    canManageTypes = session.may(Permission.MANAGE_PROJECT_TYPES),
                 )
                 val error = result.error
                 if (error == LaneError.DENIED || error == LaneError.NO_PROJECT) {
@@ -1264,7 +1321,7 @@ fun main() {
                     lane,
                     name,
                     session.employeeNumber,
-                    Authorization.canManage(session.employeeNumber),
+                    session.may(Permission.MANAGE_BUCKETS),
                     // Stage 80: the same swatch row the add half draws. A rename that only resubmits the name
                     // sends the colour the column already wears, so this field can pin a shade without changing
                     // a heading — and [mn.murray.pts.service.TaskService.renameLane] writes it even when the
@@ -1313,7 +1370,14 @@ fun main() {
                 val form = call.receiveParameters()
                 val back = backOf(form)
                 val projectId = projectIdOf(form)
-                val canManage = Authorization.canManage(session.employeeNumber)
+                // Stage 110: the one flag this route needs is *Edit any task* — it is the chip that says a reader
+                // may write a card, and the services below turn it into "management anywhere" or "this project's
+                // own manager here", exactly as the old rank did.
+                val canManage = session.may(Permission.EDIT_ANY_TASK)
+                // The shared backlog page is drawn as an editor's for either chip — writing a card or naming a
+                // column — which is the same pair the `GET /app/other-tasks` route reads. A refusal answered on that
+                // page has to draw the openers the reader holds, not only the one that let them press Save.
+                val canBoard = canManage || session.may(Permission.MANAGE_BUCKETS)
                 val mayAdd = TaskService.mayAddTasks(projectId, session.employeeNumber, canManage)
                 val taskId = form["taskId"]?.trim()?.toIntOrNull() ?: 0
                 val draft = taskDraftOf(form)
@@ -1327,7 +1391,7 @@ fun main() {
                 // POST claiming that page is still discarded back to the reader's scoped board rather than saved.
                 if (backlogCreate && !canManage && isOtherBack(back)) {
                     return@post call.respondOtherTasks(
-                        session, canManage, showBucketId = bucketOfOtherBack(back),
+                        session, canBoard, showBucketId = bucketOfOtherBack(back),
                     )
                 }
                 // No role gate here any more, deliberately: an assignee may now save their own dates and
@@ -1382,7 +1446,16 @@ fun main() {
                     if (project != null) {
                         return@post call.respondHtml {
                             appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
-                                projectDetailContent(it, project, canManage, state)
+                                // A refused card write comes back on the project page with the board drawn for the
+                                // chips this reader holds — the one that let them post this card (*Edit any task*)
+                                // plus the three that decide what else on the page is live.
+                                projectDetailContent(
+                                    it, project, session.may(Permission.EDIT_PROJECT_DETAILS), state,
+                                    canDelete = session.may(Permission.DELETE_PROJECTS),
+                                    canEditTasks = canManage,
+                                    canManageBuckets = session.may(Permission.MANAGE_BUCKETS),
+                                    canWidenBuckets = session.may(Permission.MANAGE_PROJECT_TYPES),
+                                )
                             }
                         }
                     }
@@ -1394,14 +1467,19 @@ fun main() {
                 // `app.js` swaps the refusal either way — what moves is the board behind it.
                 if (isOtherBack(back)) {
                     return@post call.respondOtherTasks(
-                        session, canManage, state = state, showBucketId = bucketOfOtherBack(back),
+                        session, canBoard, state = state, showBucketId = bucketOfOtherBack(back),
                     )
                 }
                 call.respondHtml {
                     appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canManage) newTaskButton() }) {
-                        // The bucket this page was reading rides `back` (Stage 88), so a refused save comes back
-                        // on the same narrowed Other-task board the popup was opened from.
-                        assignedTasksContent(session, canManage, state, otherBucketId = bucketOfBack(back))
+                        // The filters this page was reading ride `back` (Stage 88 for the Other-tasks bucket,
+                        // Stage 107 for the project), so a refused save comes back on the same narrowed page the
+                        // popup was opened from.
+                        assignedTasksContent(
+                            session, canManage, state,
+                            otherBucketId = bucketOfBack(back),
+                            projectFilter = projectOfBack(back),
+                        )
                     }
                 }
             }
@@ -1421,7 +1499,7 @@ fun main() {
                 val session = call.requireSession() ?: return@post
                 val form = call.receiveParameters()
                 val id = form["taskId"]?.trim()?.toIntOrNull()
-                if (id != null && Authorization.canManage(session.employeeNumber)) {
+                if (id != null && session.may(Permission.EDIT_ANY_TASK)) {
                     TaskService.deleteAssigned(id, session.employeeNumber, true)
                 }
                 call.respondRedirect(
@@ -1477,7 +1555,10 @@ fun main() {
              */
             post("/app/team/assign") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canManage(session.employeeNumber)) {
+                // Stage 110: the panel's one write is *Assign tasks to others* — the chip that says a reader may
+                // put work on somebody else's board. The Team page draws the panel on the same chip, so the guard
+                // and the markup answer the same question.
+                if (!session.may(Permission.ASSIGN_TASKS)) {
                     return@post call.respondRedirect("/app/team")
                 }
                 val form = call.receiveParameters()
@@ -1497,7 +1578,7 @@ fun main() {
                 val form = call.receiveParameters()
                 val id = form["id"]?.toIntOrNull()
                 val status = form["status"]?.trim().orEmpty()
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.EDIT_ANY_TASK)
                 if (id != null) {
                     TaskService.updateStatus(id, status, session.employeeNumber, canManage)
                 }
@@ -1527,7 +1608,7 @@ fun main() {
                     ?: return@post call.respondRedirect("/app/projects")
                 val fields = call.receiveParameters()
                 val lane = fields["bucket"]?.trim()?.toIntOrNull() ?: 0
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val fromBoard = fields["src"] == "board"
                 // **Stage 81: an occupied column comes off, and its work goes to Archive.** Until now this route
                 // re-read the count and refused the press when a card had arrived since the page was drawn
@@ -1555,7 +1636,7 @@ fun main() {
                         !removal.ok -> laneRemovalNote(removal.error ?: LaneError.NO_LANE)
                         removal.archived > 0 -> {
                             "That bucket is off the board, and its ${removal.archived} " +
-                                "${if (removal.archived == 1) "card" else "cards"} went to Archive."
+                                "${if (removal.archived == 1) "card" else "cards"} left the board with it."
                         }
                         else -> "That bucket is off the board."
                     }
@@ -1572,25 +1653,26 @@ fun main() {
             /**
              * Put one archived card back on its project's board (Stage 81).
              *
-             * The Archive panel's first button, and the whole of the promise the flag design was chosen for: the
-             * row was never moved or copied, so its steps, its log and its lesson learnt are what they were the
-             * moment it left, and this write clears the flag and names a lane. Which lane is decided inside
+             * The whole of the promise the flag design was chosen for: the row was never moved or copied, so its
+             * steps, its log and its lesson learnt are what they were the moment it left, and this write clears
+             * the flag and names a lane. Which lane is decided inside
              * [mn.murray.pts.service.TaskService.restoreCard] — the column the card remembers while that column is
              * still on this project, otherwise the board's first — and the answer comes back in the sentence,
              * because a reader who restores a card from a bucket that no longer exists should be told where it
              * actually landed.
              *
-             * The redirect carries `archive=1` on purpose. The reader is working down a list, and a panel that
-             * throws them out to the board on every press is a list they have to reopen each time; [app.js] swaps
-             * the panel and the board together, so the row they acted on disappears from one and reappears as a
-             * card on the other without the page moving under their hands.
+             * **No page prints a control for this since Stage 106.** It was the Archive panel's first button, and
+             * that panel went with its 🗄 opener at the user's request. The route is kept rather than torn out, the
+             * way Stage 84 kept `/app/tasks/archive` after its button: it is the card-level half of a mechanism
+             * whose rows are still in the database, and a hand-built POST still works for the board's own writers
+             * ([mn.murray.pts.service.TaskService.restoreCard] checks that right again).
              */
             post("/app/projects/{id}/archive/restore") {
                 val session = call.requireSession() ?: return@post
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@post call.respondRedirect("/app/projects")
                 val taskId = call.receiveParameters()["taskId"]?.trim()?.toIntOrNull()
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val lane = taskId?.let {
                     TaskService.restoreCard(it, id, session.employeeNumber, canManage)
                 }
@@ -1601,27 +1683,26 @@ fun main() {
                         if (lane != null) "That card is back on the board, in $lane."
                         else "That card is not in this project's archive.",
                         onBoard = true,
-                        archive = true,
                     )
                 )
             }
             /**
              * Delete an archived card for good (Stage 81) — the last permanent delete a project card has.
              *
-             * The panel's second button: a card that left the board with its bucket can be destroyed for good from
-             * here, one deliberate step later. (Stage 84 put the live card popup's **Delete task** back, so this is
-             * no longer the *only* permanent delete on a project — it is the one for cards already in the Archive.)
-             * [mn.murray.pts.service.TaskService.deleteArchived] refuses a card that
+             * The panel's second button until **Stage 106** retired the panel; the route stays for the same
+             * reason the restore does. A card that left the board with its bucket can still be destroyed for good
+             * by a hand-built POST, one deliberate step later. (Stage 84 put the live card popup's **Delete task**
+             * back, so this is no longer the *only* permanent delete on a project — it is the one for cards already
+             * archived.) [mn.murray.pts.service.TaskService.deleteArchived] refuses a card that
              * is not archived, so a hand-built POST naming a live card deletes nothing, and the plan and the log go
-             * with the row by the same `ON DELETE CASCADE` the older delete has always relied on. The panel comes
-             * back up with one row fewer.
+             * with the row by the same `ON DELETE CASCADE` the older delete has always relied on.
              */
             post("/app/projects/{id}/archive/delete") {
                 val session = call.requireSession() ?: return@post
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@post call.respondRedirect("/app/projects")
                 val taskId = call.receiveParameters()["taskId"]?.trim()?.toIntOrNull()
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val gone = taskId != null && TaskService.deleteArchived(
                     taskId, id, session.employeeNumber, canManage,
                 )
@@ -1632,7 +1713,6 @@ fun main() {
                         if (gone) "That card is gone, with its steps and its notes."
                         else "That card is not in this project's archive.",
                         onBoard = true,
-                        archive = true,
                     )
                 )
             }
@@ -1642,27 +1722,27 @@ fun main() {
              * **No page prints a control for this since Stage 84.** Stage 81 put an **Archive task** button on a
              * project card's popup in place of **Delete task**; Stage 84 removed that button at the user's request
              * and restored the delete, so the route is left with no caller. The Archive itself is still written —
-             * removing a bucket archives the cards standing in it (`TaskService.archiveLane`, Stage 81), and the
-             * header's 🗄 restores or destroys them — which is why the route and its service are kept rather than
-             * torn out: they are the card-level half of a mechanism that is now driven by the bucket. The right is
-             * the board's ([mn.murray.pts.service.TaskService.mayEditLanes]: management or this project's manager).
+             * removing a bucket archives the cards standing in it (`TaskService.archiveLane`, Stage 81) — which is
+             * why the route and its service are kept rather than torn out: they are the card-level half of a
+             * mechanism that is now driven by the bucket. Since **Stage 106** no page shows the archived rows
+             * either, but the routes that read them back are kept the same way. The right is the board's
+             * ([mn.murray.pts.service.TaskService.mayEditLanes]: management or this project's manager).
              *
              * Like the delete, this posts no `edit`: there is no card to be open on afterwards. The redirect is the
-             * project page with its sentence over the board, and the Archive shut — the note tells the reader where
-             * the card went, and the 🗄 is the way to it.
+             * project page with its sentence over the board, and the note says the card left it.
              */
             post("/app/tasks/archive") {
                 val session = call.requireSession() ?: return@post
                 val form = call.receiveParameters()
                 val id = form["taskId"]?.trim()?.toIntOrNull()
                 val projectId = projectIdOf(form)
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val archived = id != null && TaskService.archiveCard(id, session.employeeNumber, canManage)
                 call.respondRedirect(
                     if (archived && projectId > 0) {
                         laneRedirect(
                             projectId, true,
-                            "That card is in the Archive — bring it back from the panel behind the 🗄.",
+                            "That card left the board and is archived.",
                             onBoard = true,
                         )
                     } else {
@@ -1690,7 +1770,7 @@ fun main() {
                 val form = call.receiveParameters()
                 val id = form["id"]?.trim()?.toIntOrNull()
                 val bucket = form["bucket"]?.trim()?.toIntOrNull()
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 if (id != null && bucket != null) {
                     TaskService.moveToLane(id, bucket, session.employeeNumber, canManage)
                 }
@@ -1723,7 +1803,7 @@ fun main() {
                     taskId,
                     label = form["label"].orEmpty(),
                     callerEmpNo = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(
                     taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
@@ -1736,7 +1816,7 @@ fun main() {
                 TaskService.toggleChecklistItem(
                     itemId,
                     callerEmpNo = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(
                     taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
@@ -1749,20 +1829,20 @@ fun main() {
                 TaskService.removeChecklistItem(
                     itemId,
                     callerEmpNo = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(
                     taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
                 )
             }
             /**
-             * The two note moves: append one, and management taking one off again.
+             * The two note moves: append one, and taking one off again.
              *
              * The same shape as a checklist write — one row, one redirect, and only the
              * `#task-notes-<card>` block swapped in place — because a note is written while the card's form
              * is open, and closing it to say "saved" would interrupt the thing the reader was doing. Adding
-             * is open to the assignee as well as management ([TaskService.addNote]); removing is
-             * management's alone, so the log cannot be quietly rewritten by whoever wrote the line.
+             * is open to the assignee as well as an account with *Edit any task* ([TaskService.addNote]); removing
+             * needs that chip alone, so the log cannot be quietly rewritten by whoever wrote the line.
              */
             post("/app/tasks/notes/add") {
                 val session = call.requireSession() ?: return@post
@@ -1772,7 +1852,7 @@ fun main() {
                     taskId,
                     body = form["body"].orEmpty(),
                     callerEmpNo = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(
                     taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
@@ -1785,7 +1865,7 @@ fun main() {
                 TaskService.removeNote(
                     noteId,
                     callerEmpNo = session.employeeNumber,
-                    canManage = Authorization.canManage(session.employeeNumber),
+                    canManage = session.may(Permission.EDIT_ANY_TASK),
                 )
                 call.respondRedirect(
                     taskRedirect(backOf(form), projectIdOf(form), editOf(form)),
@@ -1798,19 +1878,23 @@ fun main() {
             // one card shape, so the two boards cannot drift into two different sets of rules again.
             post("/app/other-buckets") {
                 val session = call.requireSession() ?: return@post
-                val canManage = Authorization.canManage(session.employeeNumber)
+                // Stage 110: naming a column of the shared board is *Manage buckets*; the page itself is drawn as
+                // an editor's for either that or *Edit any task*, so a refusal comes back with the openers the
+                // reader actually holds.
+                val canBuckets = session.may(Permission.MANAGE_BUCKETS)
+                val canManage = canBuckets || session.may(Permission.EDIT_ANY_TASK)
                 // Stage 51: naming a backlog column is an Other-tasks function, and the board is now management's,
                 // so the route turns a Viewer's add back to the page (which they cannot open) rather than growing
                 // a column. The rename/delete routes below have always checked the role; this closes the last
                 // write Stage 48 had left open to every signed-in account.
-                if (!canManage) return@post call.respondRedirect("/app/other-tasks")
+                if (!canBuckets) return@post call.respondRedirect("/app/other-tasks")
                 val form = call.receiveParameters()
                 val name = form["name"]?.trim().orEmpty()
                 val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
                 // [TaskService.addBucket] answers with the rule that stopped the name, so the two a reader can
                 // reach by typing — nothing at all, and a name the board already carries — are told apart in
                 // the popup rather than landing on the same silent board.
-                val error = TaskService.addBucket(name, session.employeeNumber, canManage)
+                val error = TaskService.addBucket(name, session.employeeNumber, canBuckets)
                 if (error != null) {
                     // Refused: the page comes back with the popup up, the word still in the field and the
                     // reason printed under it. `app.js` swaps both blocks from this one response, so the
@@ -1840,7 +1924,7 @@ fun main() {
              */
             post("/app/other-buckets/{id}/rename") {
                 val session = call.requireSession() ?: return@post
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val bucketId = call.parameters["id"]?.toIntOrNull() ?: 0
                 val form = call.receiveParameters()
                 val name = form["name"]?.trim().orEmpty()
@@ -1873,7 +1957,7 @@ fun main() {
              */
             post("/app/other-buckets/{id}/delete") {
                 val session = call.requireSession() ?: return@post
-                val canManage = Authorization.canManage(session.employeeNumber)
+                val canManage = session.may(Permission.MANAGE_BUCKETS)
                 val bucketId = call.parameters["id"]?.toIntOrNull() ?: 0
                 val form = call.receiveParameters()
                 val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
@@ -1894,47 +1978,59 @@ fun main() {
                 // left pointing at an id no bucket has — same answer as a stale bookmark, but said on the way out.
                 call.respondRedirect(bucketsBack(if (showBucketId == bucketId) 0 else showBucketId))
             }
+            /**
+             * Add an account (Stage 51, re-chipped for **Stage 110**).
+             *
+             * Two chips decide what this form may write. *Manage employees* is the door — without it nothing here
+             * is reachable and the POST turns back to the page — and *Manage roles & permissions* is the **Role**
+             * picker, so an account that only manages people adds a colleague under the catalogue's default role
+             * rather than choosing which set of powers they get.
+             */
             post("/app/access-control") {
                 val session = call.requireSession() ?: return@post
                 val callerEmp = session.employeeNumber
-                if (!Authorization.canManage(callerEmp)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
-                // Only admins may set positions, access levels and passwords; managers add basic users.
-                val canSetRoles = Authorization.canAdmin(callerEmp)
+                val canSetRoles = session.may(Permission.MANAGE_ROLES)
                 val form = call.receiveParameters()
                 val employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty()
                 val name = form["name"]?.trim().orEmpty()
                 val email = form["email"].orEmpty()
-                val newPassword = if (canSetRoles) form["password"]?.trim().orEmpty() else ""
-                if (canSetRoles && newPassword.isNotEmpty() && newPassword.length < MIN_PASSWORD_LENGTH) {
+                val newPassword = form["password"]?.trim().orEmpty()
+                if (newPassword.isNotEmpty() && newPassword.length < MIN_PASSWORD_LENGTH) {
                     return@post call.respondRedirect("/app/access-control?pw=${PasswordStatus.TOO_SHORT.name}&who=$employeeNumber")
                 }
                 val status = UserService.addUser(
                     employeeNumber = employeeNumber,
                     name = name,
                     email = email,
-                    requestedPosition = if (canSetRoles) form["position"]?.trim() else null,
-                    requestedAccess = if (canSetRoles) form["access"]?.trim() else null,
+                    requestedPosition = form["position"]?.trim(),
+                    requestedRole = if (canSetRoles) form["role"]?.trim() else null,
                     newPassword = newPassword,
                     canSetRoles = canSetRoles,
+                    canSetProfile = true,
                 )
                 call.respondRedirect("/app/access-control?pw=${status.name}&who=$employeeNumber")
             }
             post("/app/access-control/delete") {
                 val session = call.requireSession() ?: return@post
                 val callerEmp = session.employeeNumber
-                if (!Authorization.canManage(callerEmp)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
                 val employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty()
-                val status = UserService.deleteUser(employeeNumber, callerEmp, Authorization.effectiveRole(callerEmp))
+                // Stage 110: only *Manage roles & permissions* may take away an account that itself holds it, so
+                // a manager who manages people cannot delete the role that governs them.
+                val status = UserService.deleteUser(
+                    employeeNumber, callerEmp, callerCanAdmin = session.may(Permission.MANAGE_ROLES),
+                )
                 call.respondRedirect("/app/access-control?pw=${status.name}&who=$employeeNumber")
             }
             post("/app/access-control/password") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
@@ -1942,18 +2038,84 @@ fun main() {
                 val status = UserService.setPasswordByAdmin(employeeNumber, form["password"].orEmpty())
                 call.respondRedirect("/app/access-control?pw=${status.name}&who=$employeeNumber")
             }
+            /**
+             * Re-title one account — the Position select on a People row.
+             *
+             * Since **Stage 110** this writes the job title and nothing else. The old form carried an *Access*
+             * picker whose answer was a rank word; ranks are gone, and the role a person signs in under is the
+             * *Manage roles & permissions* chip's field, on the route below. [UserService.updateUserProfile] takes
+             * the empty string as "leave that half alone", which is why nothing here reads a `role` field.
+             */
             post("/app/access-control/update") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
-                val employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty()
-                UserService.updateUserAccess(
-                    employeeNumber = employeeNumber,
+                UserService.updateUserProfile(
+                    employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty(),
                     positionName = form["position"]?.trim().orEmpty(),
-                    access = form["access"]?.trim().orEmpty(),
+                    roleName = "",
                 )
+                call.respondRedirect("/app/access-control")
+            }
+            /**
+             * Move one account to another role — the Role select on a People row (Stage 110).
+             *
+             * Its own route rather than a second field on the one above, because the two answers belong to two
+             * chips: renaming somebody's job title is *Manage employees*, changing what they may do is *Manage
+             * roles & permissions*. The name is looked up in the catalogue and an unknown one writes nothing, which
+             * is also what stops a hand-built POST inventing a role.
+             *
+             * A redirect is the whole answer, and the form names `#role-cell-<emp>` as the block it re-renders with
+             * `#rolesPanel` as its companion: the picker shows the new role and the EMPLOYEES column moves, in the
+             * same response, without the page restarting under the reader.
+             */
+            post("/app/access-control/role") {
+                val session = call.requireSession() ?: return@post
+                if (!session.may(Permission.MANAGE_ROLES)) {
+                    return@post call.respondRedirect("/app/access-control")
+                }
+                val form = call.receiveParameters()
+                UserService.updateUserProfile(
+                    employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty(),
+                    positionName = "",
+                    roleName = form["role"]?.trim().orEmpty(),
+                )
+                call.respondRedirect("/app/access-control")
+            }
+            /**
+             * Save one role — its name and the set of chips it holds (Stage 110).
+             *
+             * The whole page's rights hang on the rows this writes, so it is *Manage roles & permissions*'s alone
+             * and there is no self-service half: nothing else can add, rename or widen a role.
+             *
+             * Three refusals come back as the page itself at 200 rather than a redirect, because a redirect's
+             * target is drawn with the popup shut and the reason would have nowhere to stand: a blank name, one
+             * the catalogue already carries, and an id that is not a role are all complaints about the single
+             * field the reader is looking at, and [RoleService.save] is what decides between them. A save that
+             * landed is the ordinary POST answer — redirect, and `app.js` follows it while swapping `#rolesPanel`
+             * (the new row or the retitled one) and `#roleModal` (shut, because the target page draws it shut)
+             * from the same response.
+             */
+            post("/app/roles/save") {
+                val session = call.requireSession() ?: return@post
+                val form = call.receiveParameters()
+                if (!session.may(Permission.MANAGE_ROLES)) {
+                    return@post call.respondRedirect("/app/access-control")
+                }
+                val editId = form["id"]?.trim()?.toIntOrNull() ?: 0
+                val result = RoleService.save(
+                    roleId = editId,
+                    name = form["name"].orEmpty(),
+                    permissions = Permission.ofAll(form.getAll("perm").orEmpty()),
+                )
+                if (!result.saved) {
+                    return@post call.respondAccess(
+                        session,
+                        roleForm = roleFormOfForm(form, RoleService.byId(editId)).copy(nameError = result.error),
+                    )
+                }
                 call.respondRedirect("/app/access-control")
             }
 
@@ -2042,17 +2204,21 @@ fun main() {
 
             post("/app/positions") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                // Stage 110: the position catalogue is the People sheet's, so *Manage employees* is its chip.
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
                 val name = form["name"]?.trim().orEmpty()
+                // Stage 110: no field on the page asks for a permission level any more — a position is a job title
+                // and its rank grants nothing — so a new one is filed with the lowest legacy word, which is only
+                // ever read back as a label.
                 val permissionLevel = form["permissionLevel"]?.trim()?.takeIf { it in PERMISSION_LEVELS } ?: "Viewer"
                 val description = form["description"]?.trim().orEmpty()
                 if (name.isNotEmpty()) {
                     val created = UserService.addPosition(name, permissionLevel, description)
                     if (call.isFetch() && created != null) {
-                        val html = createHTML().tr { positionRow(created, canAdmin = true) }
+                        val html = createHTML().tr { positionRow(created, canEdit = true) }
                         call.respondText(html, io.ktor.http.ContentType.Text.Html)
                         return@post
                     }
@@ -2062,7 +2228,7 @@ fun main() {
 
             post("/app/positions/update") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
@@ -2076,7 +2242,7 @@ fun main() {
                         if (row == null) {
                             call.respond(HttpStatusCode.NoContent)
                         } else {
-                            call.respondText(createHTML().tr { positionRow(row, canAdmin = true) }, io.ktor.http.ContentType.Text.Html)
+                            call.respondText(createHTML().tr { positionRow(row, canEdit = true) }, io.ktor.http.ContentType.Text.Html)
                         }
                         return@post
                     }
@@ -2086,7 +2252,7 @@ fun main() {
 
             post("/app/positions/delete") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val id = call.receiveParameters()["id"]?.toIntOrNull()
@@ -2103,7 +2269,10 @@ fun main() {
             post("/app/projects/{id}/pin") {
                 val session = call.requireSession() ?: return@post
                 val projectId = call.parameters["id"]?.toIntOrNull()
-                if (projectId != null) {
+                // Stage 110: the pin rides on the head strip, so it is *Edit project details*'s. A row that is not
+                // an editor's prints no button, and this is the same answer the route gives when it is asked by a
+                // request nobody drew.
+                if (projectId != null && session.may(Permission.EDIT_PROJECT_DETAILS)) {
                     ProjectService.togglePin(session.employeeNumber, projectId)
                 }
                 val back = call.request.headers[HttpHeaders.Referrer] ?: "/app/projects"
@@ -2113,12 +2282,12 @@ fun main() {
             // --- due-date alerts: operator triggers -----------------------------------
             // Plain text, not HTML, on purpose: these exist for the launch checklist and for
             // `curl -b cookie.txt -X POST .../app/alerts/run`, so the sweep's own report is what
-            // you read. Users never see them; only Admins pass the guard.
+            // you read. Users never see them; *Manage email settings* is what passes the guard.
             post("/app/alerts/run") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMAIL_SETTINGS)) {
                     return@post call.respondText(
-                        "Admin role required to run the due-date alert sweep.",
+                        "Manage email settings is required to run the due-date alert sweep.",
                         io.ktor.http.ContentType.Text.Plain,
                         HttpStatusCode.Forbidden,
                     )
@@ -2132,9 +2301,9 @@ fun main() {
             }
             get("/app/alerts/recent") {
                 val session = call.requireSession() ?: return@get
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMAIL_SETTINGS)) {
                     return@get call.respondText(
-                        "Admin role required to read the alert ledger.",
+                        "Manage email settings is required to read the alert ledger.",
                         io.ktor.http.ContentType.Text.Plain,
                         HttpStatusCode.Forbidden,
                     )
@@ -2162,9 +2331,9 @@ fun main() {
             // so it can be run again immediately after fixing a credential.
             post("/app/alerts/test") {
                 val session = call.requireSession() ?: return@post
-                if (!Authorization.canAdmin(session.employeeNumber)) {
+                if (!session.may(Permission.MANAGE_EMAIL_SETTINGS)) {
                     return@post call.respondText(
-                        "Admin role required to send a mail delivery test.",
+                        "Manage email settings is required to send a mail delivery test.",
                         io.ktor.http.ContentType.Text.Plain,
                         HttpStatusCode.Forbidden,
                     )
@@ -2244,7 +2413,7 @@ private suspend fun ApplicationCall.respondForecasts(
             month = month,
             board = ForecastService.board(month, filter),
             filter = filter,
-            canManage = Authorization.canManage(session.employeeNumber),
+            canManage = session.may(Permission.EDIT_FORECAST_AMOUNTS),
             refused = refused,
         )
     }
@@ -2267,7 +2436,7 @@ private suspend fun ApplicationCall.respondLessons(
     filter: LessonFilter,
     form: LessonForm,
 ) = respondHtml {
-    val canManage = Authorization.canManage(session.employeeNumber)
+    val canManage = session.may(Permission.EDIT_ANY_TASK)
     appPage(session, "lessons", "Lesson learnt") {
         lessonsContent(
             board = LessonService.board(filter, session.employeeNumber, canManage),
@@ -2319,17 +2488,28 @@ private suspend fun ApplicationCall.respondSettings(
     typeNote: PasswordStatus? = null,
     typeDetail: String? = null,
     typeBeingEdited: String = "",
+    /**
+     * Stage 110: the four panels are four chips, and each one is read off the caller's role here rather than
+     * passed down from the route, so an answer to a refused write cannot accidentally draw a panel wider than
+     * the chips the reader who was refused holds. The defaults are what the routes ask anyway; a refusal that
+     * knows it holds one of them says so at the call.
+     */
+    canPeople: Boolean = session.may(Permission.MANAGE_EMPLOYEES),
+    canRoles: Boolean = session.may(Permission.MANAGE_ROLES),
+    canTypes: Boolean = session.may(Permission.MANAGE_PROJECT_TYPES),
+    canEmail: Boolean = session.may(Permission.MANAGE_EMAIL_SETTINGS),
 ) = respondHtml {
-    val canManage = Authorization.canManage(session.employeeNumber)
-    val canAdmin = Authorization.canAdmin(session.employeeNumber)
     appPage(session, "settings", "Settings") {
         settingsContent(
             session = session,
-            sheet = EmployeeService.sheet(filter, session.employeeNumber, canManage, canAdmin),
+            sheet = EmployeeService.sheet(filter, session.employeeNumber, canPeople, canPeople),
             filter = filter,
             form = form,
-            canManage = canManage,
-            canAdmin = canAdmin,
+            canManage = canPeople,
+            canAdmin = canPeople,
+            canSetRoles = canRoles,
+            canTypes = canTypes,
+            canEmail = canEmail,
             note = note,
             mailStatus = mailStatus,
             mailDetail = mailDetail,
@@ -2356,10 +2536,40 @@ private suspend fun ApplicationCall.respondSettings(
  */
 private suspend fun ApplicationCall.respondTeam(session: UserSession, assign: AssignForm) = respondHtml {
     appPage(session, "team", "Team") {
+        // Stage 110: the sheet and the panel are separate chips — reading a colleague's board is
+        // *View teammates' tasks*, putting a card on it is *Assign tasks to others*.
         teamContent(
-            canManage = Authorization.canManage(session.employeeNumber),
+            canManage = session.may(Permission.VIEW_TEAMMATES_TASKS),
+            canAssign = session.may(Permission.ASSIGN_TASKS),
             viewerEmpNo = session.employeeNumber,
             assign = assign,
+        )
+    }
+}
+
+/**
+ * The Access control page, on every route that answers with it (Stage 110).
+ *
+ * It is a helper for the same reason [respondLessons] is: `/app/roles/save` answers a refused name with this
+ * page at 200, carrying the popup open with the word still typed and the reason under the field, and a
+ * redirect's target would arrive with the form shut. Both flags are read off the caller's own role here rather
+ * than passed in, because every route that can reach this page has already asked the same two questions and a
+ * refusal must not be able to hand a reader a form wider than their own chips.
+ */
+private suspend fun ApplicationCall.respondAccess(
+    session: UserSession,
+    roleForm: RoleForm = RoleForm(),
+    status: PasswordStatus? = null,
+    detail: String? = null,
+) = respondHtml {
+    appPage(session, "access-control", "Access control") {
+        accessContent(
+            canPeople = session.may(Permission.MANAGE_EMPLOYEES),
+            canRoles = session.may(Permission.MANAGE_ROLES),
+            currentEmployeeNumber = session.employeeNumber,
+            roleForm = roleForm,
+            passwordStatus = status,
+            statusDetail = detail,
         )
     }
 }

@@ -110,8 +110,20 @@ private const val CHOOSE_COLUMN = "— Choose a column —"
  * [assign] is the panel below the sheet in the state this answer needs: blank for an ordinary read, and
  * the typed words with the field-keyed reasons when a save was refused — the same contract the card popup
  * keeps, and the reason `/app/team/assign` answers a refusal with this page rather than with a redirect.
+ *
+ * **Stage 110 split the one flag into the two chips the page actually offers.** [canManage] is
+ * *View teammates' tasks* — it draws the caption's "open the Tasks count" sentence, the drill-down under a row
+ * and the popup's card list. [canAssign] is *Assign tasks to others*, and it is the only thing that draws the
+ * `+` beside a name and the panel underneath the sheet, because writing a card onto somebody else's board is a
+ * different permission from reading it. The default keeps the pre-110 shape — whoever could see the work could
+ * put work on it — so an older call site, and every test written against this page, still reads the page it read.
  */
-fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm = AssignForm()) {
+fun DIV.teamContent(
+    canManage: Boolean,
+    viewerEmpNo: String,
+    assign: AssignForm = AssignForm(),
+    canAssign: Boolean = canManage,
+) {
     div("card-panel") {
         // The hook the re-count swaps. It holds the caption and the sheet and nothing else — not the member
         // popup's data island, which the script refreshes by itself, and not the assign panel below, where the
@@ -191,7 +203,7 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
                                     // page being broken rather than as the list being somebody else's.
                                     span(if (open == 0) "tasks-static zero" else "tasks-static") { +"$open" }
                                 }
-                                if (canManage) {
+                                if (canAssign) {
                                     button(type = ButtonType.button, classes = "quick-add") {
                                         attributes["data-emp"] = member.employeeNumber
                                         attributes["title"] = "Assign a task to ${member.name}"
@@ -214,7 +226,7 @@ fun DIV.teamContent(canManage: Boolean, viewerEmpNo: String, assign: AssignForm 
         }
     }
 
-    if (canManage) {
+    if (canAssign) {
         val columns = TaskService.bucketRows()
         val v = assign.values
         div("card-panel") {

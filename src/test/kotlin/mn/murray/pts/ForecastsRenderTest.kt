@@ -4,6 +4,7 @@ import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
 import io.ktor.http.Parameters
 import mn.murray.pts.db.Migrations
+import mn.murray.pts.domain.Currency
 import mn.murray.pts.domain.FULLY_INVOICED
 import mn.murray.pts.domain.ForecastRecord
 import mn.murray.pts.domain.Member
@@ -154,9 +155,9 @@ class ForecastsRenderTest {
         assertEquals(2, occurrences(html, "class=\"grid fc-table\""), "a running panel printed no table or two")
         val headers = listOf(
             "f-type" to "Type", "f-code" to "Project #", "f-desc" to "Description", "f-client" to "Client",
-            "f-rev" to "Revenue, MNT", "f-prev" to "Invoiced in previous months",
+            "f-rev" to "Revenue", "f-prev" to "Invoiced in previous months",
             "f-forecast" to "Forecast (current month)", "f-remain" to "Remainant to next months",
-            "f-imonth" to "Invoiced month", "f-invoiced" to "Invoiced amount, MNT", "f-status" to "Invoice status",
+            "f-imonth" to "Invoiced month", "f-invoiced" to "Invoiced amount", "f-status" to "Invoice status",
         )
         // The company's own spelling of the eighth column is kept: this sheet is read against a paper one.
         listOf("Site projects", "Fabrication/Manufacturing").forEach { type ->
@@ -181,17 +182,41 @@ class ForecastsRenderTest {
         val html = sheet()
         val done = listOf("d-type", "d-code", "d-desc", "d-client", "d-rev", "d-total", "d-imonth", "d-invoiced")
         assertEquals(done, Regex("<col class=\"(d-[a-z]+)\"").findAll(html).map { it.groupValues[1] }.toList())
-        assertEquals(1, occurrences(html, "<th class=\"d-total\">Total invoiced, MNT</th>"))
+        assertEquals(1, occurrences(html, "<th class=\"d-total\">Total invoiced</th>"))
         // The two figures a finished job has no use for are not on its table at all — not headers, not cells.
         listOf("d-forecast", "d-remain").forEach {
             assertFalse(html.contains("\"$it\""), "the completed sheet still carries $it")
         }
         assertEquals(1, occurrences(html, "Completed projects — invoiced"), "the completed half doubled its heading")
         assertTrue(html.contains("<span class=\"money fc-covered\">8,000,000</span>"), "a job invoiced for its whole value is not marked")
+        // **Stage 108**: revenue is the one money column that says which currency it is. Its neighbours — what
+        // was invoiced, what is left — stay bare grouped figures, because they are measures of the ledger rather
+        // than the amount the project was signed for.
+        assertTrue(html.contains("<span class=\"money\">₮\u00A08,000,000</span>"), "the finished sheet's revenue lost its sign")
         // The identity closes on the running rows, printed as derived text beside the two typed cells:
         // 12,500,000 revenue - 3,000,000 invoiced in January - 4,000,000 planned here = 5,500,000 left.
+        assertTrue(html.contains("<span class=\"money\">₮\u00A012,500,000</span>"), "a running row's revenue lost its sign")
         assertTrue(html.contains("<span class=\"money dim\">3,000,000</span>"), "January's invoice is not this month's previous")
         assertTrue(html.contains("<span class=\"money dim\">5,500,000</span>"), "remaining is not revenue minus previous minus forecast")
+    }
+
+    @Test
+    fun `each row's revenue wears its own project's currency while the ledger's figures stay bare`() {
+        // **Stage 109**: one panel can hold projects in different currencies, so the sheet no longer claims a
+        // single unit in its headings. Only the revenue cell says what money it is — the invoice, remainder and
+        // total figures are measures of a ledger that belongs to no currency, and their totals add rows that may
+        // not share one.
+        val usd = ProjectRepository.insert(
+            code = "S-12", name = "Dollar job", status = "In progress", progress = 0,
+            managerEmpNo = "EMP0001", due = "", type = "Site projects",
+            revenue = 2_000_000.0, currency = Currency.USD,
+        )
+        put(usd, month, 500_000.0, 500_000.0, PARTIALLY_INVOICED)
+        val html = sheet()
+        assertTrue(html.contains("<span class=\"money\">\$\u00A02,000,000</span>"), "the dollar row's revenue is not in dollars")
+        assertTrue(html.contains("<span class=\"money\">₮\u00A012,500,000</span>"), "one project's currency repainted another's")
+        assertFalse(html.contains("Revenue, MNT"), "the heading still claims a unit the panel does not have")
+        assertFalse(html.contains("Invoiced amount, MNT"), "the heading still claims a unit the panel does not have")
     }
 
     // --- colour, and what a blank row is not ---------------------------------------------------------

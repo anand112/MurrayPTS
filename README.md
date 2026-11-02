@@ -306,7 +306,8 @@ with one letter:
 
 The Projects board has one tab per category. `+ New project` opens a popup on the same page and asks
 for the category, the project number, a description, the client, start and end dates, a status
-(defaults to **Not started**), revenue and a manager — those nine fields, and one line about buckets. The status picker reads
+(defaults to **Not started**), revenue and a manager — those nine fields, plus since **Stage 109** a currency
+picked under the amount (tugrik, US dollar or yuan; tugrik unless you choose otherwise) — and one line about buckets. The status picker reads
 as the progression — **Not started, In progress, On hold, Blocked, Completed** — because **Stage 96** took it off the
 most-used-choice-first order it had, and renamed the running stage to the word the cards already used: a project and a
 card that are both under way now both say **In progress**, so nothing anywhere translates one into the other. It does not
@@ -388,8 +389,9 @@ bucket — tick one to leave standing."* None of them asks whether a name is one
 lists it.
 
 Creating a project, editing or deleting one, choosing who manages one, ticking its buckets and deleting a card are
-**management-only** — the Archive is also open to the account that
-project names as its manager, on the same `mayEditLanes` line as its columns:
+**management-only** — the archive writes are also open to the account that
+project names as its manager, on the same `mayEditLanes` line as its columns, though since **Stage 106** no page
+prints their controls (see *The project header* below):
 a `Viewer` sees neither the `+ New project` button nor the popup nor an editable header strip nor the
 **Delete task** at the end of a card's note line (**Stages 72 and 84**), and `POST /app/projects`,
 `POST /app/projects/{id}` (a header-strip save), `POST /app/projects/{id}/delete`,
@@ -511,7 +513,10 @@ The board prints one table per category panel, and every one of them is laid out
 ten-column grid: ID, Project, Client, Status, Progress — the average of that project's card checklists, or
 the figure filed on its row where none of its cards has any — Manager, Start date, End date, Revenue and the
 pin button sit at the same x in every group, with Revenue right-aligned and the two dates centred so the
-digits stack down the page. The ID is the one cell printed larger and bolder than the rest of the row, in the
+digits stack down the page. Since **Stage 108** the Revenue column is money and says so — `₮ 5,000,000`,
+the sign kept beside its figure by a non-breaking space — while a project with no revenue keeps its `—`; since
+**Stage 109** that sign is the project's own, so one board can print `$ 5,000,000` or `¥ 4,800,000` beside a
+tugrik row. The Invoiced and forecast figures elsewhere stay bare grouped numbers. The ID is the one cell printed larger and bolder than the rest of the row, in the
 same three places a project's number shows (the board, a project page's head, an account's project line),
 because it is what people say out loud; the smaller chip is kept for employee numbers elsewhere. The widths are percentages that sum to 100, so a narrow window wraps a long
 cell instead of pushing the table out of its card — and that is how the shares were split: a date must not
@@ -540,23 +545,30 @@ button and the pickers do an ordinary page load of the same URL, and the board e
 Four field names worth knowing: what the form and the board call the **end date** is stored in the
 `due` column — the Calendar and the due-date alerts both key off it, and nothing else does — the
 **start date** is `start_date`, which is recorded when the project is made and has no behaviour
-attached to it, **revenue** is a single amount with no currency, in the company's reporting unit, and
+attached to it, **revenue** is a single amount in the project's own currency — `projects.currency` (V20) holds the
+ISO code, `MNT` unless the create form chose `USD` or `CNY` (**Stage 109**), and the amount is written and shown
+with that currency's sign since **Stage 109** (the tugrik sign arrived in **Stage 108**), though the column stores the
+plain number — and
 **invoiced** (`projects.invoiced`, V11) is how much of that has actually been billed to the client — it
-defaults to `0`, is read exactly like revenue, and is entered by management on the project's header strip.
+defaults to `0`, is read by the same parser (grouped or signed input is accepted, though it prints bare), and is entered by management on the project's header strip.
 
 ## The project page
 
 Opening a project prints its header and, below it, that project's own task board. **For management the header is an
-editable strip** (Stage 60): the top line is a `Projects / S-01` breadcrumb with a **☆ Pin for me** toggle, a small
-**copy-link** icon button (📋 — it copies the page's address to the clipboard, no navigation), and a **Delete project**
-button at the right. Under it runs **one flat, edge-to-edge row** of UPPERCASE-labelled fields — **Description**,
+editable strip** (Stage 60): the top line is a `Projects / S-01` breadcrumb with a **☆ Pin for me** toggle and a
+**Delete project** button at the right. (Until **Stage 106** a 📋 copied the page's address and a 🗄 opened the
+project's archived tasks; the user asked for both out, and the panel went with its only opener — the archive's rows
+and its three routes are still there, but no page prints a control for them.) Under it runs **one flat, edge-to-edge
+row** of UPPERCASE-labelled fields — **Description**,
 **Client**, **Type**, **Start**, **Due**, **Status**, **Project manager**, **Revenue**, **Invoiced** — each a borderless
 input or picker (only the native select caret and the date's calendar glyph show) whose refused message prints small at
-the field; **Revenue** and **Invoiced** show comma-grouped ("5,000,000", "0"), and **Progress** reads as a plain
+the field; **Revenue** shows the project's figure in its own currency ("₮ 5,000,000", or "$ 5,000,000" on a dollar
+project) and **Invoiced** a comma-grouped one ("5,000,000",
+"0"), and **Progress** reads as a plain
 percentage with no bar, then a single **Save changes** button. **For a `Viewer` the header is that same row, read-only**
 (Stage 71): the pill line, the name, and one flat line of nine UPPERCASE-labelled cells — **Project number**,
 **Category**, **Client**, **Manager**, **Start date**, **End date**, **Status**, **Revenue**, **Progress** — each with
-its caption above its value, exactly as management's inputs are, with a plain value where management has a box. Nothing
+its caption above its value, **Revenue** carrying the same currency-signed figure management's box holds, exactly as management's inputs are, with a plain value where management has a box. Nothing
 is dropped or reordered to fit; a value longer than its share is shortened with an ellipsis and the whole string is the
 cell's tooltip. **Progress keeps its bar** (management's cell shows only the percentage) because this is where a Viewer
 reads how far the project has got. No form, no strip, no delete. The split is by role, never by field: what a Viewer
@@ -568,10 +580,37 @@ you edit it. **Progress is derived**, not a box: it is the average of what the b
 input and prints as a plain percentage (no bar on management's strip); the cell keeps its `project-progress` id, and
 ticking a step on a card still moves that figure in place without a reload. **Invoiced** is new (schema **V11**,
 `projects.invoiced`): the amount actually billed to the client, entered here by management and stored as a plain number
-read the same way Revenue is (the comma-grouped text is stripped back to a number on save). It is *not* asked when you
+read by the same parser as revenue (grouping, commas, spaces, the currency's sign — `₮`, `$` or `¥` — and the space after it are all stripped on save,
+so a figure copied from a cell can be pasted straight into the box). It is *not* asked when you
 create a project — nothing is billed before the project exists. **Delete project** is management-only and asks once ("Delete <code>? Every
 task filed under this project goes with it. This cannot be undone.") before removing the project **and every card filed
 under it**; a hand-built POST to `/app/projects/{id}/delete` from a non-manager is refused.
+
+**Since Stage 108 revenue is written in money too.** Creating a project and editing the header both ask for it in a
+text box whose grey placeholder is `₮ 0` on the create popup, and which opens on the project's own figure
+(`₮ 5,000,000`) on the header, with a numeric keypad on a phone. What you type may be `5000000`, `5,000,000`,
+`5 000 000`, or the whole thing copied out of a revenue cell — `₮ 5,000,000`, or `$ 2,500,000` / `¥ 4,800,000` off a
+project in another currency — because the sign, its space, the ordinary spaces and the commas are stripped before
+the number is read. What is stored is the plain number, so the
+column and the Forecasts identity read exactly what they read before; only the display and the box ask it in money.
+Anything that is not a non-negative amount is refused **at the
+Revenue field** — *"Enter revenue as a number, like 1,250,000."* — with your words still in the box and nothing saved. A
+project with no revenue prints `—` on the board and *not* `₮ 0`, because no figure and a figure of zero are different
+statements; the forecast sheet's own Revenue cells do print `₮ 0` when the project's number is zero, since there the
+figure is one cell of an arithmetic identity that must balance.
+
+**Since Stage 109 that money is the project's choice, and tugrik is the pick.** The create popup puts a currency
+picker directly under the Revenue box — **Tugrik (₮)**, **US dollar ($)**, **Yuan (¥)** — and it opens on Tugrik,
+so a form that touches nothing makes a tugrik project exactly as before. The chosen money's sign is the amount box's
+grey placeholder (`$ 0` after picking the dollar), and it is stored as the ISO code in `projects.currency` (V20).
+Choosing one **converts nothing**: `2,500,000` in the dollar picker stores the same `2500000` the tugrik picker
+would, and only the sign on the page changes. The choice is made once — the header strip has no picker and
+`ProjectRepository.update` never writes the column — for the same reason the project number never changes: a
+project's money is what its contract was signed in. A value the app cannot name (`EUR`, a hand-made POST) is refused
+at the picker — *"Choose a currency: tugrik, US dollar or yuan."* — and no row is written. Because a board and a
+Forecasts panel can hold projects in different monies, each revenue cell wears its own project's sign, while the
+Invoiced and forecast figures and their totals stay bare — and the sheet's column headings no longer say *", MNT"*,
+because a panel no longer has one unit to name.
 
 The board's columns are the project's **buckets** — one column per bucket, on an empty board and on a full one
 (**Stage 75**). Each head is the bucket's dot, its name, how many cards stand in it and a `⋯`; each foot is a
@@ -660,7 +699,7 @@ between an empty board and a full one, because `status` and `project_bucket_id` 
 and the same list is simply read one way. A card that has no bucket yet — one written before Stage 48 made a lane
 mandatory, or one a legacy import left unfiled — is caught by an **Unsorted** column that appears at the left only
 while such a card exists, so work is never drawn nowhere. Since **Stage 81** a removed column no longer feeds it:
-the cards filed in a column that comes off the board go to the project's **Archive**, not to *Unsorted*.
+the cards filed in a column that comes off the board are archived with it, not left to *Unsorted*.
 
 Two controls sit on that board, and both hang on `mayEditLanes` — management or this project's own manager — so a
 `Viewer` sees neither. The dashed box is a GET form asking for `?laneadd=1`; a column's `⋯` is the same shape as
@@ -673,25 +712,20 @@ the page's bucket UI: it adds a column (the dashed box opens it straight at the 
 column** and offers to take it off the board. A rename is by **id** and never by name (the name is the thing being
 changed), and it touches only this board's heading and not the category's catalogue. **Since Stage 81 a removal takes
 the column's work with it**: the popup counts the cards filed there and, instead of refusing an occupied column, it
-says where they are going — *"Removing this column takes it off the board, and its 3 cards go to Archive — restore
-them from the 🗄 panel in the header."* — and the write flags every one of those cards archived with the column's name
-remembered before the column row goes. The board answers *"That bucket is off the board, and its 3 cards went to
-Archive."*, and nothing falls to **Unsorted**.
+says what happens to them — *"Removing this column takes it off the board, and its 3 cards leave the board with
+it."* — and the write flags every one of those cards archived with the column's name
+remembered before the column row goes. The board answers *"That bucket is off the board, and its 3 cards left the board
+with it."*, and nothing falls to **Unsorted**.
 
-**A project's Archive is the 🗄 in its header** (**Stage 81**). It is drawn for the same readers as the `⋯` —
-management or this project's own manager — and it opens a panel listing every card that was put away, each row naming
-the card, the project number and the column it stood in (*"S-01 · was in \"Production\""* — a remembered name, so it
-still reads after the column itself is gone). A row carries two answers and no third: **Restore** puts the card back
-on the board with the steps and the log it left with, in the column it remembers while that column still exists and
-in the board's first column otherwise — and the page says which — or **Delete permanently** destroys it, one
-deliberate step after it has left the board. Whether the panel is up is the URL's `?archive=1`, so it is
-bookmarkable and works with scripts off; a restore or a permanent delete redraws the panel and the board together in
-place, so a reader working down the list is not thrown back to the board after each press. A card enters the Archive
-by **leaving with its bucket** — removing a column puts its cards here (Stage 81) — and since **Stage 84** the live
-card's popup no longer carries an **Archive task** button: its foot offers management's **Delete task** in either
-world, as it did before Stage 81. Only an archived card's own row carries **Restore** and **Delete permanently**; an
-archived card is off every board, its column's count and the lesson sheet's card picker, and it takes no save or
-board delete until it is restored — the panel's two buttons are its only answers.
+**A removed column's cards are archived, and since Stage 106 that is all any page says about them.** Stage 81 gave the
+archive a panel behind a 🗄 in the project header — every card put away, each row naming the card, the project number
+and the column it stood in (*"S-01 · was in \"Production\""*), with **Restore** and **Delete permanently** — and
+Stage 106 took that icon out at the user's request; the panel had no other opener and went with it. What remains is the
+data and its routes: the rows stay in the database with their steps and their log, `TaskService.archiveCard`,
+`restoreCard` and `deleteArchived` still answer `POST /app/tasks/archive`,
+`POST /app/projects/{id}/archive/restore` and `POST /app/projects/{id}/archive/delete`, none of them has a control on
+any page, and `?archive=1` is no longer read. An archived card is still off every board, its column's count and the
+lesson sheet's card picker, and it takes no save or board delete.
 
 That popup can ask **two** questions; since **Stage 83** only its rename half asks both: *what is this column called*
 and *what colour is it*. Adding one asks for a name alone, and the app paints the new head at its place in the run —
@@ -824,8 +858,15 @@ is a GET form onto this same page carrying `new=1` and `into=<lane id>`, `app.js
 hint saying "A new card lands under Goods sales." An `into` for a lane this project does not have — another
 project's, a removed one, a word — is discarded by the route, so it opens the ordinary blank form instead of
 filing the card somewhere it cannot be seen. Dropping a card on a lane
-is not a reload either:
-`kanban.js` posts `POST /app/tasks/bucket` and moves the card node itself, recounting both columns. A lane the
+is not a reload either, and since **Stage 105** the card moves on the drop itself:
+`kanban.js` puts the node in the column it was let go on and recounts both columns *before* it posts
+`POST /app/tasks/bucket`, and it tells the browser not to follow that route's 302 (`redirect: 'manual'`), so the
+board page behind the redirect is never fetched. It used to be the order the other way round — the reply was
+awaited, the redirect downloaded the whole page, and the card sat still through the download and then jumped.
+A write that fails is now the one path that reloads the board. A card filed into a column that has finished cards
+in it lands above the `▸ Completed N` line, among the live ones — and it does land: that insert used to be anchored
+on a button nested inside the line's own form, which threw and was swallowed, so such a drop moved nothing at all.
+A lane the
 last card leaves stays on the board — an empty lane is still one of the project's lanes — but **Unsorted** is
 not: it is a bucket for cards nobody has placed, so the column goes when its last card does (Stage 37), and since
 Stage 48 it is not a drop target at all. Neither
@@ -950,6 +991,19 @@ board's own per-column counts — and the **Team sheet's OPEN TASKS** figure, wh
 work only, because there the question is what a colleague still has outstanding. `TaskItem.isOpen` is where that
 open/finished line is drawn for those, and it is the same property the Team page reads when it counts and sorts a
 colleague's cards, so one card cannot be finished on one page and outstanding on another.
+
+Since **Stage 107** that board also carries a **Project** picker above it — the Other-tasks half's Bucket picker's
+twin, in the same one-card-wide `board-toolbar` shape: choosing `S-01 · Haul road widening` narrows the reader's own
+project cards to that project while they stay cut by the five statuses. It narrows, it never becomes project columns
+and never adds a card. The list is every project the Projects page holds, not only the ones this reader has a card on,
+because a project with nothing on it yet is a legitimately empty answer rather than a missing option; *All projects*
+is option `0`, the absence of a filter, so the URL is the state (`?project=<id>`) and a bookmark or a back button
+restores the same narrow view. The two pickers carry each other — each rides in the other's hidden field, so choosing
+one never silently widens the other board — and the card actions' `back` token carries both
+(`assigned:<bucket>:<project>`), so opening, saving, stepping, noting, deleting or answering a refusal returns to the
+doubly narrow board. A stale or deleted project id answers the whole board, exactly as a stale bucket does. A narrowed
+board says so under the title: *Only the cards assigned to you on S-01 · Haul road widening are on this board.* This
+is the **view's** rule, not a new right: `assignedFor` still answers the reader's own cards for every role.
 
 Since **Stage 55** the *Assigned tasks* page answers a second question below its own board: *what else is on me, outside
 the projects*. A reader can hold backlog cards — work assigned to them on the **Other tasks** board, which belongs to no
@@ -1122,10 +1176,10 @@ rewritten by the person who made it. Both sections save without closing the popu
 each form names its own block (`data-live-target="#task-steps-42"`), the response returns that block
 rebuilt, and `app.js` puts the caret back where it was — which is what lets a list be written one line at
 a time. A step, a note or the card's own `?edit=42` redirect is what puts the popup back after such a
-save; only the popup's **Save** button and a card's move to another column navigate, because `kanban.js`
-binds its
-drag listeners per card node and swapping a board out from under them would leave the columns
-undraggable.
+save; the popup's **Save** button is the other control that navigates. A card's move to another column does not:
+on a project page it is done in place (Stage 105) and on a status board it posts the change and reloads that board
+on purpose. Swapping a board in place no longer takes the drag with it either — since **Stage 94** `kanban.js`
+listens on `document`, not on nodes a swap throws away.
 
 Ticking a box does not reload the board and does not close the popup. The step's form names the plan it belongs
 to (`data-live-target="#task-steps-42"`) and the two blocks that number depends on
@@ -1161,11 +1215,12 @@ is no card left to paint.
 offers management's **Delete task** again, exactly as a backlog card does — a POST to `/app/assigned-tasks/delete`,
 one confirmation (*"Delete Ada? Its steps and its notes go with it. This cannot be undone."*), and the board it came
 from reloaded afterwards. The **Archive task** button Stage 81 had put in its place is gone; a card reaches the
-Archive by **removing the bucket it stands in**, and the panel's **Delete permanently** remains the answer for a card
-already there. The delete is management's (`TaskService.deleteAssigned` refuses anybody else), so a project's own
+archive by **removing the bucket it stands in**, and since **Stage 106** no page lists what is there (the panel and
+its 🗄 went; the restore and permanent-delete routes remain, with no control). The delete is management's
+(`TaskService.deleteAssigned` refuses anybody else), so a project's own
 manager and the card's holder are offered nothing — a manager may archive cards by removing a column, which is what
 `TaskService.mayEditLanes` decides, but destroying one is management's call. An archived card is not openable by id
-and takes no save: restore is the one way back to an editor.
+and takes no save.
 
 ## Other tasks
 
@@ -1211,7 +1266,9 @@ card can add or remove one of them.
 
 This is a **management** page (Stage 51): the shared backlog and everything you do to it — naming a column, adding a
 card, renaming or emptying a column, choosing which column the board reads — belong to management
-(`Authorization.canManage`, i.e. Manager or Admin), and the three links that reach it (**Other tasks**, **Access
+(`Authorization.canManage`; since **Stage 110** that flag means "any chip except *View teammates' tasks*", while each
+individual write is guarded by the chip it is about — *Manage buckets* or *Edit any task*), and the three links that
+reach it (**Other tasks**, **Access
 control**, **Settings**) are dropped from a Viewer's sidebar. The one path kept personal: a Viewer whose card is on
 the backlog can still reach it here, so a Viewer hitting `/app/other-tasks` — from a notification, say — gets the board
 **scoped to their own cards**: exactly the bucket their card stands in — its heading and its five status columns — and
@@ -1335,7 +1392,10 @@ arithmetic of it:
 
     revenue = invoiced in previous months + this month's forecast + remaining to next months
 
-**Revenue, MNT** is the project's own number from the Projects board. **Invoiced in previous months** is
+**Revenue** is the project's own number from the Projects board, printed in that project's currency since
+**Stage 108** (`₮ 12,500,000`, or `$ 2,500,000` on a dollar project — **Stage 109**) — the sheet's other money cells,
+and its headings, stay bare grouped figures and unit-less words, because the identity's terms are what it adds
+up, one panel may hold several currencies, and a sign on every term would only crowd eleven columns. **Invoiced in previous months** is
 typed nowhere: it is the sum of that project's ledger lines for every month strictly before the one on
 screen, so stepping ‹ changes it, and so does saving a line — write October's invoice and November's
 "previous" column already includes it. **Remainant to next months** is what the identity leaves over, and
@@ -1358,7 +1418,7 @@ money grid a `0` beside a plan is a statement, and it is the same figures the to
 The invoice-month cell answers *when this was raised*, not *which line this is*. A line always belongs to
 the month the sheet is reading, so naming November does not move October's money: it stays on October's
 row and November stays blank. Blank and "this month's own name" are the same statement, so only a real
-difference is stored. Amounts are read exactly the way the Projects board reads revenue — `8600000`,
+difference is stored. Amounts are read the way the Projects board reads money — `8600000`,
 `8,600,000` and `8 600 000.50` are one figure, and a blank cell means nothing rather than zero. Anything
 else (text, a negative, a number too large to be one month's money) is refused **under the cell that
 caused it**, with the characters still in the box and nothing written anywhere.
@@ -1471,8 +1531,9 @@ made editable in Stage 63). A password is set, and reset, from the Team sheet's 
 this page has carried no password box of its own since **Stage 99**, and no account is stopped because its password is
 still the number the system gave it. Since
 Stage 51 the Team sheet is management's — the roster block, the toolbar and the employee popup print only for a
-Manager or Admin — so a **Viewer**'s Settings is just their own account card, and their
-sidebar carries no Settings link. For management the sheet is the roster read down — **Name, Employee #, Position, Department, Role, Email, Open tasks** — with a search
+Manager or Admin, which since **Stage 110** means a role holding *Manage employees* — so an **Employee**'s Settings is now
+a redirect back to `/app` rather than the page that used to print them their own account card, and their sidebar carried
+no Settings link from Stage 51 on. For management the sheet is the roster read down — **Name, Employee #, Position, Department, Role, Email, Open tasks** — with a search
 box ("name, email, employee #"), a **Position** picker, a **Role** picker and "22 of 22 shown" at the right end. It
 opens by name, A→Z; every heading is also the control that sorts that column, and pressing the one already sorted
 turns it around. Above the table, management gets a card that reads "Add a new employee account…" with a green
@@ -1480,19 +1541,31 @@ turns it around. Above the table, management gets a card that reads "Add a new e
 would only refuse you.
 
 A row is a **person**, not a login: colleagues on the roster appear whether or not they have an account yet, and the
-pencil on one of those rows *creates* the sign-in rather than editing one. The **Role** column tells you what that
-account can actually do — the effective role the app checks before every write, which is the permission level of the
-position it is filed under when it has one, and its own access level otherwise. **Open tasks** counts a person's
+pencil on one of those rows *creates* the sign-in rather than editing one. The **Role** column names the one row of the
+**Roles & permissions** catalogue that account signs in under, and since **Stage 110** that role's chips are the whole of
+what it can do — the position beside it is a job title and decides nothing, which retires the ladder this paragraph
+described until then (the position's permission level, or the account's own access word when it had no position). An account with
+no role at all is not an account with no rights: `RoleRepository.roleOf` falls back to the catalogue's default (Employee),
+the same row a null `role_id` is counted under in that table's EMPLOYEES column.
+**Open tasks** counts a person's
 unfinished cards: management sees everybody's, and anybody else sees their own with a `—` on the rows they cannot
 read, so `0` and `—` are different answers and both sort to the bottom. A blank department, a missing role and that
 dash all land last whichever way the column is read.
 
-Who may do what is printed and enforced twice over. **Management** (`Manager` or `Admin`) adds accounts; only an
-**administrator** may set a position, a role or a password, so a manager's popup asks for a number, a name and an
-address and nothing else — and a hand-built form carrying the other three is refused, not quietly trimmed. The bin
-shows why it will not press instead of vanishing: "Only management can delete an account.", "This person has no
-account to delete yet — the pencil creates one.", "The Super Admin account cannot be deleted.", "You cannot delete
-your own account.", "Managers cannot delete Admin accounts." Delete is the one write here with no way back, so it
+Who may do what is printed and enforced twice over. Since **Stage 110** the two people chips are read apart here:
+*Manage employees* adds accounts and may set a name, an address, a position and a password, and *Manage roles &
+permissions* is what makes the popup's **Role** select appear at all — a reader with the first chip and not the second is
+offered a popup with no role in it, and `UserService.addUser` ignores a hand-built `role=` field rather than honouring
+it, filing the newcomer under the catalogue's default. (That is a widening of the old rule, which let only an
+**administrator** set a position or a password: those two writes now belong to the people chip and only the role stays
+with the roles chip. A position still cannot be invented from here — it has to be on the catalogue, which is filled on
+**Access control**.) The bin
+shows why it will not press instead of vanishing: "Only somebody who manages employees can delete an account.", "This
+person has no account to delete yet — the pencil creates one.", "The Super Admin account cannot be deleted.", "You cannot delete
+your own account.", "Only somebody who manages roles can delete that account." — the last of those is Stage 110's
+rewording of "Managers cannot delete Admin accounts.", and its rule moved with it: `UserService.deleteUser` refuses the
+press when the target's role holds *Manage roles & permissions* and the caller's does not, so a people-manager cannot
+delete the role that governs them. Delete is the one write here with no way back, so it
 asks first; everything else — a search, a picker, a heading, a save — happens in place, with no page reload and your
 scroll position kept, and the address bar still names the view you are looking at (`?q=gan&role=Manager&sort=tasks:desc`)
 so it can be reloaded, bookmarked or sent. With JavaScript switched off, `+ Add employee`, the pencil, the save and
@@ -1503,11 +1576,13 @@ position catalog is its own table and nothing on this page fills it — you add 
 only then can the popup file somebody under one. And **an account created without a password signs in with its
 employee number** (typed in any letter case); until an administrator types a private one from this sheet, that
 employee-number password is what the account has — nothing forces a change since **Stage 99** — so set your own
-before you build the team. Everything here is
-read-only for a `Viewer`, and the sheet is the same set of people Access control lists, from the same two tables.
+before you build the team. The whole sheet belongs to *Manage employees* now — since
+**Stage 110** a role holding none of the four chips this page is drawn from is redirected to `/app` before any of it
+prints, where the old code let a `Viewer` in to read their own account card — and the sheet is the same set of people
+Access control lists, from the same two tables.
 
 Below the Team sheet, management gets three app-settings panels (**Project types**, **Project bucket settings**, **Email
-notifications**); a `Viewer`'s Settings shows none of them, and every route behind them re-checks the role rather than trusting
+notifications**); they print only for the chip each one is written by, and every route behind them re-checks that chip rather than trusting
 the markup. **Project types** is the company's list of categories, and since Stage 63 it is a table rather than nine strings in
 the code: each row prints its letter badge, its name, how many projects are filed under it, and a ✎ and a bin, and the add row
 below asks for a *Code, e.g. P* and a *Description, e.g. Parts supply*. A name may be renamed; **the letter never changes**,
@@ -1589,6 +1664,46 @@ category it posts included — so the next add lands on the category on screen a
 searching the roster keeps the chosen bucket category (and filtering the roster keeps its own search, pickers and
 order when you change category), and a reload brings back exactly the pair you were looking at.
 
+## Access control: the role catalogue
+
+`/app/access-control` is the page where the rights themselves are kept, and since **Stage 110** it is two halves with
+separate chips behind them. **Roles & permissions** is the picture's table: a `ROLE / PERMISSIONS / EMPLOYEES` grid, one
+row per role, `+ New role` sitting at the right-hand end of the panel's own heading, each row's chips printed in the
+app's fixed order and its headcount live — it counts the accounts filed under that role every time the page is drawn, so
+the number cannot disagree with the People sheet beside it. Four roles are seeded by `V21`, each one filed from the rank
+the account had yesterday, and the rights they hold are the picture's own set — which is why the migration note under
+*Data, backups and logs* spells out the one place that set is narrower than the old `Manager` rank:
+*Owner* and
+*Administrator* hold all thirteen,
+*Project Manager* holds the nine about projects, boards, cards and money (it lacks the four about people, categories,
+email and roles), and *Employee* — marked **(default)** — holds only *View teammates' tasks*. Any other name is a role
+somebody added, and it starts with no chips at all.
+
+**+ New role** and each row's **Edit** open the same popup: a name and thirteen tick boxes. A save is refused for a blank
+name ("*A role needs a name.*"), for one the catalogue already carries ("*That role name is taken.*", compared trimmed
+and ignoring case, on a create and on a rename alike), and for an id belonging to a row that has gone ("*That role is no
+longer on the catalogue.*" — the popup refuses rather than adding a second row for a name the reader thought they were
+editing). A refusal comes back as the page itself at 200, with the popup still up, the words still typed and the sentence
+under the name box, because that is the only field a role can be refused on; the chips are a set and any subset of them,
+empty included, is a legitimate role. **A rename or a re-tick takes effect for everybody holding that role at their next
+request** — the set is not copied onto their accounts, it is read from the role, so one press widens or narrows a whole
+department and nobody has to sign out. Deleting a role is not offered: `users.role_id` is `ON DELETE SET NULL` and the
+app falls back to the default, so a role that disappears hands its holders to *Employee* rather than taking the people
+with it.
+
+The other half is the **People sheet**: the whole roster, its **Role** column now naming a row of that catalogue. For a
+reader holding *Manage roles & permissions* each row carries a picker posting to `/app/access-control/role`, and one
+save moves the account's chip *and* the EMPLOYEES column of the table above it in the same response — the two blocks are
+swapped together so the page does not reload under either. Without that chip the role prints as a tinted chip you cannot
+press, and `+ New role`, the **Edit** buttons and the pickers are simply not on the page: the routes refuse the POSTs
+aloud, but a reader who may not write is not offered the control either. Below that, **Manage positions** is the job-title
+catalogue, still reached by *Manage employees*, and it has lost its **permission level** field — nothing on this page
+asks what a position is worth any more, because a position is what a person is called and a role is what they may do.
+
+Two halves, two chips, one page: a role holding *Manage employees* but not *Manage roles* gets the People sheet with its
+password and delete columns and the roles table read-only, and a role holding only *Manage roles* gets the roles table and
+no people tools. `/app/access-control` redirects a reader holding neither.
+
 ## Data, backups and logs
 
 Everything stateful is one SQLite file plus its WAL sidecars, in `data/` (or `/app/data` in the
@@ -1597,8 +1712,8 @@ container). Flyway applies `src/main/resources/db/migration/V1__init.sql`,
 `V5__task_checklists.sql`, `V6__task_notes.sql`, `V7__project_task_buckets.sql`, `V8__forecast_ledger.sql`,
 `V9__lesson_record.sql`, `V10__standard_project_lanes.sql`, `V11__project_invoiced.sql`, `V12__type_default_buckets.sql`,
 `V13__app_settings.sql`, `V14__project_type_catalogue.sql`, `V15__checklist_completion_memory.sql`,
-`V16__three_phase_buckets.sql`, `V17__bucket_colour.sql`, `V18__task_archive.sql` and
-`V19__project_status_in_progress.sql` on boot.
+`V16__three_phase_buckets.sql`, `V17__bucket_colour.sql`, `V18__task_archive.sql`,
+`V19__project_status_in_progress.sql`, `V20__project_currency.sql` and `V21__project_roles.sql` on boot.
 V1, V2, V4, V5 and V6 are purely additive and
 touch no existing row; V5 adds `task_checklist_items`, one row per step under a card, and V6 adds
 `task_notes`, one row per entry in a card's log — each with a foreign key onto `tasks` that
@@ -1710,6 +1825,38 @@ vocabulary, it did not move a project, and stamping every row would make a job f
 legacy `On track` — survives as written; V19 renames one word, it is not a cleaning pass. Verified on a copy of the live
 database before it was verified on live: `Current version of schema "main": 18` →
 `Migrating ... "19 - project status in progress"` → `now at version v19`, two rows renamed, every other row identical.
+**V20__project_currency.sql adds one column** (Stage 109): `ALTER TABLE projects ADD COLUMN currency TEXT NOT NULL
+DEFAULT 'MNT'`. Every project already on a board gets `MNT` from the default — the unit its figures were always
+written in — so the migration is a label, not a conversion: no amount is divided by a rate, and revenue, invoiced and
+`updated_at` are exactly as they were. There is deliberately no CHECK on the code: the three monies are the form's
+rule (`Currency.of` in `ProjectService`), the way `projects.status` has been free text since V1, and a row carrying a
+code the app cannot name reads as tugrik rather than breaking the board. The forecast ledger (`forecasts`, V8) is
+untouched; its rows inherit the project's money when the sheet renders. Verified on a fresh throwaway and on the live
+file: `Current version of schema "main": 19` → `Migrating ... "20 - project currency"` → `now at version v20`, all 14
+projects `MNT`, and every other column identical.
+**V21__project_roles.sql is the first migration since V1 to move rights** (Stage 110): two tables — `roles` (the
+catalogue, with `is_default` marking the role a new account is filed under) and `role_permissions` (one row per chip,
+`ON DELETE CASCADE` with its role) — plus `users.role_id`, which is nullable and `ON DELETE SET NULL`, so deleting a role
+hands its holders back to the default rather than deleting people along with it. It seeds the picture's four roles and
+their 13 + 13 + 9 + 1 = 36 chips, then files **every existing account** the way `Authorization` resolved it a moment
+before: super admin → Owner; else the position's `permission_level` (admin → Administrator, manager → Project Manager,
+anything else → Employee) — that level still wins over the account's own word, exactly as it did; else the `access` word;
+else Employee. **Each account lands on the role that matches the rank it had** — which is what made the cross-check on the
+live file meaningful (15 accounts, 0 with a null `role_id`, every filing in the old ladder's order). What a role *grants* is
+the picture's own set, and there the reach of one rank does change: *Project Manager* holds the picture's nine chips, which
+are the projects, boards, cards and money and none of the four people-facing ones, so an account filed there no longer opens
+**Settings** or **Access control** or adds an account the way the old `Manager` rank could. That is the sheet the user asked
+for, and the remedy is on the page: tick the right onto the role — everybody holding it changes at their next request — or
+file the person under *Administrator*. The two administrator roles hold all thirteen, so those three accounts read the same
+answer at every route as before; the eight *Employee* accounts had no write anywhere under the old `Viewer` rank either,
+and the only thing they lost is a page they could only read — `/app/settings` used to print a `Viewer` their own account
+card and now redirects a role with none of the four panel chips, by a link their drawer dropped in Stage 51.
+`positions.permission_level` is left in place on purpose: positions became the job title beside a
+name, the column stopped being read for authorization, and dropping it would throw away a value the operator can still see
+and edit. Unknown chip keys are tolerated the way V1 tolerated an unknown status — `Permission.of` answers null, so a
+hand-edited row that names nothing grants nothing. Verified on an empty throwaway and on the live file:
+`Current version of schema "main": 20` → `Migrating ... "21 - project roles"` → `now at version v21`, and on live the
+distribution after the run is Owner 1 / Administrator 2 / Project Manager 4 / Employee 8.
 Take a backup before starting an alerting
 build against a database you have not migrated yet, and check the board afterwards. Task titles are
 free text and are not rewritten, so a title that quotes an old number (`SIT-01: …`) still says so —
@@ -1751,8 +1898,24 @@ Logs roll at midnight and at 10 MB, keep 14 days, and cap at 200 MB
   own is fair game for the browser's document cache — Back would otherwise hand the reader a sheet drawn before the last
   card they moved, with no request in existence for the app's own script to intercept. `/static` and `/files` are the same
   bytes for every reader, so they keep being cached and this costs nothing in load; the split is `isServerDrawnPage`.
-- **Auth** — position/access level (`Viewer`, `Manager`, `Admin`) is checked on the route and in
-  the repositories that write. Management-only writes: create a project, set a project's manager,
+- **Auth** — since **Stage 110** the whole of an account's rights are the permission chips on the one **role** it is
+  filed under, and `Authorization.canDo` / `canAny` is what the route and the repositories that write ask. The thirteen
+  chips are *Create projects*, *Edit project details*, *Delete projects*, *Manage buckets*, *Edit any task*, *Assign
+  tasks to others*, *View teammates' tasks*, *View Forecasts tab*, *Edit forecast amounts*, *Manage employees*, *Manage
+  project types*, *Manage email settings* and *Manage roles & permissions*; the catalogue is edited on **Access
+  control**. `users.access` and `positions.permission_level` are still stored and read for display, neither is read to
+  decide a right — the three-rank ladder they formed (the super-admin flag, then the position's level, then the account's
+  word) is what `V21` walked once to file every existing account, so each colleague is on the role that matches the rank
+  they had — and the rights themselves are the picture's sets, whose one narrowing is spelled out in the migration note
+  above. Both are still *written* — `RoleRepository` keeps each account's access word in step with
+  its role so the legacy shape still reads sensibly — and nothing that decides a right reads either one any more.
+  `Authorization.canManage` survives as "any chip except *View teammates' tasks*", the one boolean a board renderer
+  takes, and `canAdmin` as "*Manage employees* or *Manage roles & permissions*"; a route never
+  guards on either — it asks for the chip its own control is about. Where the stage-by-stage prose below still says a
+  **Manager** or an **Admin**, read it as "a role holding that chip", and where it says a **Viewer**, as "a role holding
+  none of the chips that section is about" — for the four seeded roles both readings give the same answer, which is the
+  reason filing the accounts by the old ladder was a no-op for rights.
+  Management-only writes: create a project, set a project's manager,
   delete an assigned task, add or delete an account, assign a task from the Team page,
   add or remove a checklist step, and remove a note. (**Stage 72** gave *delete an assigned task* its control inside the
   card popup, at the right-hand end of the note box's line. The route has refused non-managers since Stage 17; the button
@@ -1765,7 +1928,17 @@ Logs roll at midnight and at 10 MB, keep 14 days, and cap at 200 MB
   loses the sidebar link to each and is bounced at the route — `navItemsFor` drops the three ids, `GET
   /app/access-control` redirects a non-manager, `settingsContent` prints a Viewer only their own account card (no
   password box since **Stage 99**), and the Other-tasks board a Viewer reaches is scoped to their own cards with no column tools
-  (their own card still opens in the editor). Within Other tasks the whole board is management's: writing a
+  (their own card still opens in the editor). **Stage 110** re-cut those sections on the chips and the shape of the rule
+  survived: the four gated links are `NAV_PERMISSIONS` in `DashboardCommon` — *Other tasks* on *Edit any task* or *Manage
+  buckets*, *Access control* on *Manage employees* or *Manage roles & permissions*, *Settings* on `Authorization.SETTINGS`
+  — the three panels' chips: employees, project types, email — and **Forecasts** joins them on *View Forecasts tab*, which is new:
+  the link used to print for everybody and the route did the bouncing, so an account with no money chip now simply is not
+  offered a link it would be turned away from. The ids stay in `navItems` whole for the same reason as before — the
+  notification bell resolves a stored section back to a path through that list. `/app/access-control` redirects a role
+  holding neither people chip and `/app/settings` one holding none of the four panels' chips; within Access control the two
+  halves are separate, so a role with *Manage employees* but not *Manage roles* gets the People sheet with its password and
+  delete columns and the **Roles & permissions** table read-only — the role printed as a tinted chip instead of a picker, and
+  no **+ New role** and no **Edit** anywhere on it. Within Other tasks the whole board is management's: writing a
   card, naming a column, renaming and deleting one and the `⋮` are all management's, and `POST /app/other-buckets` and
   the save endpoint's column branch check the role again before the (still role-permissive) service is reached. A lesson splits the same way (Stage 44), but by authorship rather than by
   field: every account may log one and may tick, archive, edit or delete **the rows logged under its own employee
@@ -2065,7 +2238,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (650 tests in 43 classes), on schema v19.
+2. `./gradlew test installDist` is green (666 tests in 44 classes), on schema v20.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2121,14 +2294,25 @@ configuration, and it is the one to settle first: it decides what you can safely
    board prints only the cards with *their own* employee number on them — the colleague's cards are gone, exactly as
    on a `Viewer`'s copy of the page — and the line *"Only the cards assigned to you are on this board."* sits above it.
    The manager can still press `+ New task` and open a full editor there; it is the *list* that went personal, not the
-   rights. Then create a project and read what its popup asks. It still holds nine fields and no lane input —
+   rights. Then create a project and read what its popup asks. It still holds its nine fields and no lane input —
    no **Task lane 1**, no placeholder naming a default, no sentence about leaving one blank — and since **Stage 92**
    it asks nothing about buckets beyond saying where they come from: no tick-list, no added-bucket box, no
    category-wide tick. What it says instead is *"A new board opens with the buckets this category lists in Settings —
    nothing else"* and *"Change them under Project bucket settings, or from the project page after it is created."* The
    number box opens with the chosen category's letter and dash (`M-`), and switching the category moves that lead while
-   the number after it stays. If that category lists no bucket yet, the create is refused with the sentence under the
-   Buckets line — add one there first. Press **Create project** and the page should land on one **bucket** column per
+   the number after it stays. Since **Stage 108** the **Revenue** box is a text box, not a spinner, with `₮ 0` as its
+   grey placeholder and a numeric keypad on a phone: type `2500000`, or paste `₮ 2,500,000`, and either is read as the
+   same number. Since **Stage 109** a currency picker sits underneath it, opening on **Tugrik (₮)** — pick **US dollar**
+   and the placeholder turns `$ 0`; pick **Yuan** and it turns `¥ 0`. Leave it on Tugrik. If that category lists no bucket yet, the create is refused with the sentence under the
+   Buckets line — add one there first. Press **Create project** and the new row's Revenue column reads `₮ 2,500,000`
+   on the board (a project left blank keeps its `—`), and its page's header box opens on the same figure; put
+   `lots` in that box, save, and the refusal sits under the field with your word still in it and nothing stored.
+   Make a second project with **US dollar** picked and `$ 2,500,000` pasted in: the board prints `$ 2,500,000` on its
+   row while the first still reads `₮ 2,500,000`, and `/app/forecasts` puts both signs on one panel with no `, MNT`
+   left in its headings. Open the dollar project's header strip: there is no currency picker there, and saving a new
+   amount — `$ 2,750,000` will do — keeps the dollar. **Stage 109 is a CSS and JavaScript change on this popup too, so
+   press Ctrl+F5 once** or the picker arrives unstyled and the placeholder does not follow it.
+   The page should land on one **bucket** column per
    row its category lists, in that order (how many differs by category), each head a coloured dot, the name and a `0`,
    with a dashed **+ Add bucket** box trailing the run and a `⋯` on every head (**Stage 75**: the box and the menus are
    on every board now, not only an empty one, and every column carries them exactly as an extra lane does).
@@ -2146,22 +2330,16 @@ configuration, and it is the one to settle first: it decides what you can safely
    lands **above** the fold line, where it is visible, rather than under it. Then look at **Assigned tasks** and
    **Other tasks**: neither prints a fold line anywhere, because their columns *are* statuses and hiding *Completed*
    would hide the point of the page.
-   Then check **Stages 81 and 84** on the same board (**Ctrl+F5** — the panel and `archive-modal.js` are new). Add a
-   column **QAQC** and file one card in it, then open that column's `⋯`: **Remove bucket** is now pressable, and the
-   caption says *"Removing this column takes it off the board, and its 1 card goes to Archive — restore it from the 🗄
-   panel in the header."* Press it: the column is gone, the card is not under **Unsorted**, and the sentence over the
-   board reads *"That bucket is off the board, and its 1 card went to Archive."* The **🗄** in the header (management or
-   this project's manager only) opens **Archived tasks (1)**, whose row names the card and *"was in \"QAQC\""* and
-   carries **Restore** and **Delete permanently**. Press **Restore**: the panel and the board redraw without a reload,
-   the row disappears, the card is back in **Engineering** (the board's first column, because QAQC is gone), its plan
-   and log are what they were, and the sentence says *"That card is back on the board, in Engineering."* Open the
-   card: its foot offers management's **Delete task**, not an **Archive task** button (Stage 84) — a live card on this
-   page can be destroyed again, and only by management. So put something in the panel the roundabout way, which is now
-   the only way: add **QAQC** back, file the restored card in it, remove that bucket again, then press **Delete
-   permanently** on the row and accept: the card, its steps and its notes are gone, and the panel reads **Archived
-   tasks (0)** with *"No archived tasks."* A **backlog** card offers the same **Delete task** — that board has no
-   Archive at all — while a `Viewer` sees neither the 🗄 nor a **Delete task**, and a project's own manager, who may
-   open the 🗄, sees no **Delete task** and no **Archive task** anywhere.
+   Then check **Stages 81, 84 and 106** on the same board (**Ctrl+F5** — the header, the stylesheet and `app.js`
+   changed). Add a column **QAQC** and file one card in it, then open that column's `⋯`: **Remove bucket** is now
+   pressable, and the caption says *"Removing this column takes it off the board, and its 1 card leaves the board with
+   it."* Press it: the column is gone, the card is not under **Unsorted**, and the sentence over the board reads
+   *"That bucket is off the board, and its 1 card left the board with it."* Now look at the header: **Stage 106** took
+   the **🗄** and the **📋** out — what is left of the top line is the breadcrumb, **☆ Pin for me** and **Delete
+   project** — and the archived card is on no page at all; it is still a row in the database with the column's name
+   remembered, and the restore and delete routes answer only a hand-built POST. Open a live card: its foot offers
+   management's **Delete task** (Stage 84), not an **Archive task** button. A **backlog** card offers the same
+   **Delete task** — that board has no archive at all — while a `Viewer` sees no **Delete task** anywhere.
    Then add a card from the page head's `+ New task`, leave **Sub-category** on its blank answer, and save:
    nothing is written, and
    *"Choose which part of this project the card is on."* prints at that field with the title still typed
@@ -2172,9 +2350,10 @@ configuration, and it is the one to settle first: it decides what you can safely
    with the card under that column — its steps, its log, its status and its person intact. Move it back the same
    way and it has to be filed in a bucket again.
    Check the drag files a card into another **bucket**: as management, or as the account this project names in
-   **Manager**, drag a card off **Engineering** onto **Production** and drop it — the card moves into that column and the
-   page does **not** reload (`kanban.js` posts `/app/tasks/bucket` and moves the node itself; Stage 52's
-   reload-and-reappear came back off this board with the bucket columns). Reload by hand and it is still there, still with
+   **Manager**, drag a card off **Engineering** onto **Production** and drop it — the card is in that column the instant
+   you let go, before the write has answered, and the page does **not** reload (`kanban.js` moves the node itself and
+   then posts `/app/tasks/bucket`, since **Stage 105** in that order and without following the route's redirect; Stage
+   52's reload-and-reappear came back off this board with the bucket columns). Reload by hand and it is still there, still with
    the same status. That is `TaskService.moveToLane` (Stage 49), and it is **not** the person the card belongs to: their
    card carries no `draggable` on this page even when it is their own, and a hand-built POST from them moves nothing. What
    their own card does carry is one **✓ Done / ↺ Reopen** button, which posts `/app/tasks/status` and does reload — finishing
@@ -2293,9 +2472,10 @@ configuration, and it is the one to settle first: it decides what you can safely
    belongs to this project alone — check Settings, and the word is not there. Ticked, every project created after this one
    opens with the column as well, because since **Stage 100** a new board is that list whole. Neither the tick nor a create
    reshapes a board that already exists; the one write that does is an add on Settings itself (**Stage 98**). File a card
-   in the new bucket, come back and press its `⋯`: the popup counts it —
-   *"This column has 1 card filed in it"* — and, since **Stage 81**, **Remove bucket** is pressable: the caption says
-   the card goes to Archive, and pressing it does exactly that, leaving nothing under **Unsorted**. Now strip every
+   in the new bucket, come back and press its `⋯`: the popup counts it,
+   and, since **Stage 81**, **Remove bucket** is pressable — the caption says the card leaves the board with its
+   column, and since **Stage 106** it promises nothing beyond that — pressing it does exactly that, leaving nothing
+   under **Unsorted**. Now strip every
    `bucket` twin off that form and post it by
    hand: nothing changes, and the sentence reads *"A board keeps at least one bucket — tick one to leave standing."*
    That wording still says *tick* because it was written for a tick list, and since **Stage 92** no page prints one —
@@ -2334,7 +2514,10 @@ configuration, and it is the one to settle first: it decides what you can safely
    **Bucket** picker above them narrows them to one column while keeping the five status columns; the **Other tasks**
    board itself is unchanged from Stage 57 in what it prints — no chip, no word, because its columns already name the
    buckets — but since **Stage 95** its cards wear the same stage tint as the ones above, so an amber card means
-   *In progress* on either page.
+   *In progress* on either page. Since **Stage 107** the upper board has a **Project** picker of its own, the Bucket
+   picker's twin: choose `S-01 · Haul road widening` and only your cards on it stay, still in the five status columns,
+   with the address carrying `?project=<id>` and the Bucket choice beneath kept in a hidden field (and the other way
+   round). It is Kotlin markup and state only — no stylesheet or script changed — so a plain reload shows it.
    Sign in as the `Viewer` used to check the board above: on a project this account does not manage there is
    no `+ Add task` line on any lane, there is no dashed **+ Add bucket** box at the end of the run, there is no `⋯` on
    **any** head — not on the three the board
@@ -2437,18 +2620,33 @@ configuration, and it is the one to settle first: it decides what you can safely
    yet, and your own row carrying a green `YOU` instead of a bin. Type three letters and the table swaps in place —
    no reload, no lost caret — with the count reading e.g. **3 of 22 shown**; click **NAME** and the arrows turn; click
    **OPEN TASKS** and the sheet re-orders by it, `—` rows (a `Viewer` cannot read them) sitting at the end either way.
-   Press `+ Add employee` as management: the popup asks a number, a name, an address — and, for an administrator only,
-   a position, a role and a first password. Save one with a number that already exists and the popup comes back open,
+   Press `+ Add employee` as management: the popup asks a number, a name, an address — and, since **Stage 110**, a
+   position and a first password for any reader with *Manage employees*, plus a **Role** select only for one who also holds
+   *Manage roles & permissions*. Save one with a number that already exists and the popup comes back open,
    holding your words, with *"There is already an account with that number."* under the field and no row added. Open a
    colleague's ✎: the number and the name come back read-only, a blank password means *unchanged*, and an edit that
    leaves the roster's person alone cannot invent a second account. The bins that will not press say why in their
-   tooltip ("Managers cannot delete Admin accounts.", "This person has no account to delete yet — the pencil creates
+   tooltip ("Only somebody who manages roles can delete that account.", "This person has no account to delete yet — the pencil creates
    one."). Sign in as the `Viewer`: no add card, no pencil, no bin, and `?new=1` in the address bar comes back as the
    plain sheet with no form in it; then hand-build a `POST /app/settings/employee/save` from the `Viewer` carrying a
    position and a role and confirm it is **refused**, not trimmed and written. One trap on a genuinely fresh database:
    the Position picker is empty until you add positions on **Access control**, and an account saved without a password
    signs in with its own employee number (any letter case) — and keeps that password until an administrator sets one,
    since **Stage 99** retired the forced change — so set your own password first.
+   Then read the roles table (Stage 110). `/app/access-control` opens with **Roles & permissions**: four rows, their chips
+   in the app's order, a live **Employees** count, and `+ New role` at the right-hand end of the heading. Press it and the
+   popup is a name plus thirteen boxes. Save a blank name for *"A role needs a name."*, save one the catalogue already has
+   for *"That role name is taken."* — both times the page comes back with the popup still up and your words in the box, and
+   nothing written — then make a role of your own with two chips and watch it appear last in the table holding exactly
+   those two (a role with none is a legitimate row and prints **No permissions**). File a colleague under it in the People
+   sheet's **Role** picker:
+   the count above moves in the same response, without a reload. Sign in as that colleague — the drawer loses every link
+   their role has no chip for, `/app/settings` and `/app/access-control` send them back to `/app`, and a hand-built
+   `POST /app/roles/save` from them is turned back at the door. Then, **in that same live session**, re-file them onto
+   *Project Manager* and reload: `/app/forecasts` answers 200 and the drawer has grown the link, with no sign-out in the
+   middle of it — that is the whole promise of the page, one role read by everybody who holds it. Finally check the
+   **Manage positions** card below the people table: it asks a name and a description and nothing else, because since this
+   stage a position is a job title and grants nothing.
    Then read the **Team** page's workload row (Stage 67). Give one colleague a card on a project *and* a card on
    **Other tasks**, and give another colleague a project to manage with no card assigned to them. The first row's
    **IN PROGRESS / ON HOLD / NOT STARTED / BLOCKED / COMPLETED** and **Total** should count both of those cards — the
@@ -2532,6 +2730,7 @@ configuration, and it is the one to settle first: it decides what you can safely
 | An account still signs in with its employee number | No password was set for it. An administrator sets one from the Team sheet's popup; nothing forces a change on the next sign-in since **Stage 99** |
 | A new project is refused with *"This category has no buckets yet"* | Expected since **Stage 100**, and narrower since **Stage 104**: a board is its category's Settings list, so an empty list with nothing typed in the popup has no column to file a card in. Add one in the popup for this project alone, or in **Settings › Project bucket settings** for every project of that category |
 | The popup's **Position** picker has no choices | The position catalog is its own table, filled on **Access control** (or by the legacy import). A fresh database has none, and the sheet falls back to `Team Member` |
+| A colleague has no **Settings** / **Access control** / **Forecasts** link, or one of those pages sends them back to `/app` | Their **role** does not hold the chip that section is written from (**Stage 110**): Settings needs one of *Manage employees* / *Manage project types* / *Manage email settings*, Access control one of *Manage employees* / *Manage roles & permissions*, Forecasts *View Forecasts tab*. The seeded *Project Manager* deliberately holds neither people chip — tick the right onto the role on **Access control** (every holder changes at their next request, no re-login) or file that person under *Administrator* |
 | Pages show unstyled HTML after an upgrade | Static assets are cached by path — hard-reload; check `/static/js/app.js` returns 200 |
 | A card drags fine when the page opens, but stops dragging after you use a dropdown or a toggle on the same board | The board was replaced in place, and a replaced board is new markup with no listeners attached. Since **Stage 94** `kanban.js` answers from `document`, so this no longer happens on a stale build: hard-reload (Ctrl+F5) and the drops come back |
 | Some pages 500 with `NoClassDefFoundError` / `ClassNotFoundException`, others fine | The running JVM was started from `build/install/…` and a later `./gradlew installDist` replaced those jars underneath it, so any class not yet lazy-loaded is gone. Restart the app from the fresh dist; don't rebuild over a live instance |
@@ -2556,7 +2755,60 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-650 tests in 43 classes. **Stage 104** adds eight net, of which five are `ProjectServiceTest`'s for what the create
+687 tests in 47 classes — 21 more than **Stage 109** closed with, in three new files and one rewritten one.
+`db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
+catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
+yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
+granting nothing and costing nothing; a role taken off the catalogue handing its holders back to the default through the
+`SET NULL`; and an account added *after* the migration being filed the same way. `service/RoleServiceTest` (4) holds the
+catalogue's order and `byId`'s nulls, all three refusals in the popup's exact words with no row written, a new role
+appended last rather than default and holding exactly its ticks (an empty set landing with zero is a legitimate role), and
+a save rewriting its own row, keeping its place, and moving everybody who holds it — seen through `roleOf`, because the
+set is read from the role, not copied onto the account. `AccessControlRenderTest` (7) is the picture: the four rows with
+their chip counts, the read-only reading (no `+ New role`, no **Edit**, a tinted chip where the picker would be),
+`roleFormOf`'s gating of both openers and of an id that has gone, the popup's markup on create and on edit, a refusal
+keeping its sentence under the box with the words still typed, and the People sheet's **Role** column and per-account
+picker. `security/SecurityTest.kt` was rewritten around the chips rather than the ranks: `PermissionTest` (2 — thirteen
+keys and labels in the picture's order, tolerant parsing) and `AuthorizationTest` (9 — the role decides and neither the
+old `access` word nor the position's level does; widening a role moves everybody on the next request; a null `role_id`
+falls back; a custom role holds exactly its ticks; the EMPLOYEES count includes roleless accounts). Settings' sheet and
+the sidebar follow — `SettingsRenderTest` is 45 with its role-column and picker cases, `EmployeeServiceTest` 27 (a
+reader without *Manage roles* is offered no role field, and a hand-built `role=` on their POST is **refused** under
+*"Only somebody who manages roles can set a role."* rather than trimmed and written), `SidebarTaskCountTest` 7 (the pill
+is the reader's own cards for **every** role). **Stage 109** adds nine. `ProjectCurrencyMigrationTest` (three, on temp databases built to
+V19 and then migrated): every project already on a board is `MNT` and keeps its revenue, invoiced and `updated_at`; a
+row inserted without a currency lands in `MNT`, pinning the column's DEFAULT, and the forecast ledger is untouched; and
+a hand-written `EUR` survives in the row while the repository reads it as tugrik, the way an unknown status does.
+`ProjectServiceTest` gains three: a create is tugrik when the form posts nothing, posts a blank, or omits the field,
+while `USD` / `CNY` (and a lowercase `cny`) store the number typed with its own currency — no conversion — and an
+unknown code is refused under `ProjectField.CURRENCY` with no row written; and an edit leaves the currency the create
+chose alone. `ProjectsPageRenderTest` gains two: a dollar project's header box, Viewer line and board cell all wear `$`
+while a tugrik row on the same board keeps `₮`, and the create popup's picker offers exactly Tugrik, US dollar and Yuan,
+opens on Tugrik, carries each option's sign for the script, and opens on the currency a refused create was posted with
+(placeholder included). `ForecastsRenderTest` gains one — two currencies on one panel, each row signed its own way, and
+no `Revenue, MNT` / `Invoiced amount, MNT` heading — and three existing cases moved with the stage: the two heading
+assertions above, and `ProjectServiceTest`'s refusal now pins *"Enter revenue as a number, like 1,250,000."*
+**Stage 108** adds one, `ProjectsPageRenderTest`'s *revenue is written and shown in tugrik on
+every surface that carries it*: the header box holds `₮ 12,500,000` and still asks for a numeric keypad, the Viewer's
+read-only line carries the same figure, the board's column prints it as `<span class="money">₮ 12,500,000</span>` while a
+project with no revenue keeps its em dash, and the create popup's box still opens on the grey `₮ 0`.
+*(**Stage 109** rewrote this case as *revenue is written and shown in the project's own currency on every surface that
+carries it*; every tugrik figure above survives inside it.)* Three existing cases
+moved with it — the same class's money case now expects `value="₮ 5,000,000"` (Invoiced still `0`),
+`ForecastsRenderTest` pins the completed and running sheets' revenue cells at `₮ 8,000,000` / `₮ 12,500,000` while their
+derived neighbours stay bare — 3,000,000, 5,500,000 — and `ProjectServiceTest` gained the signed case inside its revenue
+test: `₮ 3,500,000` saves as `3500000.0`, and the refusal still names the unit. **Stage 107** adds seven, all in `AssignedTasksRenderTest`: the picker lists every project
+and opens on *All projects*; choosing one narrows the upper board while the Other board beneath it stays whole and the
+scope line names the project; a stale id answers the whole board; the two pickers carry each other's choice (and the
+`+ Add task` line carries both); a project-only filter survives a card action through `?project=` and the
+`assigned:0:<id>` token; both filters survive through `?bucket=…&amp;project=…` and `assigned:<bucket>:<project>`; and
+the token helpers round-trip, including a malformed `assigned::5` normalising to `assigned:0:5`. **Stage 106** moved
+the total one the other way: `ProjectsPageRenderTest` lost the Archive panel helper and its three panel cases and
+gained two — *no page prints the Archive opener, its panel or the copy-link button*, and *an archived card is on no
+page while its row waits for the routes that still answer* — its management-header case flipped `data-copy-link` from
+present to absent, and `TaskServiceTest`'s two bucket-picker sentences now assert *one card left the board* and that
+the word *Archive* is absent.
+**Stage 104** adds eight net, of which five are `ProjectServiceTest`'s for what the create
 form itself names — a typed bucket lands **after** the category's own list and carries no colour slot, a typed bucket is
 this board's alone (the catalogue unchanged, a sibling project never seeing it), a name the category lists is refused
 rather than dropped, a name twice on one form is refused while two distinct names succeed, and a 41-character name is
@@ -3267,11 +3519,16 @@ them never matched — position arithmetic reads that shape honestly where anoth
 
 There is still no HTTP-level test: the alert endpoints and the management-only gates, like every other
 route, are verified by booting the shipped distribution and driving it with `curl` (see the launch
-checklist) — for the gates that means one throwaway database under `%TEMP%` on a spare port, with one
-`Viewer` and one `Manager` account created through `/app/access-control`, checking that the `Viewer`'s
-`POST /app/projects` comes back redirected with nothing on the board, and the same for a
-`POST /app/forecasts/save` that should not have been accepted or a `POST /app/lessons/delete` on somebody
-else's row.
+checklist) — for the gates that means one throwaway database under `%TEMP%` on a spare port (8095–8099, `PTS_DB_PATH`
+always passed explicitly, plus `PTS_DATA_FILE` pointed at a path that does not exist so the real legacy JSON is never
+read, and the boot banner's `dbPath` read back before anything is asserted), with one *Employee* and one *Administrator*
+account filed on **Access control** — since **Stage 110** that is two roles, not two ranks, and the sheet's own table is
+part of what is being proved — checking that the *Employee*'s `POST /app/projects` comes back redirected with nothing on
+the board, and the same for a `POST /app/forecasts/save` that should not have been accepted or a `POST /app/lessons/delete`
+on somebody else's row. Two harness traps this file has been bitten by twice: a gate's whole answer is the **`Location`
+header**, so a GET that is not captured with `-D` leaves the *previous POST's* redirect in the variable and every route
+check after it passes for the wrong reason; and a `python -c` one-liner inside a double-quoted PowerShell argument cannot
+carry quoted SQL literals, so the thirteen permission keys arrive as bare column names — bind `?` placeholders instead.
 
 ## Project layout
 
@@ -3282,10 +3539,12 @@ src/main/kotlin/mn/murray/pts/
 ├── config/AppConfig.kt         every tunable, in precedence order
 ├── db/                         DatabaseFactory, Migrations, Exposed tables
 ├── db/migration/               JsonImporter, LegacyNormalizer, DemoSeeder
-├── domain/                     plain model classes
+├── domain/                     plain model classes — `AccessRole.kt` is the thirteen `Permission`s and the
+│                               `AccessRole`/`AccessRoles` the role catalogue is built from (Stage 110)
 ├── repository/                 SQL access, one object per aggregate (+ AlertRepository,
-│                               + NotificationRepository)
-├── security/                   PasswordHasher, Authorization, Csrf, LoginRateLimiter
+│                               + NotificationRepository, + RoleRepository)
+├── security/                   PasswordHasher, Authorization (the role's chips answer `canDo`/`canAny`;
+│                               the old three-rank `Role` enum is gone — Stage 110), Csrf, LoginRateLimiter
 ├── service/                    AuthService, the write-side services, and Mailer +
 │                               DueDateAlertService + DueDateAlertScheduler +
 │                               NotificationService (who hears what, and where)
@@ -3310,6 +3569,8 @@ src/main/resources/
 ├── db/migration/V17__bucket_colour.sql            one nullable colour_slot on each bucket table, backfilled with nothing
 ├── db/migration/V18__task_archive.sql             the archived flag and its three snapshot columns on tasks
 ├── db/migration/V19__project_status_in_progress.sql  Ongoing -> In progress on projects, the word left off everywhere else
+├── db/migration/V20__project_currency.sql        one currency column per project, defaulted to MNT
+├── db/migration/V21__project_roles.sql           the role catalogue + the backfill that files every account on a role
 ├── logback.xml                 console + rolling file appenders
 └── static/{css,js,assets}/     extracted front-end assets (CSP: no inline)
 ```

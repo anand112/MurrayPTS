@@ -107,7 +107,8 @@ src/main/kotlin/mn/murray/pts/
 │   ├── js/team.js                 ← team member popup (reads the memberDetailData JSON island)
 │   ├── js/settings-accounts.js    ← settings workload detail sub-row toggling
 │   ├── js/calendar-modal.js       ← calendar task-detail modal (delegated, no globals)
-│   ├── js/access-control.js       ← positions add/update/delete via fetch <tr> fragments
+│   ├── js/access-control.js       ← positions add/update/delete via fetch <tr> fragments, and since Stage 110
+│   │                                 the role popup's close/focus/address-cleanup (opening is app.js's live swap)
 │   └── assets/mms-logo.png        ← moved from static/; 301 from the old path
 ├── db/migration/V1__init.sql      ← Flyway picks up from classpath
 ├── logback.xml
@@ -120,9 +121,11 @@ Real foreign keys replace the current string-name joins. **This is a semantic ch
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `users` | `employee_number` PK, `name`, `password_hash`, `access` (Viewer/Manager/Admin), `email`, `position_id` FK NULL, `is_super_admin` BOOL, `created_at`, `updated_at` | Replaces `AccessRow`. EMP0000 seeded with `is_super_admin=true`. |
+| `users` | `employee_number` PK, `name`, `password_hash`, `access` (the legacy Viewer/Manager/Admin word), `email`, `position_id` FK NULL, `role_id` FK→roles NULL (**V21, Stage 110 — this is what decides access**), `is_super_admin` BOOL, `created_at`, `updated_at` | Replaces `AccessRow`. EMP0000 seeded with `is_super_admin=true`. `access` is still *written*, kept in step with the role through `RoleRepository.legacyAccessWord`, so a hand-read row agrees with what the app grants; nothing reads it for authorization any more. `role_id` is `ON DELETE SET NULL` — a deleted role hands its holders to the default rather than deleting people with it. |
+| `roles` | `id` PK AUTOINCREMENT, `name` UNIQUE, `sort_order` INT, `is_default` BOOL | V21, Stage 110: the catalogue the picture shows — Owner, Administrator, Project Manager, Employee seeded in that order with Employee the default, then any role the sheet adds, appended last. `name` is the identity a form carries; nothing keys off it except a chip's tint. See Stage 110. |
+| `role_permissions` | `role_id` FK cascade, `permission` TEXT, PK(`role_id`,`permission`) | V21, Stage 110: the chips a role holds, one row per `Permission.key` — 13 / 13 / 9 / 1 for the seeds. Unknown keys are tolerated the way V1 tolerated an unknown status: the app names the ones it knows, so a hand-edited row that names nothing grants nothing. Deleting a role takes its chips with it. |
 | `team_members` | `employee_number` PK, `name`, `department`, `position` | 23-person canonical roster. |
-| `positions` | `id` PK, `name` UNIQUE, `permission_level` INT, `description` | Catalog only, not enforced (matches current behavior). |
+| `positions` | `id` PK, `name` UNIQUE, `permission_level` INT, `description` | Catalog only. `permission_level` was read for authorization from Stage 6 until **Stage 110**, when the role took over: the column stays (the operator can still see and edit it, and V21's backfill used it to place each existing account) but nothing reads it to decide a right. A position is the job title printed beside a name. |
 | `projects` | `id` PK AUTOINCREMENT, `code` UNIQUE, `name`, `status`, `progress` INT, `manager_emp_no` FK→team_members, `due` TEXT (**the end date** — V3), `type` (one of nine category labels — V3), `client`, `start_date`, `revenue` REAL, `created_at` | Manager stored as FK, not name. `code` leads with the category letter (`S-01`). Client/start/revenue added by V3; `due` kept instead of an `end_date` column because the Calendar and the alerts already key off it. `status` is **free text with no CHECK constraint** — the five
 words (`Not started / In progress / On hold / Blocked / Completed`, one vocabulary since **Stage 96**) are enforced at
 the form, which is why V19 could rename a status with one `UPDATE`. See Stage 12. |
@@ -164,7 +167,7 @@ backfill cannot re-run over a lesson somebody has since typed. Flyway runs at st
 |---|---|
 | Passwords | jBCrypt cost 12 (`security/PasswordHasher`). On first-run import, existing plaintext passwords are hashed and the JSON is renamed `.migrated`. `AuthService.changePassword` rehashes and revokes all of the user's sessions. |
 | Sessions | **Opaque-token model (as built), not the signed-cookie `Sessions` plugin.** `PTS_SID` carries a random UUID; the authoritative record lives in the `sessions` table (`repository/SessionRepository`): employee_number FK, created_at, expires_at, user_agent, ip. Cookie stays `httpOnly`, name **preserved as `PTS_SID`**, 12h expiry from `AppConfig.sessionTtlHours` — **absolute, stamped at login** (`create` writes `expires_at`; nothing slides it on activity). DB rows survive restart and allow admin revocation (`revokeAllFor`). Expiry is enforced at read (`findValid`) and swept by `purgeExpired`. Chosen over the Ktor `Sessions` signed-cookie plugin because it keeps revocation and audit server-side and matches the legacy token-in-cookie shape. |
-| Authorization | `security/Authorization` (RoleGuard). Effective role resolves **super-admin → Admin, else the linked position's `permissionLevel`, else the account `access`, else Viewer** (`security/Role` ordered enum). This is the v2 change: `permissionLevel` is now enforced. `canManage`/`canAdmin`/`isManagerOrAdmin` replace the ~30 inline `if (access in MANAGE_ROLES)` checks (route call-sites migrated in Stage 6). |
+| Authorization | **Since Stage 110: a role decides, and a role holds chips.** `security/Authorization` answers `canDo(employeeNumber, Permission)` and `canAny(employeeNumber, Collection<Permission>)` from `RoleRepository.roleOf` — one row of `roles` read through `users.role_id`, falling back to the default role when that column is null. The three-rank ladder it used to resolve (super-admin → position `permissionLevel` → account `access` → Viewer, through an ordered `security/Role` enum) is **gone**, and that enum is deleted; `positions.permission_level` stays in the schema but is no longer read for authorization. `canManage` (any chip except *View teammates' tasks*) and `canAdmin` (*Manage employees* or *Manage roles & permissions*) survive only as the one boolean each page-level renderer takes — **a route guards the chip its control is about, never these flags**. V21's backfill resolves every existing account in the old order, so each one lands on the role that matches the rank it had; the rights a role grants are the picture's sets, and the one reach that did change — a Project Manager no longer reaches Settings or Access control — is recorded in Stage 110's *What the picture narrows*. |
 | CSRF | Stateless session-bound token: `security/Csrf` = base64url(HMAC-SHA256(secret, sessionId)), validated in constant time. Rotates automatically with the session; no extra storage. **Not wired into any route (known gap, deliberately out of launch scope).** POSTs currently rely on the `SameSite=Lax` session cookie as the CSRF defence; `Csrf` is implemented and unit-tested (`CsrfTest`) and the production secret requirement in `AppConfig.validate()` exists precisely so turning it on later needs no config work. |
 | First login | **Deleted in Stage 99** — this is the rule as launched. The route gate, its Settings allowlist and the Change Password card are gone; `must_change_password` is recorded but nothing enforces it, and nothing reads the flag to stop a reader. (Stage 102 later touched only the login screen's case guidance.) As launched: `users.must_change_password` is enforced at the route level: `call.requireSession()` (in `Application.kt`) redirects a flagged account to `/app/settings` for every path except the Settings allowlist (`/app/settings`, `/app/settings/password`), so the user can only set a new password. Settings renders the reason inline in the Change Password card. Flagged by `AuthService.ensureSuperAdmin()` when no `PTS_ADMIN_PASSWORD` was configured, by `JsonImporter` for every legacy account that had no explicit password, and by `UserService.addUser`. Saving a password through `AuthService.changePassword` clears the flag and re-issues the session, so the user stays signed in. |
 | Headers | `web/plugin/SecurityHeaders` (installed): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `Permissions-Policy`, `Content-Security-Policy` (`default-src 'self'; script-src 'self'; style-src 'self' + style-src-attr 'unsafe-inline'` — tightened in Stage 7 once the assets were extracted, see "Stage 7 progress"), `Strict-Transport-Security` in production. |
@@ -174,7 +177,8 @@ backfill cannot re-run over a lesson somebody has since typed. Flyway runs at st
 
 ### Stage 5 status (security layer)
 
-Built, unit-tested and wired: `Role`, `Authorization`, `SessionRepository`, `LoginRateLimiter`, `Csrf`, `SecurityHeaders` plugin, `AuthService` (bcrypt verify + DB session lifecycle + `ensureSuperAdmin` bootstrap). The **headers plugin, login rate-limiting and super-admin bootstrap are live in `Application.kt` now**. 16 tests pass (role resolution, throttle window/recovery, CSRF forgery rejection, and an end-to-end `AuthServiceTest` against a real SQLite file covering bcrypt login, session resolve/revoke, revoke-on-password-change, and expiry).
+Built, unit-tested and wired: `Role` (the three-rank enum **Stage 110 deleted** — read that stage for what replaced
+it), `Authorization`, `SessionRepository`, `LoginRateLimiter`, `Csrf`, `SecurityHeaders` plugin, `AuthService` (bcrypt verify + DB session lifecycle + `ensureSuperAdmin` bootstrap). The **headers plugin, login rate-limiting and super-admin bootstrap are live in `Application.kt` now**. 16 tests pass (role resolution, throttle window/recovery, CSRF forgery rejection, and an end-to-end `AuthServiceTest` against a real SQLite file covering bcrypt login, session resolve/revoke, revoke-on-password-change, and expiry).
 
 **Deferred to Stage 6 (deliberate):** flipping `POST /login` from the legacy plaintext `DemoData` check to `AuthService.authenticate`, switching `currentSession()` from the in-memory `SessionStore` to `SessionRepository`, replacing inline `MANAGE_ROLES` checks with `Authorization`, and rendering/validating CSRF tokens. Reason: those routes still read/write user data through the legacy `JsonStore`. Moving auth onto the DB before the user-management routes move would create a split-brain (a user added or edited via the UI would exist in JSON but not be able to log in). Auth and the user-data persistence flip together in Stage 6 so the app is never internally inconsistent. The full security layer is already implemented and tested — Stage 6 only swaps the call-sites over.
 
@@ -3066,6 +3070,9 @@ derived from a monthly ledger** (not a column typed once), the page reads **the 
 switcher** (not one undated list), **only management may type in the money cells** (a Viewer reads the same figures
 as text), and the legacy `forecasts` table is **left alone and unread** while the page that used it is replaced.
 The picture's spelling — *Remainant* — is kept: the user's sheet says that, so the header says that.
+*(Stage 108 signed the revenue cells and **Stage 109** dropped the `, MNT` from *Revenue* and *Invoiced amount* — one
+panel may now mix currencies — so those two headings read as plain words today; the other nine are as the picture has
+them.)*
 
 **V8 is the ledger.** `V8__forecast_ledger.sql` creates `project_forecasts`: one row per project per month, keyed
 by the pair, holding `forecast_amount`, `invoiced_amount`, `invoiced_month` and `invoice_status`, with a cascading
@@ -3483,6 +3490,10 @@ able to drift. Three consequences of that one read are pinned by tests:
   acts on has to answer the question the app asks before every write. The popup's Role **picker** still writes raw
   `access` — that is `UserService`'s long-standing behaviour, unchanged here — so an account filed under Engineer
   and typed "Admin" prints as *Viewer*. Flagged to the user as the one place the column and the picker disagree.
+  *(**Superseded by Stage 110** on both halves of that sentence: `effectiveRole` and the three-rank `Role` enum are
+  gone, and the column and the picker now answer to the same row — a picker holding the roles chip writes a
+  `roles` id and the column prints that role's name, so the disagreement this bullet flagged cannot be drawn any
+  more. The `access` word is still written, in step with the role, for anybody reading the database by hand.)*
 * **OPEN TASKS is a nullable count.** Management sees everybody's; anybody else sees their own and a `—` elsewhere,
   and `null` is that dash rather than zero, which is what lets the column sort "not yours to count" last instead of
   mixing it in with people who genuinely have nothing open. `0` and `—` therefore mean different things on screen.
@@ -4038,6 +4049,10 @@ the whole set and the change is a Viewer exclusion. Two things were deliberately
 away: a Viewer can still open the *own* Other-task card a notification points them at, and any account can still
 reach Settings' change-password form. The agreed enforcement was **hide the links and lock the routes** — a Viewer
 loses the three sidebar entries *and* is bounced when they hit the URL directly.
+*(**Stage 110** keeps this paragraph's shape and changes its subject: "management" is no longer a rank above a
+`Viewer` but whichever roles hold the chip each control is about, so an account may now be given the backlog board and
+not Settings, or the People sheet and not the roles table. What survives intact is the second half — hide the link,
+lock the route, and the route is the one that decides.)*
 
 **The sidebar** (`DashboardCommon.kt`). `navItems(employeeNumber)` is left whole — all ten items — because the
 notification bell resolves a stored item's section back to a path *through that list* (see
@@ -4045,11 +4060,18 @@ notification bell resolves a stored item's section back to a path *through that 
 `/app/projects`. The filter lives one layer up: `MANAGEMENT_ONLY_NAV = setOf("other-tasks", "access-control",
 "settings")`, and `navItemsFor(employeeNumber)` returns the whole list for management and drops those three ids for
 everyone else. The sidebar render now iterates `navItemsFor`, so the menu is what moves and the resolver's list never
-changes.
+changes. *(**Superseded by Stage 110** in its named constant and its one-rank answer, not in its arrangement:
+`MANAGEMENT_ONLY_NAV` is gone and `NAV_PERMISSIONS` maps each gated id to the chips that open it — forecasts→
+*View Forecasts tab*, other-tasks→*Edit any task*/*Manage buckets*, access-control→*Manage employees*/*Manage roles &
+permissions*, settings→the three panel chips — so `navItemsFor` now keeps an item when its role holds **any** of that
+set. `navItems` is still whole for exactly the reason given above, and the bell still resolves through it.)*
 
 **Access control** (`Application.kt` `GET /app/access-control`). A fresh `if (!canManage) return@get
 call.respondRedirect("/app")` sits right after `canManage` is computed, before the roster is read. The POST already
-checked `canManage`; only the GET page was open.
+checked `canManage`; only the GET page was open. *(**Superseded by Stage 110**, which turned this page into two
+functions with a chip each: the GET lets either *Manage employees* or *Manage roles & permissions* through and the
+People sheet's controls appear per chip — picker for the roles one, password/delete/add for the people one — while
+`/app/roles/save` and `/app/access-control/role` are the roles chip's alone.)*
 
 **Settings** (`Settings.kt` `settingsContent`, `Application.kt` `respondSettings`). `settingsContent` grows a
 required `canManage: Boolean` argument (passed from the session in `respondSettings`). When it is false the whole
@@ -8705,6 +8727,648 @@ card moves by the drag, and the lane board's ✓ Done / ↺ Reopen is not this s
 `projectId > 0` in the guard: a code with no project behind it is a label, and an `<a href="/app/projects/0">` is a
 dead link that looks alive. If a reader asks for the project page to open in a new tab, that is a `target` and a
 rel attribute on one tag — say so rather than adding a second control beside the chip.
+
+## Stage 105 — A project card lands on the drop, and the write follows it (2026-10-30, live, no migration, JS only)
+
+**Ask.** *"when moving cards on project cards kanban has delay fix it"* — a card dragged between lanes on a project
+page did not stay where it was let go: it snapped back to the column it was lifted from, then jumped across after a
+pause. No question went back; the defect was in one handler and the answer is the order of two lines.
+
+**The delay, named.** The lane drop handler awaited the write and moved the card in its `.then`:
+
+```js
+window.fetch('/app/tasks/bucket', { method: 'POST', body: fd, credentials: 'same-origin' })
+  .then(function(){ file(card, col); })
+  .catch(function(){ /* the card stays where it was */ });
+```
+
+`POST /app/tasks/bucket` (`Application.kt`) calls `TaskService.moveToLane` and then **always** answers
+`respondRedirect(referrer)` — a 302 back to the board page. `fetch`'s default `redirect` is `'follow'`, so before the
+promise settled the browser fetched that whole project page and rendered it: the move was waiting on a page nobody was
+going to see, and the card sat still for however long that took, then jumped. On a board with a full Completed run and
+a loaded sidebar that is a visible beat; on a slow link, a long one.
+
+**The fix.** `file(card, col)` runs on the drop, before any request exists — nothing about the move needs the server,
+it is three DOM writes — and the POST is sent with `redirect: 'manual'`, so the page behind the 302 is never fetched:
+
+```js
+file(card, col);
+var fd = new FormData(); fd.append('id', id); fd.append('bucket', bucket);
+window.fetch('/app/tasks/bucket', { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' })
+  .then(function (r) {
+    if (r.type !== 'opaqueredirect' && !r.ok) location.reload();
+  })
+  .catch(function () { location.reload(); });
+```
+
+A `manual` 302 arrives as an opaque redirect — `type: 'opaqueredirect'`, `status: 0`, `ok: false` — and is a success,
+not a failure; anything that is neither that nor 2xx, and any rejection, reloads the board. That is the only path that
+does, so the board never says one thing while the database says another, and the ordinary case never reloads. The route,
+`TaskService.moveToLane`, the status half of the board (whose drop still posts `/app/tasks/status`, waits for the
+reply and reloads, because a status change is what the sidebar's open-card count follows) and the `✓ Done` / `↺ Reopen`
+press are untouched. Schema stays **V19**.
+
+**The latent defect this uncovered.** `file()` anchored the insert on `col.querySelector('.kdone-btn')` — but that
+button sits *inside* the `▸ Completed N` form (Stage 80), and `Node.insertBefore` throws `NotFoundError` when the
+reference is not a child of the node it is called on. A drop into a column that had finished cards in it therefore
+moved **nothing**, and nobody saw the error because `file()` ran inside a promise's `.then`, whose rejection went to a
+`.catch` holding a comment. Since the move happens on the drop now, that throw would have been visible; instead the
+anchor is the toggle **form** itself, which is the first node of the finished run and a direct child of the column:
+
+```js
+var anchor = col.querySelector('.kcol-done-toggle') || col.querySelector('.kcol-empty');
+```
+
+with the `Nothing here.` line as the same fallback as before, and `appendChild` when a column has neither. The header
+comment of `kanban.js` was rewritten to say the move precedes the write and why.
+
+**Proof.** No Kotlin changed, so the suite is the record rather than the test of it: **650 / 43 classes / 0 failures /
+0 skipped** (`build/test-results/test/*.xml`). The behaviour is pinned by `scratch/stage105-js-harness.cjs`, which
+loads the **shipped** `src/main/resources/static/js/kanban.js` against a DOM stub shaped like a lane board (a lane with
+one draggable card; a lane with a `form.kcol-done-toggle` above a `div.kcol-done` holding a finished card and a
+`p.kcol-empty`; an Unsorted column with `data-lane="0"` and `data-unfiled`; a detached `data-status` column) and a
+fetch stub that hands back controllable promises — **21 checks / 0 failures**. It asserts the card is a child of the
+new column **before** any reply, above the Completed line and not in the folded block, both counts rewritten, exactly
+one POST to `/app/tasks/bucket` carrying `id=101&bucket=12` and `redirect: 'manual'`, no reload yet; that an opaque
+redirect is not a failure; that a rejection and a 5xx each reload exactly once; that a drop on the column the card is
+already in posts and moves nothing; that a drop on Unsorted posts nothing and leaves the card; and that the status
+board still posts `/app/tasks/status`, does not move the card while it waits, and reloads on the reply. The first run
+failed one check — *"the emptied Unsorted column is gone"* — and the harness was at fault: its `appendChild` set the
+new parent without taking the node out of the old one's `children`, so the emptied column still counted a card. A real
+DOM moves the node; the stub now does too. Four earlier failures were the promise queue — a `.then` runs on a
+microtask, so each check after `settle()` awaits a `setImmediate` first.
+
+**Deploy.** No migration and no row rewritten, so `installDist` + restart. The live JVM (PID **20512**) was closed and
+8080 proved free, then `data/pts.db` was copied in place to `data/pts.pre-stage105-20261030-114719.db` (421,888 bytes)
+with its `-wal` (53,592) and `-shm` (32,768) sides — the copy is taken after the stop, so the three files are one
+consistent set. The installed jar is **1,840,692 bytes** (Stage 104: 1,840,050) and was read rather than trusted: its
+`static/js/kanban.js` carries `querySelector('.kcol-done-toggle')` (1), `file(card, col);` before the POST (1) and
+`redirect: 'manual'` on the bucket fetch, and contains **no** `querySelector('.kdone-btn')` and **no**
+`then(function(){ file(card, col); })`. Launched **detached** through `deploy/run.bat` → java **PID 8252**, cmd parent
+**21672**; `/` 200, `Current version of schema "main": 19`, *No migration necessary*. The served
+`/static/js/kanban.js` (13,127 bytes) is the new file, and `POST /app/tasks/bucket` with no session answers
+`302 Location: /` — the redirect the old code used to follow and download. Because the script ships inside the jar, a
+browser holding the old one needs **Ctrl+F5**; a Kotlin-only change would not. No commit, no push.
+
+**If this is restated.** Never bring back the await-before-move: the write's reply is not a precondition of the card's
+column, and a lane drop is the one board action that must not restart the page under the reader's hands. Do not drop
+`redirect: 'manual'` — without it the 302 makes the browser download the board page for nothing. Do not reload on
+success "to be safe": the counts are already right, and a visible reload is the defect this stage removed. Unsorted is
+still not a destination (Stage 48), and a lane a card leaves is still a lane. If a future ask wants the sidebar's
+numbers to follow a lane move, compute them locally or ask for the reload explicitly — do not quietly reintroduce it.
+
+## Stage 106 — The project header loses the Archive and copy-link icons, and the panel goes with its opener (2026-10-30, live, no migration)
+
+**Ask.** *"delete archived tasks button and copy link to this project buttons"* — the two icon controls at the right
+of a project page's head were to go. One question went back, because the 🗄 was the **only** way into a panel that held
+a real card, and "delete the button" can mean *hide the door* or *retire the room*; the user answered **"Button and
+panel"**. So both controls are gone and so is the Archived tasks view, while the archived rows themselves are untouched
+in the database.
+
+**What went.** Four surfaces, all of them in one stage:
+
+- `Projects.kt`: the 🗄 opener (a GET form to `?archive=1`) and the 📋 button (its `[data-copy-link]` hook) left the
+  `head-actions` row, which now holds the pin form and the delete form and nothing else. `archiveOpen` left
+  `projectDetailContent`'s signature, and `archiveOpener`, `projectArchivePanel` and the `archive-modal.js` script tag
+  were deleted outright.
+- `Application.kt`: the project GET no longer reads `archive=`; `laneRedirect` no longer has an `archive` flag or
+  appends `archive=1`, so the bucket routes, restore and delete stop echoing a key nothing reads. A stale bookmark to
+  `?archive=1` therefore answers the ordinary page.
+- `app.js` / `archive-modal.js`: the delegated copy-to-clipboard handler and the whole backdrop/Escape/`replaceState`
+  module are gone; `archive-modal.js` no longer exists to be served.
+- `app.css`: `.head-copy` and the Stage 81 Archive block (`.archive-*`, `.at-*`, `.icon-btn.archive-btn.on`) were
+  removed. The stylesheet is 1,359 lines and names none of them.
+
+**What stayed, and why.** The `archived` columns (V18), `TaskService.archiveCard`, `restoreCard`, `deleteArchived`,
+`archived`, the routes `POST /app/tasks/archive`, `POST /app/projects/{id}/archive/restore` and
+`POST /app/projects/{id}/archive/delete` are all still there. Two reasons: removing a bucket still archives its cards
+(`TaskService.archiveLane`) and that writes rows every board now leaves out — the data has to keep meaning something —
+and the routes are the mechanism's remaining half, kept the way Stage 84 kept `/app/tasks/archive` after its button
+went. The right is unchanged: `mayEditLanes` (management or this project's manager). They answer a hand-built POST
+and nothing on a page reaches them.
+
+**Copy that followed.** A control's removal makes the sentences written around it untrue, and those were fixed in the
+same stage rather than left as documentation drift:
+
+- the column popup: *"its N card(s) leave(s) the board with it"* replaces *"goes to Archive — restore it from the 🗄
+  panel"*;
+- its confirm: *"Remove "X"? Its N card(s) will leave the board with it."*;
+- the bucket-removal answer over the board: *"That bucket is off the board, and its N card(s) left the board with it."*;
+- the Settings bucket picker's closing sentence: *"— N card(s) left the board with it"*, not *"went to Archive"* (a
+  destination that no longer has a page);
+- an archived card's refused save: *"That task is archived, and an archived task cannot be changed."*, not *"Restore
+  it before changing it."*.
+
+The KDocs that described "the panel" in the present tense (`TaskService`, `TaskRepository`'s neighbours, `Task.kt`,
+`Tables.kt`, `ProjectRepositories.kt`) now say what the flag is and that no page shows it.
+
+**Tests.** `ProjectsPageRenderTest` lost the `archivePanel` helper and the three Stage 81 panel tests, and gained two:
+*no page prints the Archive opener, its panel or the copy-link button* (manager and Viewer pages, eight needles each,
+plus the pin and delete still present) and *an archived card is on no page while its row waits for the routes that
+still answer* (board loses the card and its neighbour stays, the column's count drops to 1, the row keeps
+`archivedLane = "QAQC"`, and removing the column archives its live card too — two rows, snapshot intact). The
+management-header test flips `data-copy-link` from present to absent. `TaskServiceTest`'s two bucket-picker sentences
+now assert *"1 card left the board with it"* and that the word *Archive* is **not** in the answer. The suite is **649
+tests / 43 classes / 0 failures / 0 skipped** (`build/test-results/test/*.xml`; 650 before, the three panel tests
+replaced by two).
+
+**Proof beyond the render.** `scratch/stage106-verify.ps1` boots a throwaway on **8096** (empty DB, `PTS_DB_PATH`,
+`PTS_SEED_DEMO=false`, a random admin password), adds one Settings bucket so Stage 100's create will land, creates a
+project over HTTP, and reads the signed-in project page: **16 checks / 0 failures** — no `archive-btn`,
+`Show the archived tasks`, `name="archive"`, `id="projectArchive"`, `archive-modal.js`, `Archived tasks`,
+`data-copy-link` or `head-copy`; pin and delete still printed; `/static/js/archive-modal.js` **404**; `app.css` matches
+none of the retired selectors. The first run failed four checks because the create was refused (Site projects had no
+Settings bucket), which also made the eight absence checks pass on a 404 — the fixture, not the app; the check now
+asserts the page's 200 before reading it.
+
+**Deploy.** No schema change (schema stays **V19**). The live JVM (PID **8252**) was closed, 8080 proved free, and
+`data/pts.db` was copied in place to `data/pts.pre-stage106-20261030-131721.db` (421,888 bytes) with `-wal` (78,312)
+and `-shm` (32,768). `installDist` produced **1,829,604 bytes** (Stage 105: 1,840,692); the jar was read back — no
+`archive-modal.js` entry, and `app.css`/`app.js`/`kanban.js`/`task-modal.js` inside it contain **0** hits for
+`head-copy`, `data-copy-link`, `archive-btn`, `projectArchive` or `archive-modal`. Relaunched **detached** through
+`deploy/run.bat` → java **PID 18660**, cmd parent **18544**; `/` 200, `Current version of schema "main": 19`, *No
+migration necessary*. Live static: `/static/js/archive-modal.js` 404, `app.css` 110,148 bytes with no retired
+selector. Static assets changed, so a browser holding the old CSS/JS needs **Ctrl+F5**. No commit, no push.
+
+**If this is restated.** Do not re-add either icon, do not re-add the panel or `archive-modal.js`, and do not treat
+`?archive=1` as a view key — the project GET ignores it now. The archived rows are not dead code: they are what a
+removed column leaves behind, and the three routes are the only way they can still be moved or destroyed, by hand.
+If the ask comes again as "bring back the archived cards", that is a new view with a new home — say so rather than
+restoring this one; and if it comes as "stop archiving on bucket removal", that contradicts Stage 81 and needs its own
+decision about where the cards go.
+
+## Stage 107 — The Assigned tasks projects board gets its own Project picker (2026-10-30, live, no migration)
+
+**Ask.** *"when the user click on the assigned tasks make a dropdown to choose projects just like other tasks has"* —
+the upper board on `/app/assigned-tasks` was the reader's own project cards across every project, and the only way
+to see one project's work was the Projects page. The lower board already had the shape the user meant: the Stage 88
+**Bucket** picker above the reader's Other-task cards. So the ask maps to a twin, not to a new view: a **Project**
+picker above the projects board, `?project=<id>` as the state, *All projects* as the absence of a filter.
+
+**What was added.**
+
+- `AssignedTasks.kt` — `assignedTasksContent` takes a fifth argument, `projectFilter: Int = 0`; `ProjectService.all()`
+  is read, a stale id answers every project, and `cards` is the reader's own slice filtered by `it.projectId`. The
+  picker (`assignedProjectFilter`) is drawn whenever the catalogue holds a project, *above* the projects board and
+  *below* the scope line. It is the Bucket picker's shape: a GET form onto this page with
+  `class="board-toolbar assigned-project-filter"`, a `label("board-key")` holding the select (the Stage 89 trick that
+  keeps a one-field filter card-sized rather than a page-wide toolbar), `name="project"`, `data-autosubmit`, an
+  option `0` **All projects**, one option per project labelled `code · name`, and a **Show** submit for a browser
+  with no script. It lists **every project**, not only the ones this reader has a card on — the picker is the same
+  world the Projects link opens, and a project with nothing on it is a legitimate empty answer, exactly as an empty
+  bucket is.
+- The scope line now names the filter when one is on: *"Only the cards assigned to you on S-01 · Haul road widening
+  are on this board."* An empty tilted board otherwise reads as a reader who has nothing at all.
+- The two pickers narrow two different boards on one page, so each carries the other's choice as a hidden field:
+  the project form carries `bucket` while the Other-tasks board is narrowed, and the bucket form and the
+  `+ Add task` line carry `project` while the projects board is narrowed. Changing one never silently widens the
+  other.
+- `TaskBoard.kt` — the `back` token grew a second slot. `backForFilters(bucketId, projectId)` writes `assigned`
+  (neither), `assigned:<bucket>` (bucket only — what `backForBucket` still writes by delegating), or
+  `assigned:<bucket>:<project>` (both, with `0` in either slot meaning *every*). `assignedParts` splits it once;
+  `bucketOfBack` reads slot 0 and the new `projectOfBack` reads slot 1, answering `0` for a token without that slot
+  rather than guessing. `taskRedirect` reads both and appends `project=<id>` beside `bucket=<id>`, so the opener,
+  a save, a step tick, a note, a delete and a refusal all return to the board the reader was reading. `backOf`
+  normalises a posted token through `backForFilters`, so `assigned::5` becomes `assigned:0:5` and a hand-built
+  token can only name a filter a URL could name anyway.
+- `Application.kt` — the GET route reads `project` beside `bucket` and passes both on; the save-refusal branch
+  re-renders with `otherBucketId = bucketOfBack(back)` and `projectFilter = projectOfBack(back)`. The route's KDoc
+  lost its stale *"no view key"* sentence (Stage 88 had already made it false) and now names both keys.
+
+No new route, no new table, no new script: the picker is the same GET-page mechanism as the bucket one. The
+projects board is still the five status columns, and the filter only narrows cards.
+
+**Tests.** `AssignedTasksRenderTest` grew seven: the picker lists every project with its code and opens on *All
+projects*; a chosen project narrows the upper board, leaves the lower board whole and names itself in the scope
+line; a stale id answers the whole board; each picker carries the other's choice (and the add line carries both);
+a project-only filter comes back from the opener and the save as `?project=` / `assigned:0:<id>`; both filters
+together come back as `?bucket=..&project=..` / `assigned:<bucket>:<project>`; and the token helpers/`taskRedirect`
+round trip, including a half-written `assigned::5` normalising to `assigned:0:5`. The suite is **656 tests / 43
+classes / 0 failures / 0 skipped** (`build/test-results/test/*.xml`; 649 before, seven added).
+
+**Proof beyond the render.** `scratch/stage107-verify.ps1` boots a throwaway on **8097** (empty DB, `PTS_DB_PATH`,
+`PTS_SEED_DEMO=false`, a random admin password), seeds a Settings bucket, creates two projects and one card on each,
+adds an HR backlog column with one Other-task card, and reads the signed-in page: **35 checks / 0 failures** —
+the picker and its options, *All projects* selected on a whole board, one project's cards and not the other's, the
+Other-task card unaffected, the scope line naming the project, `?project=9999` answering everything, both forms
+each carrying the other filter, the opener's `?bucket=..&amp;project=..`, the save form's
+`assigned:<bucket>:<project>`, and an edit saved from the doubly-filtered page redirecting back to exactly
+`/app/assigned-tasks?bucket=1&project=1`. Four checks failed on the first run only because a BOM-less `.ps1` is read
+as ANSI here and the literal `·` in the assertions was mojibake while the page served it correctly — fixed by
+building the character from `0x00B7`, per the workspace's Windows trap note.
+
+**Deploy.** No schema change (schema stays **V19**; Flyway: *Current version … 19, no migration necessary*). The live
+JVM (PID **18660**) was closed, and `data/pts.db` was copied in place to
+`data/pts.pre-stage107-20261030-133534.db` (421,888 bytes) with `-wal` (78,312) and `-shm` (32,768). `installDist`
+produced **1,832,849 bytes**; the jar was read back — `AssignedTasksKt` carries `assigned-project-filter` and
+`TaskBoardKt` carries `projectOfBack`. Relaunched **detached** through `deploy/run.bat` → java **PID 25592**, cmd
+parent; `/` 200 and a signed-out `/app/assigned-tasks` still **302**. No static asset changed, so a plain reload is
+enough (pages are `no-store`). No commit, no push.
+
+**If this is restated.** The picker is a view, not a saved setting: `?project=` is the state, and anything not a
+live project id is *All projects*. Do not add a second Assigned URL, do not make the project filter also hide
+Other-task cards (they have no project), and do not let the two pickers overwrite each other's key — both ride the
+one `back` token precisely so a card saved from a doubly-narrowed page returns there.
+
+## Stage 108 — Revenue is written and shown in tugrik (2026-10-30, live, no migration, Kotlin)
+
+**The ask.** *"Put a tugrik format for revenue writing and showing."* Two halves in one request: every place revenue is
+**shown** wears the `₮` sign with comma grouping, and every place revenue is **written** says the unit. The stored value
+stays the plain number it always was — the column, the forecast identity and every report arithmetic keeps reading
+`Double` — so this is a presentation and parsing change, not a schema one (schema stays **V19**, no migration).
+
+**One formatter, three surfaces.** New `Money.kt` (top-level, package `mn.murray.pts`) holds the only two formatters:
+
+```kotlin
+internal fun formatTugrik(value: Double): String = "₮\u00A0" + groupedAmount(value)
+internal fun groupedAmount(value: Double): String = DecimalFormat("#,##0").format(value)
+```
+
+*(**Superseded in part by Stage 109**: `formatTugrik` is now `formatMoney(currency, value)` — the sign comes from the
+project's own `Currency`, tugrik unless the create chose USD or CNY — while `groupedAmount` is unchanged.)*
+
+The space between the sign and the figure is a **non-breaking space** (U+00A0): a narrow Revenue cell can then never
+wrap the sign onto a line of its own with its number beneath it, and a cell that copies out carries the whole thing as
+one string. `groupedAmount` is deliberately *not* clamped, because the forecast sheet's derived remainder may be
+negative and `DecimalFormat` keeps its minus. `formatTugrik` is used by:
+
+- `Projects.kt`'s board cell — `td("c-rev") { span("money") { +formatRevenue(project.revenue) } }` where
+  `formatRevenue` answers `—` for a project with no revenue and `formatTugrik` otherwise;
+- the Viewer's read-only header cell (`detailCell("Revenue", formatRevenue(project.revenue), "money-ef")`), which
+  therefore shows exactly what management's box holds;
+- management's header draft, whose default is `revenue = formatTugrik(project.revenue)`;
+- the create popup's placeholder, `₮ 0`;
+- `Forecasts.kt`'s `f-rev` and `d-rev` cells. There the figure is `formatTugrik(line.project.revenue)` even when the
+  project's number is zero — `₮ 0` — because on that sheet revenue is one term of an identity that has to add up.
+
+**What deliberately stayed bare.** Invoiced, the month's forecast, invoiced-in-previous-months, remaining, totals and
+the completed sheet's money: `Forecasts.formatMoney` is now just `groupedAmount`. The Forecasts sheet is eleven columns
+wide, and a sign on every money cell would be noise repeating what its heading (*Revenue, MNT*, *Invoiced amount, MNT*)
+already says. The rule is simple and worth keeping: **revenue carries the sign; the figures derived from it do not.**
+*(Stage 109 removed those `, MNT` suffixes — one panel may now mix currencies — but the rule stands.)*
+
+**Writing.** Both revenue inputs stopped being `InputType.number` (a spinner cannot hold a `₮`, and its browser-level
+validation would reject the very string the app now accepts):
+
+- create popup — `input(type = InputType.text, name = "revenue")` with `inputmode="numeric"`, `maxLength="32"`,
+  `placeholder="₮ 0"`;
+- header strip — the same text box with `inputmode="numeric"`, `maxLength="32"`, whose value is the project's
+  `formatTugrik` figure. `inputmode` matters: it is what gets a numeric keypad on a phone even though the field is text.
+
+`ProjectService.parseRevenue` now strips the sign and the grouping back off before parsing:
+`\u00A0`, `₮`, ordinary spaces and commas are removed; blank answers *no value*; anything left that is not a non-negative
+finite number is refused. Both refusals (create and update) now read *"Enter revenue in tugrik, like 1,250,000."* — the
+unit is named where the reader is typing, not in a page-top banner.
+
+**Tests.** One new case in `ProjectsPageRenderTest` — *revenue is written and shown in tugrik on every surface that
+carries it* — pins the header box at `value="₮ 12,500,000"` with `inputmode="numeric"`, the Viewer's read-only line,
+the board's `<span class="money">₮ 12,500,000</span>` beside a no-revenue project's `—`, and the create popup's
+`placeholder="₮ 0"`. *(Stage 109 rewrote that case as its currency-aware twin; the tugrik expectations above are kept
+inside it.)* Three existing cases moved with it: the same class's money test expects `value="₮ 5,000,000"`
+(Invoiced stays `0`); `ForecastsRenderTest`'s completed and running sheets assert `₮ 8,000,000` / `₮ 12,500,000` on the
+revenue cells while their derived neighbours (3,000,000 previous, 5,500,000 remaining) stay bare; and the signed case
+inside `ProjectServiceTest`'s revenue test saves `₮ 3,500,000` as `3500000.0` and still finds *tugrik* in the refusal.
+The suite is **657 tests / 43 classes / 0 failures / 0 skipped** (`build/test-results/test/*.xml`; 656 before, one
+added).
+
+**Proof beyond the render.** `scratch/stage108-verify.ps1` boots a throwaway on **8098** (empty DB, `PTS_DB_PATH`,
+`PTS_SEED_DEMO=false`, random admin password), adds a Settings bucket, creates one project with a signed revenue and
+one with none, and reads the live pages: **25 checks / 0 failures**. It proves the signed create lands, the project
+page's box opens on `₮ 2,500,000` and is a text field *with* `inputmode`, the board prints the sign while the empty
+project keeps its `—`, the create popup's placeholder says `₮ 0`, the forecast sheet prints revenue in tugrik and keeps
+its *Revenue, MNT* heading while other money stays bare, a grouped save (`3,750,000`) and a pasted signed save
+(`₮ 4,250,000`) both land and come back in tugrik, and `lots` is refused at the field with the unit named and the words
+still in the box. Two runs were needed: PowerShell 5.1 passes native arguments in the ANSI code page, so `₮` and the
+NBSP were mangled on the way to `curl --data-urlencode` and the create was refused — fixed by sending pre-encoded
+UTF-8 pairs (`revenue=%E2%82%AE%C2%A02%2C500%2C000`). Two checks then failed for real reasons: the header input lacked
+`inputmode="numeric"` (added) and a BOM-less `.ps1` read the em dash as ANSI (built from `0x2014`, per the workspace's
+Windows trap note).
+
+**Deploy.** No schema change (live DB still at V19; 19 history rows, 14 projects, 26 tasks at deploy time). The live
+JVM (PID **25592**) was closed, and `data/pts.db` was copied in place to
+`data/pts.pre-stage108-20261030-141318.db` (421,888 bytes) with `-wal` (0) and `-shm` (32,768). `installDist` produced
+**1,833,791 bytes**; the jar was read back — `MoneyKt` carries `formatTugrik`, `ProjectsKt` carries `inputmode`, and
+`ProjectService` carries the *tugrik* refusal (the string lives in `ProjectService.class`, not its `Kt` facade).
+Relaunched **detached** through `deploy/run.bat` → java **PID 14516**, cmd parent; `/` 200 and a signed-out
+`/app/projects` still **302**. No static asset changed, so a plain reload is enough (pages are `no-store`). No commit,
+no push.
+
+**If this is restated.** "Tugrik format" means *sign + grouped amount* on revenue and the unit named in the box — not a
+currency setting, not a second currency, and not the forecast sheet's derived columns. Do not move the formatting into
+CSS (`::before`) or the client: the sign has to be in the copyable text and in what the tests can read. Do not let the
+parser accept negatives: revenue is money a project is signed for, and a negative is a typo. And keep U+00A0 between the
+sign and the figure — an ordinary space is what lets the sign wrap alone in a narrow column.
+*(**Superseded in part by Stage 109**, on the currency clause only: the user asked for a picker — "add option USD and
+CYN" — so a project may now be counted in MNT, USD or CNY, tugrik defaulted at creation and fixed afterwards. No sign on
+derived figures, no CSS/JS formatting, U+00A0 after the sign, no negatives and the board's em dash all still hold.)*
+
+## Stage 109 — A project's revenue is in its own currency (2026-10-30, live, migration V20, Kotlin + CSS + JS)
+
+**The ask.** *"Add option USD and CYN for choosing but tugrik is default when creating a new project."* The user's
+`CYN` is the yuan, whose ISO code is **CNY** — chosen without a question round, per the standing rule that terminology
+asks are not worth a turn, and noted in the reply. The shape of the answer follows the ask exactly: a **currency picker
+on the create popup**, USD and CNY as the alternatives, **tugrik as the default**, and the project's figures written and
+shown in what was chosen.
+
+**What a currency is here.** A fact about the row, not a rule about the app. Stage 108 could hard-code the sign because
+there was one money; the choice moves the fact onto the project. It is settled **once, at creation**, for the same
+reason the project number is: a contract is signed in a money, and a project whose revenue changes currency after the
+fact is a different project wearing the old number. The header strip therefore has no picker and
+`ProjectRepository.update` never writes the column. **Nothing converts anything** — the stored amount is the number
+that was typed, and the currency only says what it is counted in; there is no rate in the app to divide by, and a rate
+that moves would make a saved figure mean something different every morning.
+
+**Schema (V20).** `ALTER TABLE projects ADD COLUMN currency TEXT NOT NULL DEFAULT 'MNT'` — additive, no row rewritten,
+every existing project tugrik because that is the unit its figures were always in. No `CHECK`: the three codes are the
+form's rule, the way `projects.status` has been free text since V1, and a hand-edited code the app cannot name reads as
+tugrik instead of breaking the board. `forecasts` (V8) is untouched; its rows inherit the project's money when the
+sheet renders.
+
+**Vocabulary and persistence.** `domain/Project.kt` gains
+
+```kotlin
+enum class Currency(val code: String, val symbol: String, val label: String) {
+    MNT("MNT", "₮", "Tugrik"), USD("USD", "$", "US dollar"), CNY("CNY", "¥", "Yuan");
+    companion object {
+        val DEFAULT: Currency = MNT
+        fun of(code: String?): Currency? = entries.firstOrNull { it.code.equals(code?.trim(), ignoreCase = true) }
+    }
+}
+```
+
+and `Project.currency: Currency = Currency.MNT`. `Tables.Projects.currency` is `varchar("currency", 8).default("MNT")`;
+the repository maps an unknown code with `Currency.of(...) ?: Currency.DEFAULT`, `insert` takes
+`currency: Currency = Currency.DEFAULT`, and `update` does not name the column at all. The lowercase tolerance is
+deliberate: a hand-made POST saying `usd` names the same money as the form's `USD`, and the refusal is reserved for a
+code that names nothing.
+
+**One formatter, now parameterised.** `Money.kt`'s `formatTugrik` became
+
+```kotlin
+internal fun formatMoney(currency: Currency, value: Double): String =
+    currency.symbol + "\u00A0" + groupedAmount(value)
+```
+
+with the non-breaking-space rationale unchanged. Every revenue surface takes the project rather than the number:
+`Projects.formatRevenue(project)` answers `—` for nothing and `formatMoney(project.currency, project.revenue)`
+otherwise, which the board cell, the Viewer's `detailCell` and the header draft all call; `Forecasts.kt` prints each
+row's revenue with that row's project currency. The **Forecasts headings lost their `, MNT`** — *Revenue*, *Invoiced
+amount*, *Total invoiced* — because one panel can now hold several monies and the totals under it add figures that do
+not share a unit. Invoiced, forecasts, remainders and totals stay bare, as Stage 108 set them: the rule is still
+*revenue carries the sign; the figures derived from it do not*.
+
+**The create popup.** Under the Revenue box — which keeps its `inputmode="numeric"` text field — sits
+`div("currency-line")` holding `select#projectCurrency name="currency" aria-label="Currency"`, one option per
+`Currency.entries` labelled `Tugrik (₮)` / `US dollar ($)` / `Yuan (¥)`, each carrying `data-symbol`, with the chosen
+one `selected` (`v.currency.ifBlank { Currency.DEFAULT.code }`, so a refused create reopens on what was picked). The
+amount's grey `placeholder` is built from the same choice — `${Currency.of(v.currency)?.symbol ?: Currency.DEFAULT.symbol} 0`
+— so a browser with no scripts still says which money it is asking for. `app.css`'s `.currency-line` is six pixels of
+margin and a slimmer select (7px/10px padding, 12.5px, muted): the pair must read as one answer, "how much, in what",
+not as two unrelated fields. `project-modal.js` gains `syncCurrency()`, which repaints that placeholder from the
+selected option's `data-symbol` on `change` of `#projectCurrency` and once on `DOMContentLoaded`; it never rewrites the
+amount. **This stage changes CSS and JS, so the live page needs Ctrl+F5** — static ships inside the jar.
+
+**The service.** `ProjectField.CURRENCY` joins the enum under `REVENUE` (it is that box's second half), and a create
+reads `Currency.of(draft.currency.ifBlank { Currency.DEFAULT.code })`: blank means tugrik — the header strip's edit and
+a minimal test draft post none — while a code that names nothing is refused *"Choose a currency: tugrik, US dollar or
+yuan."* under the picker, with nothing written. `ProjectDraft.currency` defaults to `Currency.DEFAULT.code`, so every
+pre-Stage-109 construction of the draft still means tugrik. `parseRevenue` now strips every `Currency.symbol` (plus the
+NBSP, ordinary spaces and commas) instead of only `₮`, so `$ 2,500,000` and `¥ 4,800,000` paste back as cleanly as a
+tugrik figure; both refusals now read *"Enter revenue as a number, like 1,250,000."* — the unit is a choice now, so the
+sentence must not name one.
+
+**Tests.** **666 tests / 44 classes / 0 failures / 0 skipped** (657/43 before). New class
+`db/ProjectCurrencyMigrationTest` (three, V19 → migrate on temp databases): existing rows become `MNT` with revenue,
+invoiced and `updated_at` untouched; a row inserted without a currency lands in `MNT`, pinning the DEFAULT, and the
+forecast ledger keeps its amounts; a hand-set `EUR` survives in the row while `ProjectRepository` reads it as
+`Currency.MNT`. `ProjectServiceTest` gains three (default/blank/omitted currency is tugrik; `USD` and a lowercase `cny`
+store the number typed, with `$`/`¥` input accepted; an unknown code is refused under `CURRENCY` with no row; an edit
+leaves the currency alone) and its enum-order case now lists `CURRENCY`; its revenue refusal pins the new sentence.
+`ProjectsPageRenderTest` gains two (a USD project on a board beside a tugrik one: header box, Viewer line and board cell
+all `$`, and the picker's three labels, its Tugrik default, each option's `data-symbol`, and a refused create reopening
+on `CNY` with the `¥ 0` hint) and its field list learned `currency`. `ForecastsRenderTest` gains one (two currencies on
+one panel, each row signed its own way, no `, MNT` heading) and three assertions moved: *Revenue* and *Invoiced
+amount* lost `, MNT`, *Total invoiced* likewise.
+
+**Proof beyond the render.** `scratch/stage109-js-harness.cjs` drives the shipped `project-modal.js` against the
+Stage 104 DOM stub with the picker added: **27 checks / 0 failures** (the 21 bucket checks still pass, and the four
+currency checks prove tugrik on load, `$`/`¥`/`₮` as the picker moves, and that a typed amount survives the change).
+`scratch/stage109-verify.ps1` boots a throwaway on **8099** (empty DB, `PTS_DB_PATH`, no demo data, random admin) and
+runs **46 checks / 0 failures**: projects created with no currency, `USD` and `CNY` all land; the project pages' boxes
+wear `₮`/`$`/`¥`; the board prints all three on one page and keeps the em dash for a project with no revenue; the popup
+has exactly three options, opens on Tugrik, carries each sign and still says `₮ 0`; the forecast sheet prints both
+foreign signs and has lost its `, MNT` headings; an `EUR` create is refused under the picker and writes no row; a
+`$ 2,750,000` save from the header keeps the dollar; and Python reading the throwaway DB shows schema **20** with
+`('S-01','MNT',2500000.0)`, `('S-02','USD',2750000.0)`, `('S-03','CNY',4800000.0)` and no `S-04`. Two checks failed on
+the first run for harness reasons, not app ones: the Viewer cell is only rendered for a non-manager (the manager sees
+the edit strip), and the em-dash check had no project without revenue to point at — fixed by dropping the former (the
+render test pins it) and creating `S-05`.
+
+**Deploy.** Live DB migrated V19 → **V20** (20 history rows, 14 projects — all `MNT` — and 26 tasks). The live JVM
+(PID **14516**) was closed, and `data/pts.db` copied in place to `data/pts.pre-stage109-20261030-144931.db`
+(421,888 bytes) with `-wal` (0) and `-shm` (32,768); `installDist` produced **1,842,949 bytes**; relaunched detached
+through `deploy/run.bat` → java **PID 12508** with a cmd parent, `/` 200 and signed-out `/app/projects` 302. Jar
+read-back: `domain/Currency.class` present, `ProjectsKt` carries `projectCurrency`, `MoneyKt` carries `formatMoney`,
+`V20__project_currency.sql` packaged, and the *Choose a currency* refusal sits in `service/ProjectService.class` — the
+same correction Stage 108 recorded: strings in a companion/enum live in the outer class, not the `Kt` facade. **Ctrl+F5**
+once for `app.css`/`project-modal.js`. No commit, no push.
+
+**If this is restated.** The ask is a picker at **creation** with tugrik defaulted — not an exchange-rate feature, not
+an editable currency on an existing project, and not a currency on invoiced (which is read in the project's money but
+never asks for one). Do not convert: a project's figure is a number somebody typed. Do not add a fourth money to the
+picker without a schema-free path — the enum is the whole vocabulary, and both the refusal and the fallback derive from
+it. And keep the sign out of the forecast headings: a panel may mix currencies, and a total over mixed units has no
+unit to claim.
+
+## Stage 110 — Access control gets roles and permissions, and the role decides access (2026-11-02, live, migration V21, Kotlin + CSS + JS)
+
+**The ask.** *"add this on access control with new roles and permissions"*, with `Screenshots/access-control-01.png`
+attached. The picture is a **Roles & permissions** panel whose **+ New role** sits top-right of its own heading, over a
+table of ROLE / PERMISSIONS / EMPLOYEES with one **Edit** per row: *Owner* — thirteen chips, one employee;
+*Administrator* — the same thirteen, one; *Project Manager* — nine (the four it lacks are the people/type/email/roles
+chips), six; *Employee* — marked **(default)**, holding only *View teammates' tasks*, fourteen. Two questions were
+asked before building, because the ask's key word read two ways and named two screens: the answer came back
+**"Yes — roles decide access"** (every employee is filed under a role, the chips are enforced route by route, and the
+four built-ins must reproduce today's rights) and **"Role wins; positions become titles"**. The EMPLOYEES column is
+drawn as a live count, not the picture's numbers.
+
+**What went away.** `security/Role.kt` — `enum Role(rank) { Viewer, Manager, Admin }` with `atLeast` and the
+unknown-falls-to-Viewer `from` — is **deleted**. `Authorization` used to resolve super-admin flag → the account's
+position `permissionLevel` → its own `access` word into one of those three ranks; it now answers two questions from one
+role row, `canDo(employeeNumber, Permission)` and `canAny(employeeNumber, Collection<Permission>)`, and keeps
+`canManage`/`canAdmin` only because a dozen renderers take one boolean for "draw this as an editor". Its KDoc states the
+rule the routes follow: **a route guards the chip the control is about, never the convenience flag** — which is what
+makes a custom role holding exactly one chip get exactly one power. `Application.kt` carries 95 of those guards
+(19 *Edit any task*, 17 *Manage buckets*, 13 *Manage employees*, 11 each *Manage roles* and *Manage project types*,
+7 *Manage email settings*, 5 *Edit project details*, 4 *Delete projects*, 2 each *Create projects*,
+*Edit forecast amounts* and *Assign tasks*, 1 each *View teammates' tasks* and *View Forecasts tab*).
+
+**Vocabulary.** New `domain/AccessRole.kt` holds `Permission(key, label)` — the thirteen, in the picture's order, with
+the picture's words — plus `AccessRole(id, name, permissions, sortOrder, isDefault)` with `may`/`mayAny`, and
+`AccessRoles` naming the four seeds and their sets. Key and label are kept apart deliberately: a row and a form say
+`assign_tasks` while the sheet says "Assign tasks to others", so a permission's wording can change without a migration.
+`Permission.of` trims and ignores case and answers **null** for a key the app does not name; `ofAll` drops those — so a
+hand-built `perm=manage_the_moon` grants nothing rather than erroring, exactly as V1 tolerated an unknown
+`projects.status`.
+
+**Schema (V21 — `V21__project_roles.sql`).** Two tables and one column: `roles(id, name UNIQUE, sort_order,
+is_default)`, `role_permissions(role_id, permission)` with PRIMARY KEY `(role_id, permission)` and
+`REFERENCES roles ON DELETE CASCADE`, and `users.role_id INTEGER REFERENCES roles(id) ON DELETE SET NULL` plus
+`idx_users_role`. The SET NULL is the point: a role somebody deletes hands its holders back to the default rather than
+deleting people along with it. The four seeds land in the picture's order with Employee marked default, and the chips
+are inserted by hand from `AccessRoles` (13 / 13 / 9 / 1 — 36 rows). The backfill is a `CASE` in the *old* resolution
+order — super admin → the position's `permission_level` (`admin`→2, `manager`→3, else 4) → the `access` word →
+Employee — so **every account is filed under the role that grants what its rank granted for the work the rank did**
+(see *What the picture narrows* below for the one place the two differ);
+`positions.permission_level` stays in the schema,
+simply no longer read for authorization, because it is a value the operator can still see and edit on the catalogue.
+
+**Resolution.** `repository/RoleRepository.kt` loads the chips for the whole catalogue in one query (the table's
+fourteen rows cost two reads, not fourteen), and `roleOf`/`roleFor` fall back through `defaultRole()`: the `is_default`
+row, else the first row, else the in-code Employee — so "no role" is never "no rights" and never "all rights".
+`counts()` folds a null `role_id` into the default, because that is the role such an account actually signs in under;
+counting it nowhere would print a total smaller than the roster. `legacyAccessWord`/`legacyRoleId` keep the old
+`users.access` column written in step with the role (`AuthorizationTest`'s *an account's role is filed by number and the
+legacy word is kept in step*), so a hand-read database row agrees with what the app grants.
+
+**The page** (`AccessControl.kt`). `rolesPanel` is the picture: `div("card-panel")#rolesPanel`, a `div("panel-head")`
+carrying `h3.set-section` "Roles & permissions" and **+ New role**, `table.grid.roles-grid` with `th` Role /
+Permissions / Employees (`role-count-head`) and a fourth empty `th` only for a writer, one `tr` per role
+(`span.role-name`, `span.role-default` for "(default)", `div.perm-chips` of `span.chip.perm` in enum order or
+`span.task-meta` "No permissions", `td.role-count`, and an **Edit** `button.ghost-btn.btn-sm`), then the caption that
+says a position is only the job title beside its name. Both openers are **GET forms onto this page** — `?newrole=1` and
+`?roleedit=<id>` — each marked `data-live-target="#roleModal"`, so `app.js` follows the URL and swaps the popup for the
+copy the server drew already open: a reader with JavaScript off gets the identical form from a plain click, and
+`roleFormOf(query, canRoles)` hands a reader without the chip the ordinary page, because those ids only mean anything
+to the account that could save what they open. `roleModal` is `div.modal#roleModal` (inline `display:block` when open)
+around `h3` "New role"/"Change role", a `p.modal-scope` that says what a save does to its holders ("Everybody holding
+this role picks up the new set at once…"), and the form to `/app/roles/save` naming `#rolesPanel` as its block with
+`data-live-extra="#roleModal"`, a hidden `id` only on an edit, the name box `#roleName` with its `p.field-err`, then
+`div.perm-picks` of thirteen `label.perm-pick` check boxes in `Permission.entries` order. A refusal answers **the page
+at 200**, not a redirect, because a redirect's target is drawn with the popup shut and the reason would have nowhere to
+stand; every row keeps its Edit while the popup is up, so a refused reader has a way back into it and a way to any other
+role. `static/js/access-control.js` gained the popup's half, following `lane-modal.js`: it does **not** open anything
+(the openers live inside the block a save replaces) — it closes on `[data-role-modal-close]`, on the backdrop itself and
+on Escape, focuses `#roleName`, and strips only `newrole`/`roleedit` from the address so a reload or Back does not put
+a stale form back up. `app.css`'s Stage 110 block styles exactly those classes: `.panel-head` puts the button on the
+heading's baseline and the panel's right edge as the picture does, `.perm-chips` wraps with a row gap because thirteen
+chips are four lines of text, `.roles-grid` gives the rights column the width and shrinks the two number-shaped ones
+(`tabular-nums` on the headcount), and `.perm-picks` is an `auto-fill/minmax(210px)` grid — two columns wide, one on a
+phone. **CSS and JS changed, so the live page needs Ctrl+F5.**
+
+**The People sheet keeps its Stage 51 shape and loses its ladder.** Its **Access** column is **Role**: the whole word
+"Access" is off the page. A reader holding *Manage roles & permissions* gets a picker per row — `form` to
+`/app/access-control/role` with `data-live-target="#role-cell-<empno>"` and `data-live-extra="#rolesPanel"`, so the
+picker moves and the EMPLOYEES column moves in one response — and one without it gets `span.chip ${roleChip(role)}`
+(Owner/Administrator tinted `atrisk`, Project Manager `planning`, anything else `done`) or `span.assignee none` for a
+roster row with no account. The Add-user popup grew a **Role** select, offered only to a chip-holder and opened on the
+catalogue's default. Settings' Team sheet reads the same catalogue: its role filter picker, its `roleChip` column and
+its popup all come from `RoleService.catalogue()`, `mayEdit = canPeople || canRoles`, and the `/app/settings` door is
+the three panel chips *or* the roles chip — while the sidebar link is gated on `Authorization.SETTINGS` alone, which is
+the same difference as everywhere else on this page: the route is the right, the link is presentation. The **Manage
+positions** card stays *Manage employees*' — all three `POST /app/positions*` routes gate on it — and it lost its
+**permission level** field, because a position that grants nothing should not ask what it is worth: a new row is filed
+with the lowest legacy word, which is only ever read back as a label. Two sentences moved with the rule they describe:
+`PasswordStatus.CANNOT_DELETE_ADMIN` now prints *"Only somebody who manages roles can delete that account."* (it read
+"Managers cannot delete Admin accounts.", and `deleteUser`'s bar is now the target's chip rather than its word), and the
+delete tooltip's `ONLY_MANAGEMENT_DELETE` *"Only somebody who manages employees can delete an account."*
+
+**Services.** `service/RoleService.kt` is the catalogue's façade and owns the three sentences a name can earn — *"A
+role needs a name."*, *"That role name is taken."* (both create and rename, case- and space-insensitively), and *"That
+role is no longer on the catalogue."* for an id that has gone, which is refused rather than answered by adding a second
+row. It asks nothing about who is calling; the routes hold the chip. `UserService.addUser` took
+`canSetRoles` (*Manage roles & permissions*, decides whether the chosen role is honoured) and `canSetProfile`
+(*Manage employees*, decides whether a job title and a first password may be set here at all), and `deleteUser` now
+refuses to take away an account that itself holds *Manage roles & permissions* unless the caller holds it too.
+
+**Enforcement, page by page.** `/app/forecasts` without *View Forecasts tab* answers the projects board; `/app/settings`
+with none of the four management chips answers `/app`; `/app/access-control` with neither people chip answers `/app`
+rather than showing a read-only copy of other people's keys; `/app/projects` is everybody's board with the create
+opener reserved for *Create projects*. `NAV_PERMISSIONS` in `DashboardCommon.kt` **replaces** Stage 51's
+`MANAGEMENT_ONLY_NAV`: forecasts→`VIEW_FORECASTS`, other-tasks→`EDIT_ANY_TASK`/`MANAGE_BUCKETS`,
+access-control→`MANAGE_EMPLOYEES`/`MANAGE_ROLES`, settings→`Authorization.SETTINGS`, and `navItemsFor` keeps filtering
+`navItems` rather than the list being trimmed — the reason Stage 51 recorded (the notification bell resolves a stored
+section back to a path through that whole list) still holds.
+
+**What the picture narrows — said plainly, because it is the one reach that changed.** The `CASE` reproduces yesterday's
+*resolution* (which rank this account had), not yesterday's *reach*, because the chip sets come from the picture, and the
+picture gives Project Manager nine of thirteen: the four it leaves out are precisely the people-facing ones. Under the
+ladder, a **Manager** passed `canManage`, so `GET /app/settings` printed the Team block and the three panels for them,
+`GET /app/access-control` opened, `POST /app/access-control` and `/app/access-control/delete` let them add and remove an
+account, and the project-type writes were management's. Under the chips all four of those belong to *Manage employees*,
+*Manage project types*, *Manage email settings* or *Manage roles & permissions*, a Project Manager holds none of them, and
+both pages now answer with a redirect. This is what the user's two answers asked for — "Yes — roles decide access", with
+the picture's own sets — and it is the deliberate content of the sheet, not a side effect, but it is worth naming because
+**four live accounts sit under Project Manager**. The fix lives on the page rather than in the code: tick the rights onto
+the role (every holder changes at the next request, no re-login) or file that person under *Administrator*. Nothing moved
+for the other three roles' work: an **Employee** was a Viewer, who never passed `canManage` and so never had a board,
+backlog or account write, and the two administrator ranks hold all thirteen, so every route they were on reads the same
+answer as before. The one smaller difference on that side is presentation: at this stage `GET /app/settings` was an
+ungated page that simply printed a Viewer their own account card, and it now redirects a role holding none of the four
+panel chips — a card those accounts could only read, reached by a link their own drawer had already dropped in Stage 51.
+
+**Tests.** **687 tests / 47 classes / 0 failures / 0 skipped** (666/44 at Stage 109's close). Three new classes:
+`db/RoleMigrationTest` (5 — V20 → V21 on a populated temp database: the seeded catalogue in the picture's order with its
+chip counts; *every account already on file keeps the rights it had yesterday*, which is the `CASE` above; a chip key
+the app cannot name granting nothing and costing nothing; a role taken off the catalogue handing its holders back to
+the default through the SET NULL; and an account added after the migration being filed the same way), `service/RoleServiceTest` (4 — the catalogue's own order and `byId`'s nulls; all three
+refusals in the popup's exact words with no row written; a new role appended last, not default, holding exactly its
+ticks and an empty set landing with zero; a save rewriting its own row, keeping its place, and moving everybody holding
+it through `roleOf`), and `AccessControlRenderTest` (7 — the picture's four rows with chip counts 13/13/9/1, the read-only
+reading without `+ New role`/Edit/tint-vs-picker split, `roleFormOf`'s gating of both openers and of a gone id, the
+popup's markup on create and on edit, a refusal keeping its sentence under the box with the words still typed, the
+People sheet's Role column and per-account picker, and the Add-user popup's role select). `security/SecurityTest.kt` was
+rewritten around the chips: `PermissionTest` (2 — thirteen keys and labels in the picture's order, tolerant parsing) and
+`AuthorizationTest` (9 — the role decides and neither the old word nor the position does; widening a role moves
+everybody on the next request; a null `role_id` falls back; a custom role holds exactly its ticks; the EMPLOYEES count
+includes roleless accounts). Settings' sheet and the sidebar follow: `SettingsRenderTest` is 45 with its role-column and
+picker cases, `EmployeeServiceTest` 27 (a manager's popup asks nothing about roles and a hand-built post is refused),
+`SidebarTaskCountTest` 7 (the pill is the reader's own cards for **every** role).
+
+**Proof beyond the render.** `scratch/stage110-verify.ps1` boots a throwaway on **8099** (empty database,
+`PTS_DB_PATH`, `PTS_DATA_FILE` at a path that does not exist, no demo seed, random 18-character bootstrap password) and
+runs **101 checks / 0 failures**: the four rows with 13/13/9/1 chips and the counts adding to the accounts on file; both
+openers; `?roleedit=3` arriving open on Project Manager with nine ticks and the four people rights unticked; a gone id
+drawing the ordinary page; a create landing after the seeded four with exactly its two chips; a duplicate and a blank
+name refused in their own sentences with the popup still open and the words still typed; `perm=manage_the_moon`
+granting nothing, then that row widened to one chip; an account added under a chosen role and counted; a re-save of a
+seeded row narrowing it to one chip and putting all thirteen back; **EMP0021 signed in under a two-chip role** and sent
+off `/app/forecasts` (302 → `/app/projects`), off `/app/settings` and off `/app/access-control` (302 → `/app`), kept on
+its own board with both links gone from the drawer; its hand-built role write and re-file refused with the Owner
+un-moved; the same live session re-filed to Project Manager and reading `/app/forecasts` 200 on the next request with
+the drawer gaining Forecasts and still no Access control — no sign-out anywhere in it. Then a **people-only** reader: a
+two-chip role, an account filed under it, and the page it gets — the table readable, chips tinted instead of pickers, no
+`+ New role`, no Edit, Password and Delete still there, its own role write turned back at the door and the super admin it
+aimed at still on the sheet. Python on the throwaway database: schema **21**, `(4,'Employee',4,1,1)`, thirteen chips on
+both administrator rows, `('EMP0000','Admin',1)`, `('EMP0021','Manager',3)`, `('EMP0022','Viewer',7)`, zero chip rows
+naming a key the app cannot name, zero accounts with a null role. **Four checks failed on the first run, all of them the
+harness**: `Get-Page` did not capture response headers, so three redirect assertions were comparing the
+*previous POST's* Location — the fix was to give the GET the same `-D`/`Location` read the POST has, which is what made
+those route checks mean anything; and a `python -c` one-liner cannot carry quoted SQL literals through PowerShell's
+double-quoted argument (the thirteen keys became bare column names), so that query binds `?` placeholders instead.
+
+**Deploy.** Live database migrated V20 → **V21** by the relaunch (log: *Migrating schema "main" to version "21 -
+project roles"*, `dbPath = data/pts.db`). The JVM was already stopped and nothing listened on 8080, so `installDist`
+ran against a cold tree; `data/pts.db` was copied **in place** first, to
+`data/pts.pre-stage110-20261102-100058.db` (430,080 bytes) with `-wal` (655,112) and `-shm` (32,768). The shipped jar is
+**1,900,654 bytes**; read-back finds `AccessControlKt`, `service/RoleService`, `domain/Permission`,
+`static/js/access-control.js` and `db/migration/V21__project_roles.sql` (22 migration resources). Relaunched detached
+through `deploy/run.bat` → **PID 18340** listening on 127.0.0.1:8080, `/` 200, `access-control.js` served at 5,299
+bytes, `app.css` carrying the new classes. On the real data: four roles seeded 13/13/9/1 and 36 chip rows; **all 15
+accounts carry a role** (Owner 1, Administrator 2, Project Manager 4, Employee 8) and every one of them is explained by
+the old ladder's own order — two accounts whose `access` word says *Manager* sit under Administrator and Employee
+because their **position level** outranked it, which is precisely what `effectiveRole` did before this stage. Each row is
+therefore the role that matches the rank they held; what that role *grants* is the picture's set, which is where the one
+real change in reach lives — see *What the picture narrows* above. No commit, no push.
+
+**If this is restated.** The role **decides** — do not restore a rank check beside a chip check, and do not let a
+renderer's `canManage` become a route guard. A position is a job title now: `permission_level` is unread decoration and
+the honest way to give somebody more power is to widen their role or file them under a wider one. The four built-ins
+are seeds, not constants — they can be renamed or widened like any row, and nothing keys off their names except
+`roleChip`'s tint and `legacyAccessWord`, both of which read as presentation. `+ New role` belongs top-right of the
+**Roles & permissions** heading, as the picture puts it, not at the bottom of the panel. The EMPLOYEES column is a live
+count of the accounts on file, so it will not show the picture's 14 here. And a role write refuses at the **name box**
+with one sentence: there is no invalid set of chips, so any other complaint would be about the wrong field.
 
 ## Out of scope (flag if you want any of these)
 

@@ -422,13 +422,40 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                     }
                     div("field") {
                         label { +"Revenue" }
-                        input(type = InputType.number, name = "revenue") {
-                            min = "0"
-                            step = "1"
-                            placeholder = "0"
+                        // **Stage 108: revenue is written in money.** A text box rather than `number`, for the
+                        // same reason the header strip's is one: the amount may arrive grouped ("12,500,000") or
+                        // with a sign ("₮ 12,500,000"), and a numeric input refuses to hold either. The server
+                        // is what validates it — [mn.murray.pts.service.ProjectService] strips the sign, spaces
+                        // and commas before it reads the number, so both spellings land as the same amount.
+                        // **Stage 109 puts the currency underneath it**, tugrik unless the reader chooses
+                        // otherwise; the placeholder carries the chosen sign, and the script repaints it when the
+                        // picker moves (project-modal.js). The server fills the same sign in, so a form with no
+                        // scripts still says which money it is asking for.
+                        input(type = InputType.text, name = "revenue") {
+                            id = "projectRevenue"
+                            attributes["inputmode"] = "numeric"
+                            maxLength = "32"
+                            placeholder = "${Currency.of(v.currency)?.symbol ?: Currency.DEFAULT.symbol} 0"
                             value = v.revenue
                         }
+                        div("currency-line") {
+                            select {
+                                name = "currency"
+                                id = "projectCurrency"
+                                attributes["aria-label"] = "Currency"
+                                Currency.entries.forEach { currency ->
+                                    option {
+                                        value = currency.code
+                                        selected = currency.code == (v.currency.ifBlank { Currency.DEFAULT.code })
+                                        attributes["data-symbol"] = currency.symbol
+                                        +"${currency.label} (${currency.symbol})"
+                                    }
+                                }
+                            }
+                        }
+                        span("field-hint") { +"Tugrik unless you choose otherwise." }
                         state.error(ProjectField.REVENUE)?.let { p("field-err") { +it } }
+                        state.error(ProjectField.CURRENCY)?.let { p("field-err") { +it } }
                     }
                     div("field full") {
                         label { +"Manager" }
@@ -606,12 +633,14 @@ data class LaneForm(
  * comes back with the board untouched, this popup open, and the reason under the field it came from.
  *
  * [mayWriteLanes] is the same right the `⋯` and the dashed box hang on
- * ([mn.murray.pts.service.TaskService.mayEditLanes]) — management, or the account this project names as its
+ * ([mn.murray.pts.service.TaskService.mayEditLanes]) — *Manage buckets*, or the account this project names as its
  * manager — so a Viewer who bookmarks `?laneedit=7` is handed the page rather than a form whose every button the
- * route refuses.
+ * route refuses. [canWidenBuckets] is the separate *Manage project types* chip that alone draws the tick sharing a
+ * new column with the category (Stage 110): the two writes touch two tables, so a role may hold one and not the
+ * other.
  * The script tag is inside this block so a popup swapped in by an opener still gets its close hook.
  */
-fun DIV.projectLaneModal(project: Project, state: LaneForm, mayWriteLanes: Boolean, canManage: Boolean) {
+fun DIV.projectLaneModal(project: Project, state: LaneForm, mayWriteLanes: Boolean, canWidenBuckets: Boolean) {
     // The board's lanes read once, in board order, because a colour needs the order to be understood (Stage 80):
     // a column with no hue of its own wears the shade of its place in the run, so the swatch row a popup opens
     // with has to answer from the same position the column head painted — [TaskService.lanesOf] is the one list
@@ -632,7 +661,7 @@ fun DIV.projectLaneModal(project: Project, state: LaneForm, mayWriteLanes: Boole
                 laneManageBody(
                     project, current, state, TaskService.cardCounts(project.id)[current.id] ?: 0, laneIndex,
                 )
-            } else laneAddBody(project, state, canManage)
+            } else laneAddBody(project, state, canWidenBuckets)
         }
     }
     script(src = "/static/js/lane-modal.js") {}
@@ -655,12 +684,16 @@ fun DIV.projectLaneModal(project: Project, state: LaneForm, mayWriteLanes: Boole
  * since Stage 77 the same reach: the new column is this project's, and only management is asked whether the
  * category should adopt it.
  */
-private fun DIV.laneAddBody(project: Project, state: LaneForm, canManage: Boolean) {
+private fun DIV.laneAddBody(project: Project, state: LaneForm, canWidenBuckets: Boolean) {
     h3 { +"Add a bucket" }
     p("modal-scope") {
         +(
             "A bucket is a column of this project's board — a phase of its work a card can be filed in. " +
-                "It belongs to this project; ${project.type} is only told about it if management tick the box below."
+                "It belongs to this project; " +
+                if (canWidenBuckets) "${project.type} is only told about it if the box below is ticked."
+                // The box is *Manage project types*'s, so a reader who has no box here still has to be told who
+                // does — the alternative is a sentence that points at a control they cannot see.
+                else "${project.type} is only told about it by an account that manages project types."
             )
     }
     form(action = "/app/projects/${project.id}/buckets/save", method = FormMethod.post) {
@@ -681,10 +714,11 @@ private fun DIV.laneAddBody(project: Project, state: LaneForm, canManage: Boolea
             state.nameError?.let { p("field-err") { +it } }
         }
         // Stage 77: the column is this project's by default, and sharing it with the category is a separate,
-        // deliberate act — management's alone, which is why a project's own manager sees no box here at all
-        // rather than one that would be refused. The tick carries its own state back on a refusal, because a
+        // deliberate act. Since **Stage 110** that act answers to its own chip — *Manage project types*, not the
+        // *Manage buckets* one that drew this popup at all — which is why an account that only runs boards sees no
+        // box here rather than one that would be refused. The tick carries its own state back on a refusal, because a
         // reader who asked for the wider write and was stopped by the name rules should not have to ask twice.
-        if (canManage) {
+        if (canWidenBuckets) {
             label("check-row bucket-widen") {
                 input(type = InputType.checkBox, name = "also_type") {
                     checked = state.forType
@@ -729,15 +763,15 @@ private fun DIV.laneAddBody(project: Project, state: LaneForm, canManage: Boolea
  * business. The category's catalogue keeps its name either way — a rename touches one row of one board.
  *
  * Removing is offered as well, and **since Stage 81 the count changes only the words, never the button.** A column
- * that holds work comes off with its work in it, and the work goes to this project's Archive — the panel the
- * header's 🗄 opens, where each card can be restored or deleted for good. The older promise was the other way
- * round: Stage 73 refused to untick an occupied bucket and Stage 74 carried that refusal onto the column, so the
- * button sat disabled over the line *"Move them to another bucket first"*. The prototype this page now follows
- * never asks the reader to move anything; it tells them what will happen — *"3 task(s) will be moved to
- * Archive"* — and lets the button press. [held] is therefore a statement about the future rather than a gate,
+ * that holds work comes off with its work in it, and the work is archived with it — since **Stage 106** no page
+ * shows archived cards, so the sentence says they leave the board and promises nothing more. The older promise was
+ * the other way round: Stage 73 refused to untick an occupied bucket and Stage 74 carried that refusal onto the
+ * column, so the button sat disabled over the line *"Move them to another bucket first"*. The prototype this page
+ * now follows never asks the reader to move anything; it tells them what will happen — *"3 task(s) will leave the
+ * board with it"* — and lets the button press. [held] is therefore a statement about the future rather than a gate,
  * which is also what makes [mn.murray.pts.service.TaskService.removeLane]'s own count trustworthy: the route
  * re-reads it at the moment it deletes, so a page left open while somebody filed a card into this column still
- * removes the column, and the card it now holds goes to Archive with it rather than being refused a move it
+ * removes the column, and the card it now holds is archived with it rather than being refused a move it
  * cannot see the reason for.
  *
  * The one rule still worth a dead button is the board's shape: a column that is a board's last stays standing
@@ -808,8 +842,7 @@ private fun DIV.laneManageBody(
                 lastLane -> "A board keeps at least one bucket, so this one cannot go. Add another column " +
                     "before removing this one."
                 held > 0 -> "Removing this column takes it off the board, and its $held " +
-                    "${if (held == 1) "card goes" else "cards go"} to Archive — restore " +
-                    "${if (held == 1) "it" else "them"} from the 🗄 panel in the header."
+                    "${if (held == 1) "card leaves" else "cards leave"} the board with it."
                 lastLane -> "A board keeps at least one bucket, so this one cannot go. Add another column " +
                     "before removing this one."
                 else -> "Removing this column takes it off the board. Nothing is filed in it, so no card moves."
@@ -824,124 +857,19 @@ private fun DIV.laneManageBody(
         div("modal-actions") {
             button(type = ButtonType.submit, classes = "submit danger-btn") {
                 disabled = lastLane
-                // The prototype's confirm, in the same words: the count is the consequence, and saying it before
-                // the press is what makes an archive that swallows a week of work readable as what was asked for.
+                // The count is the consequence, and saying it before the press is what makes a removal that takes
+                // a week of work off the board readable as what was asked for. Since **Stage 106** the promise is
+                // about the board only: the cards are archived with the column and no page shows them again.
                 if (held > 0) {
                     attributes["data-confirm"] =
                         "Remove \"${lane.name}\"? Its $held ${if (held == 1) "card" else "cards"} " +
-                            "will be moved to Archive."
+                            "will leave the board with it."
                 }
                 +"Remove bucket"
             }
             button(type = ButtonType.button, classes = "ghost-btn") {
                 attributes["data-lane-modal-close"] = "true"
                 +"Cancel"
-            }
-        }
-    }
-}
-
-/**
- * The header's 🗄 — the opener for this project's Archive panel (Stage 81).
- *
- * A GET form onto this page carrying `?archive=1`, the same shape the column `⋯` uses for its popup and the
- * `▸ Completed N` line uses for its fold: whether the panel is up is a fact about the URL, so `app.js` fetches
- * the page and swaps `#projectArchive` alone, a bookmark opens the panel on its own, and pressing the button
- * while it is already up posts the key off and shuts it. [open] is that key as the page read it, which is why
- * this form's only field is conditional.
- *
- * It is drawn on [mayWriteLanes] — management or this project's own manager, the one right every archive write
- * checks — and in **both** of this page's headers, because the two of them are the same reader seen from two
- * roles: management edits the strip above, a project's manager who is not management reads it. A plain Viewer
- * gets no button, and a Viewer who hand-types `?archive=1` gets a page with the panel drawn closed, which is the
- * Stage 74 rule that a control nobody may use is not drawn at all.
- */
-private fun DIV.archiveOpener(projectId: Int, open: Boolean, mayWriteLanes: Boolean) {
-    if (!mayWriteLanes) return
-    form(action = "/app/projects/$projectId", method = FormMethod.get, classes = "opener-form") {
-        attributes["data-live-target"] = "#projectArchive"
-        if (!open) input(type = InputType.hidden, name = "archive") { value = "1" }
-        button(type = ButtonType.submit, classes = if (open) "icon-btn archive-btn on" else "icon-btn archive-btn") {
-            attributes["aria-label"] = if (open) "Hide the archived tasks" else "Show the archived tasks"
-            attributes["title"] = if (open) "Hide archived tasks" else "Archived tasks"
-            +"🗄"
-        }
-    }
-}
-
-/**
- * The project's Archive: every card its board put away, each one restorable (V18, Stage 81).
- *
- * Drawn beside the board **always closed, and open only when the page's URL says so** — [mn.murray.pts.projectLaneModal]'s
- * arrangement for the same three reasons: the openers swap one block by one id, the reader with no JavaScript gets
- * the identical panel from a plain click, and a write from inside it answers with the panel still up because the
- * redirect that comes back carries `?archive=1` again. That last part is what makes the two buttons below feel
- * like a panel rather than a form that throws you out of the page every press.
- *
- * **A card in here is not on any board**, and that is the whole of the design: the row was never copied or
- * deleted, so its plan, its log and its lesson learnt are exactly what they were the moment it left, and
- * [mn.murray.pts.service.TaskService.restoreCard] needs only to clear the flag and name a lane to put it back.
- * The lane it came from is remembered as text and as an id — the text always reads, the id resolves only while
- * that column is still on this project, which is the interesting case a reader meets after removing a bucket with
- * cards in it, and where it no longer does the card lands in the board's first column rather than in Unsorted.
- *
- * The panel is where an **archived** card is destroyed for good. The live card's own popup carries management's
- * **Delete task** again since **Stage 84** (Stage 81 had put an **Archive task** button there), so this is one of two
- * permanent deletes rather than the only one: a card can be destroyed from its popup while it is on the board, or
- * from here after its bucket took it off. Archiving itself is now reached by removing the bucket, not by a button on
- * the card.
- */
-fun DIV.projectArchivePanel(project: Project, open: Boolean) {
-    val cards = TaskService.archived(project.id)
-    div("modal") {
-        id = "projectArchive"
-        if (open) attributes["style"] = "display:block"
-        div("modal-content archive-panel") {
-            div("archive-head") {
-                h3("archive-title") { +"Archived tasks (${cards.size})" }
-                // The close is a plain GET form onto the page with no key on it, not a script's hide: the panel's
-                // state is the URL's, so this works with JavaScript off and with it on it is one more swap of the
-                // same block.
-                form(action = "/app/projects/${project.id}", method = FormMethod.get, classes = "opener-form") {
-                    attributes["data-live-target"] = "#projectArchive"
-                    button(type = ButtonType.submit, classes = "icon-btn") {
-                        attributes["aria-label"] = "Close archived tasks"
-                        +"✕"
-                    }
-                }
-            }
-            if (cards.isEmpty()) {
-                p("archive-empty") { +"No archived tasks." }
-            }
-            cards.forEach { card ->
-                div("archive-item") {
-                    div("at-title") { +card.title }
-                    div("at-meta") {
-                        // The prototype's line: which project this was, and which column it left. The day it left is
-                        // stored (`archived_on`, V18) and the rows are printed newest-first, so the order carries it
-                        // without every row needing to spell it out.
-                        +(project.code + " · was in \"" + card.archivedLane.ifEmpty { "no bucket" } + "\"")
-                    }
-                    div("at-actions") {
-                        form(action = "/app/projects/${project.id}/archive/restore", method = FormMethod.post) {
-                            attributes["data-live-target"] = "#projectArchive"
-                            attributes["data-live-extra"] = "#projectBoard"
-                            input(type = InputType.hidden, name = "taskId") { value = "${card.id}" }
-                            button(type = ButtonType.submit, classes = "submit btn-sm") { +"Restore" }
-                        }
-                        form(action = "/app/projects/${project.id}/archive/delete", method = FormMethod.post) {
-                            attributes["data-live-target"] = "#projectArchive"
-                            attributes["data-live-extra"] = "#projectBoard"
-                            input(type = InputType.hidden, name = "taskId") { value = "${card.id}" }
-                            button(type = ButtonType.submit, classes = "ghost-btn btn-sm danger") {
-                                attributes["data-confirm"] =
-                                    "Permanently delete ${card.title}? Its steps and its notes go with it. " +
-                                        "This cannot be undone."
-                                +"Delete permanently"
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1010,7 +938,7 @@ fun DIV.projectTable(shown: List<Project>, session: UserSession, measured: Map<S
                     td("c-manager") { +project.manager }
                     td("c-start") { +project.start.ifEmpty { "—" } }
                     td("c-due") { +project.due.ifEmpty { "—" } }
-                    td("c-rev") { span("money") { +formatRevenue(project.revenue) } }
+                    td("c-rev") { span("money") { +formatRevenue(project) } }
                     td("c-pin") {
                         form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
                             val pinned = pinnedIds(session.employeeNumber).contains(project.id)
@@ -1028,7 +956,14 @@ fun DIV.projectTable(shown: List<Project>, session: UserSession, measured: Map<S
 fun DIV.projectDetailContent(
     session: UserSession,
     project: Project,
-    canManage: Boolean,
+    /**
+     * Stage 110: **one chip per power**, and this is *Edit project details* — the header strip, the field row
+     * under it and the pin. Before this stage a single `canManage` flag drew the whole page as an editor's; the
+     * three flags below are what that one flag used to cover, so an account whose role holds one of them gets
+     * one of them. The defaults are the pre-110 shape — whoever could run the page could do all of it — which is
+     * what keeps every older call site and its test reading the page it always read.
+     */
+    canEdit: Boolean,
     state: TaskForm? = null,
     edit: ProjectForm? = null,
     bucketNote: String? = null,
@@ -1043,30 +978,46 @@ fun DIV.projectDetailContent(
      * should be read in anyway.
      */
     doneOpen: Set<Int> = emptySet(),
+    /** *Delete projects* — the header's one destructive button. */
+    canDelete: Boolean = canEdit,
+    /** *Edit any task* — the cards on the board: their popups, their writes and their drag. */
+    canEditTasks: Boolean = canEdit,
     /**
-     * Stage 81: whether this page arrives with its **Archived tasks** panel up, off `?archive=1`. The route reads
-     * the key only for a reader who may write the board's lanes, and the panel is drawn closed beside the board
-     * for everybody else, exactly as the bucket popup has been since Stage 74 — the page the server rendered is
-     * what says whether it is open, so a plain click and a bookmarked link give the same panel.
+     * *Manage buckets* — the columns' `⋯` and the dashed `+ Add bucket` box. This project's own named manager is
+     * added to it by [mn.murray.pts.service.TaskService.mayEditLanes], the fallback every older page had.
      */
-    archiveOpen: Boolean = false,
+    canManageBuckets: Boolean = canEdit,
+    /**
+     * *Manage project types* — the tick on the add half that shares a new column with the whole category. It is
+     * a different chip from [canManageBuckets] because it writes a different table: one board's lanes versus the
+     * catalogue every future project of the category is seeded from.
+     */
+    canWidenBuckets: Boolean = canManageBuckets,
 ) {
-    // **Stage 81: the board's own right, read once, at the top.** What it gates is now three things rather than
-    // two — the columns' `⋯` and the dashed `+ Add bucket` box, and the header's 🗄 that opens the Archive — and
-    // the header is drawn before anything else on this page, so the flag cannot wait for the board's block below.
-    // [mn.murray.pts.service.TaskService.mayEditLanes] is management or the account this project names as its
-    // manager, which is the one line every destructive write here agrees on: reshaping the columns, putting a
-    // card away, bringing it back, and agreeing it is gone.
-    val mayWriteLanes = TaskService.mayEditLanes(project.id, session.employeeNumber, canManage)
+    // **Stage 81: the board's own right, read once, at the top.** What it gates is the columns' `⋯` and the
+    // dashed `+ Add bucket` box, and the header is drawn before anything else on this page, so the flag cannot
+    // wait for the board's block below. (Stage 106 took the header's 🗄 — the third thing it used to gate — out of
+    // the page.) [mn.murray.pts.service.TaskService.mayEditLanes] is management or the account this project names
+    // as its manager, which is the one line every destructive write here agrees on: reshaping the columns and
+    // putting a card away.
+    val mayWriteLanes = TaskService.mayEditLanes(project.id, session.employeeNumber, canManageBuckets)
     // **Stage 60 — the head, and who edits from it.** Management lands on a project page to run it, so the top
     // of the page is now the project's own settings: a breadcrumb that says which project this is, and to its
-    // right the whole-project actions — *Pin for me*, the 🗄 that opens this board's Archive (Stage 81), and
-    // *Delete project*. Beneath that the project's fields
+    // right the whole-project actions — *Pin for me* and *Delete project*. Beneath that the project's fields
     // are editable in place (see the form below). A Viewer sees none of that and gets the page's old head back:
     // a plain "← Back to projects" and a read-only card, because reading a project is not the same as being able
     // to change it, and hiding the form here is presentation — `/app/projects/{id}` (POST) and `/delete` refuse a
     // non-manager again, so a hand-built request cannot reach the writes this markup only offers to management.
-    if (canManage) {
+    //
+    // **Stage 106 took two icon controls out of this row at the user's request**: the 🗄 that opened this
+    // project's Archived tasks panel and the 📋 that copied the page's URL. The panel went with its opener — it
+    // was the only way into it — while the archived rows themselves are untouched in the database and the two
+    // routes behind them still answer a hand-built POST.
+    // **Stage 110: the two buttons on the right of this row answer to different chips.** *Edit project details*
+    // draws the breadcrumb strip, the pin and the field row beneath; *Delete projects* draws only its own button,
+    // so an account whose role holds the destructive chip and not the editing one still gets a head — and the
+    // else-branch's plain back link is what a reader with neither is shown.
+    if (canEdit || canDelete) {
         div("detail-head crumb-row") {
             div("crumb") {
                 a(href = "/app/projects", classes = "crumb-link") { +"Projects" }
@@ -1074,29 +1025,21 @@ fun DIV.projectDetailContent(
                 span("crumb-code") { +project.code }
             }
             div("head-actions") {
-                form(action = "/app/projects/${project.id}/pin", method = FormMethod.post, classes = "opener-form") {
-                    val pinned = pinnedIds(session.employeeNumber).contains(project.id)
-                    button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
-                        +(if (pinned) "★ Pinned" else "☆ Pin for me")
+                if (canEdit) {
+                    form(action = "/app/projects/${project.id}/pin", method = FormMethod.post, classes = "opener-form") {
+                        val pinned = pinnedIds(session.employeeNumber).contains(project.id)
+                        button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
+                            +(if (pinned) "★ Pinned" else "☆ Pin for me")
+                        }
                     }
                 }
-                archiveOpener(project.id, archiveOpen, mayWriteLanes)
-                // The small icon button the screenshot puts between the pin and the delete. It is a copy-link
-                // action, not a form: it has no write of its own, so it is a plain `button` (never a submit) that
-                // app.js answers through a delegated `[data-copy-link]` click handler — the CSP forbids an inline
-                // onclick, and there is no server route to post to. It copies this page's own URL to the clipboard
-                // so a manager can hand a colleague a link to the project without leaving the page.
-                button(type = ButtonType.button, classes = "icon-btn head-copy") {
-                    attributes["data-copy-link"] = ""
-                    attributes["aria-label"] = "Copy link to this project"
-                    attributes["title"] = "Copy link to this project"
-                    +"📋"
-                }
-                form(action = "/app/projects/${project.id}/delete", method = FormMethod.post, classes = "opener-form") {
-                    button(type = ButtonType.submit, classes = "ghost-btn btn-sm danger") {
-                        attributes["data-confirm"] =
-                            "Delete ${project.code}? Every task filed under this project goes with it. This cannot be undone."
-                        +"Delete project"
+                if (canDelete) {
+                    form(action = "/app/projects/${project.id}/delete", method = FormMethod.post, classes = "opener-form") {
+                        button(type = ButtonType.submit, classes = "ghost-btn btn-sm danger") {
+                            attributes["data-confirm"] =
+                                "Delete ${project.code}? Every task filed under this project goes with it. This cannot be undone."
+                            +"Delete project"
+                        }
                     }
                 }
             }
@@ -1132,7 +1075,7 @@ fun DIV.projectDetailContent(
     // personal scoping of Stage 53/61 is deliberately kept everywhere else — the general Assigned tasks page, the
     // Calendar and the Team sheet's OPEN TASKS drill-down still show a non-manager only their own cards — this
     // page being the one shared, project-wide board.)
-    val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canManage)
+    val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canEditTasks)
     val tasks = TaskService.assigned().filter { it.project == project.name }
     // The bar in the detail card measures the *project*, so it counts every card on it, not the slice one
     // reader owns: the same figure the Projects board prints for this row, from the one rule in
@@ -1142,7 +1085,7 @@ fun DIV.projectDetailContent(
     // this page on purpose: the board already prints each column's count in its own head, so a strip above
     // it could only repeat them or disagree with them.
     val progress = TaskService.displayedProgress(project, TaskService.progressByProject())
-    if (canManage) {
+    if (canEdit) {
         // The header strip is a form onto `/app/projects/{id}`, and every field on it is editable — the same
         // inputs the create modal asks for, laid out in the single row the screenshot shows rather than a modal
         // nobody opens twice. A refused save comes back here with [edit] carrying what was typed and each message
@@ -1158,7 +1101,7 @@ fun DIV.projectDetailContent(
             end = project.due,
             status = project.status,
             managerName = project.manager,
-            revenue = money(project.revenue),
+            revenue = formatMoney(project.currency, project.revenue),
             invoiced = money(project.invoiced),
         )
         div("card-panel edit-panel") {
@@ -1208,10 +1151,16 @@ fun DIV.projectDetailContent(
                     }
                     editField("Revenue", "money-ef") {
                         // A text field, not `number`: the screenshot shows the amount comma-grouped ("5,000,000"),
-                        // and a numeric input refuses to display a grouped value. The save is safe because
-                        // [mn.murray.pts.service.ProjectService]'s revenue parsing strips spaces and commas before
-                        // it reads the number, so the grouped text round-trips.
-                        input(type = InputType.text, name = "revenue") { value = v.revenue; maxLength = "32" }
+                        // and a numeric input refuses to display a grouped value. **Stage 108** puts the tugrik
+                        // sign in the same value — "₮ 5,000,000" — so the writer sees the unit without a caption
+                        // change; the save is safe because [mn.murray.pts.service.ProjectService]'s revenue
+                        // parsing strips the sign, the non-breaking space and the commas before it reads the
+                        // number, so the grouped and signed text round-trips.
+                        input(type = InputType.text, name = "revenue") {
+                            attributes["inputmode"] = "numeric"
+                            value = v.revenue
+                            maxLength = "32"
+                        }
                         edit?.error(ProjectField.REVENUE)?.let { p("field-err") { +it } }
                     }
                     editField("Invoiced", "money-ef") {
@@ -1249,11 +1198,6 @@ fun DIV.projectDetailContent(
                         +(if (pinned) "★ Pinned" else "☆ Pin")
                     }
                 }
-                // The same Archive door the management strip prints. A project's own manager who is not
-                // management reads this header rather than editing it, and they are still the account that owns
-                // this board's columns — so they get the panel, and a plain Viewer gets nothing, because
-                // [archiveOpener] checks [mayWriteLanes] and not [canManage].
-                archiveOpener(project.id, archiveOpen, mayWriteLanes)
             }
             h3("detail-title") { +project.name }
             // **Stage 71: one line, for every reader.** This run used to print `CAPTION value` pairs side by
@@ -1273,7 +1217,7 @@ fun DIV.projectDetailContent(
                 detailCell("Start date", project.start.ifEmpty { "—" }, "date-ef")
                 detailCell("End date", project.due.ifEmpty { "—" }, "date-ef")
                 detailCell("Status", project.status, "text-ef")
-                detailCell("Revenue", formatRevenue(project.revenue), "money-ef")
+                detailCell("Revenue", formatRevenue(project), "money-ef")
                 // The id is what a step form's `data-live-extra` names in app.js: ticking a box on a card below
                 // swaps this cell from the same response, so the bar cannot sit on last week's number while the
                 // checkbox that moved it is already ticked.
@@ -1301,9 +1245,9 @@ fun DIV.projectDetailContent(
     // **Stage 79 took that panel off** — a reader standing in front of the columns has no use for a second list of
     // the names they can already see, and a column that holds work says so where it holds it, in its own popup.
     //
-    // The one right covering all of this page's bucket writes — a column's `⋯`, the dashed box, and since
-    // **Stage 81** the Archive behind the header's 🗄 — is [mn.murray.pts.service.TaskService.mayEditLanes], read
-    // at the top of this function as [mayWriteLanes] because the header that opens the Archive is drawn first.
+    // The one right covering all of this page's bucket writes — a column's `⋯` and the dashed box — is
+    // [mn.murray.pts.service.TaskService.mayEditLanes], read at the top of this function as [mayWriteLanes] because
+    // the board's popup is drawn from it further down.
     // The project's buckets, read once and used twice below: as this board's columns, and as the card popup's
     // Sub-category picker. They are also half of the gate the bucket popup hangs on, [laneModalDrawn].
     val lanes = TaskService.lanesOf(project.id)
@@ -1348,7 +1292,7 @@ fun DIV.projectDetailContent(
         // [taskKanban] never reaches its `board-empty` invitation on this page: handed a column set it draws the
         // columns, and the columns with their `+ Add task` lines *are* the invitation.
         taskKanban(
-            tasks, session, canManage, BACK_PROJECT, project.id,
+            tasks, session, canEditTasks, BACK_PROJECT, project.id,
             canAdd = mayAdd,
             fixedProject = project,
             lanes = lanes,
@@ -1378,9 +1322,9 @@ fun DIV.projectDetailContent(
     // get the editor they always had. `project` is what pre-selects it in a new task, and what an edit posts back
     // as `projectId` so the page it returns to is this one. It carries this project's lanes so the placeholder is the
     // same form the URL version comes back as.
-    if (canManage || mayAdd || state != null || tasks.isNotEmpty()) {
+    if (canEditTasks || mayAdd || state != null || tasks.isNotEmpty()) {
         taskFormModal(
-            state ?: TaskForm(canEditAll = canManage, canCreate = mayAdd, lanes = lanes),
+            state ?: TaskForm(canEditAll = canEditTasks, canCreate = mayAdd, lanes = lanes),
             BACK_PROJECT,
             project,
         )
@@ -1400,17 +1344,12 @@ fun DIV.projectDetailContent(
     // above the board is gone, so adding is this form's dashed box, and a rename or a removal is the `⋯` on the
     // column itself.
     if (laneModalDrawn) {
-        projectLaneModal(project, lane, mayWriteLanes, canManage)
+        projectLaneModal(project, lane, mayWriteLanes, canWidenBuckets)
     }
-    // The Archive this board's cards are put away in (Stage 81), drawn for exactly the readers the header's 🗄 is
-    // drawn for. Like the bucket popup it is carried closed, so its openers and its own forms have one block to
-    // swap and a refusal is just the same page again with its sentence in it.
-    if (mayWriteLanes) {
-        projectArchivePanel(project, archiveOpen)
-        // Outside the panel rather than inside it, unlike the bucket popup's own script: this block is swapped by
-        // its two forms, and a script tag in there would be thrown away with the panel it belongs to.
-        script(src = "/static/js/archive-modal.js") {}
-    }
+    // **Stage 106 retired the Archived tasks panel and the script that closed it.** Its only opener was the
+    // header's 🗄, which the user asked to have taken out, so the panel had no way in and no reason to be drawn:
+    // what remains of the Archive is the rows themselves, off every board (Stage 81), with the restore and delete
+    // routes still there for a hand-built POST and nothing on any page that names them.
     // Dragging a card between these columns files it in the bucket it lands on, and that is [kanban.js]'s lane
     // half: a `.kcol[data-lane]` drop posts to `/app/tasks/bucket` and moves the card node in place, with no
     // reload under the reader's hands. Only [mayWriteLanes]'s cards carry `draggable`, so the board offers the
@@ -1456,16 +1395,21 @@ private fun DIV.editField(caption: String, extra: String = "", block: kotlinx.ht
     }
 }
 
-/** Revenue has no currency column by design; the board prints the bare grouped amount. */
-private fun formatRevenue(value: Double): String =
-    if (value <= 0.0) "—" else java.text.DecimalFormat("#,##0").format(value)
+/**
+ * Revenue prints with its project's currency sign — "₮ 4,850,000", "$ 12,500,000", "¥ 3,000,000" — on the
+ * board and on the project page alike since **Stage 108** (the sign) and **Stage 109** (the project choosing
+ * which sign). A project with nothing filed under it prints an em dash rather than "$ 0", which is the same
+ * absence the other empty cells show.
+ */
+private fun formatRevenue(project: Project): String =
+    if (project.revenue <= 0.0) "—" else formatMoney(project.currency, project.revenue)
 
 /**
  * A stored amount rendered for the header strip's text `<input>`: the whole value comma-grouped exactly as the
  * screenshot shows it ("5,000,000"), and a plain `0` for zero rather than a blank box. The inverse of
  * [mn.murray.pts.service.ProjectService]'s revenue parsing, which strips the commas back off on the way in.
  */
-private fun money(value: Double): String = java.text.DecimalFormat("#,##0").format(if (value <= 0.0) 0.0 else value)
+private fun money(value: Double): String = groupedAmount(if (value <= 0.0) 0.0 else value)
 
 private fun chipClass(status: String): String = when (status) {
     "In progress" -> "ontrack"

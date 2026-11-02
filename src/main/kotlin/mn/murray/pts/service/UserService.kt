@@ -2,17 +2,20 @@ package mn.murray.pts.service
 
 import mn.murray.pts.MIN_PASSWORD_LENGTH
 import mn.murray.pts.PasswordStatus
+import mn.murray.pts.domain.AccessRole
 import mn.murray.pts.domain.AccessRow
 import mn.murray.pts.domain.Member
+import mn.murray.pts.domain.Permission
 import mn.murray.pts.domain.Position
 import mn.murray.pts.domain.User
 import mn.murray.pts.domain.autoEmail
 import mn.murray.pts.repository.PositionRepository
+import mn.murray.pts.repository.RoleRepository
 import mn.murray.pts.repository.SessionRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.UserRepository
+import mn.murray.pts.security.Authorization
 import mn.murray.pts.security.PasswordHasher
-import mn.murray.pts.security.Role
 
 /**
  * People / access domain service. Wraps the user, team-member and position repositories
@@ -58,6 +61,7 @@ object UserService {
                 access = u.access,
                 password = "",           // hashed in DB; never surfaced
                 email = u.email,
+                role = Authorization.roleOf(u).name,
             )
         }
     }
@@ -66,33 +70,37 @@ object UserService {
         accessRows().firstOrNull { it.employeeNumber == employeeNumber }
             ?: AccessRow(employeeNumber, "Employee $employeeNumber", "Team Member", "Viewer")
 
-    fun effectiveRole(employeeNumber: String): Role = mn.murray.pts.security.Authorization.effectiveRole(employeeNumber)
+    /** The role this account signs in under (Stage 110). */
+    fun roleOf(employeeNumber: String): AccessRole = Authorization.roleOf(employeeNumber)
 
     // ---- account mutations -------------------------------------------------
 
     /**
-     * Add a user account. [canSetRoles] mirrors the legacy rule: only admins may set
-     * position / access / password; managers create basic Viewer accounts. Returns the
-     * flash-banner status.
+     * Add a user account. [canSetRoles] is the reader's *Manage roles & permissions* right: only then may the
+     * new account be filed under a role other than the default. [canSetProfile] is *Manage employees*: only
+     * then may its position (a job title) and first password be chosen here; otherwise the account starts as
+     * the default role with its employee number as password, as one added by a colleague always has.
      */
     fun addUser(
         employeeNumber: String,
         name: String,
         email: String,
         requestedPosition: String?,
-        requestedAccess: String?,
+        requestedRole: String?,
         newPassword: String,
         canSetRoles: Boolean,
+        canSetProfile: Boolean = canSetRoles,
     ): PasswordStatus {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty() || name.isBlank()) return PasswordStatus.EMPTY
         if (UserRepository.findByEmpNo(empNo) != null) return PasswordStatus.USER_EXISTS
 
         val rosterPosition = TeamRepository.findByEmpNo(empNo)?.position
-        val positionName = (if (canSetRoles) requestedPosition?.takeIf { it.isNotEmpty() } else null)
+        val positionName = (if (canSetProfile) requestedPosition?.takeIf { it.isNotEmpty() } else null)
             ?: rosterPosition ?: "Team Member"
-        val access = (if (canSetRoles) requestedAccess?.takeIf { it in mn.murray.pts.domain.ACCESS_LEVELS } else null)
-            ?: "Viewer"
+        val role = (if (canSetRoles) requestedRole?.trim()?.let { RoleRepository.findByName(it) } else null)
+            ?: RoleRepository.defaultRole()
+        val access = RoleRepository.legacyAccessWord(role.name)
         val resolvedEmail = email.trim().lowercase().ifBlank { autoEmail(name) }
 
         // Position catalog link (nullable FK); team_members keeps the free-text position.
@@ -114,12 +122,16 @@ object UserService {
             positionId = positionId,
             isSuperAdmin = empNo == SUPER_ADMIN,
             mustChangePassword = mustChange,
+            roleId = role.id.takeIf { it > 0 },
         )
         return PasswordStatus.USER_ADDED
     }
 
-    /** Delete a user account (and its team row). Enforces the legacy protections. */
-    fun deleteUser(employeeNumber: String, callerEmpNo: String, callerRole: Role): PasswordStatus {
+    /**
+     * Delete a user account (and its team row). Enforces the protections: the super admin and yourself are
+     * never the target, and an account without *Manage roles & permissions* may not delete one that holds it.
+     */
+    fun deleteUser(employeeNumber: String, callerEmpNo: String, callerCanAdmin: Boolean): PasswordStatus {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty()) return PasswordStatus.EMPTY
         val target = UserRepository.findByEmpNo(empNo)
@@ -127,7 +139,9 @@ object UserService {
         if (target == null && !onTeam) return PasswordStatus.USER_NOT_FOUND
         if (empNo == SUPER_ADMIN) return PasswordStatus.CANNOT_DELETE_SUPER
         if (empNo == callerEmpNo) return PasswordStatus.CANNOT_DELETE_SELF
-        if (callerRole == Role.Manager && target?.access == "Admin") return PasswordStatus.CANNOT_DELETE_ADMIN
+        if (!callerCanAdmin && target != null && Authorization.roleOf(target).may(Permission.MANAGE_ROLES)) {
+            return PasswordStatus.CANNOT_DELETE_ADMIN
+        }
 
         // Sessions cascade-delete via FK; revoke explicitly too so an in-flight cookie dies now.
         SessionRepository.revokeAllFor(empNo)
@@ -147,8 +161,8 @@ object UserService {
         return PasswordStatus.CHANGED
     }
 
-    /** Admin updates a user's position (by name) and/or access level. */
-    fun updateUserAccess(employeeNumber: String, positionName: String, access: String) {
+    /** Update a user's position (a job title, by name) and/or the role they are filed under. */
+    fun updateUserProfile(employeeNumber: String, positionName: String, roleName: String) {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty()) return
         if (positionName.isNotEmpty()) {
@@ -159,8 +173,8 @@ object UserService {
                 TeamRepository.upsert(m.copy(position = positionName))
             }
         }
-        if (access in mn.murray.pts.domain.ACCESS_LEVELS) {
-            UserRepository.updateAccess(empNo, access)
+        RoleRepository.findByName(roleName)?.let { role ->
+            RoleRepository.setRole(empNo, role.id)
         }
     }
 

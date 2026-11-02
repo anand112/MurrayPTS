@@ -44,7 +44,6 @@
                           not a popup, so the fetched URL is written into history the way a filter form's
                           is. Without it the address bar would keep a filter the press has just dropped.
      [data-confirm]     — a control that asks the reader first, and is not pressed when they say no.
-     [data-copy-link]   — a button that copies this page's URL and shows a tick, with no write of its own.
 
    Delegation on `document` also covers rows inserted later via fetch (the board on every refresh), which
    per-element inline handlers could not. */
@@ -390,29 +389,6 @@
     if (msg && !window.confirm(msg)) {
       e.preventDefault();
       e.stopPropagation();
-    }
-  });
-  /* [data-copy-link] — the small icon button on a management project header (Stage 60). It has no write of its
-     own and the CSP forbids an inline onclick, so a delegated handler copies the current page's URL to the
-     clipboard and answers with a brief ✓ on the button so the click is visibly acknowledged. Nothing navigates:
-     the point is to hand a colleague a link without leaving the page. */
-  document.addEventListener('click', function (e) {
-    var el = e.target && e.target.closest ? e.target.closest('[data-copy-link]') : null;
-    if (!el) return;
-    var text = window.location.href;
-    var done = function () {
-      if (el.dataset.copySaving) return;   // a second click while it still shows the tick
-      el.dataset.copySaving = '1';
-      // Remember the button's own glyph once so it can be restored; show a ✓ meanwhile as the acknowledgement.
-      if (el.getAttribute('data-copy-glyph') === null) el.setAttribute('data-copy-glyph', el.textContent);
-      el.textContent = '✓';
-      window.setTimeout(function () {
-        el.textContent = el.getAttribute('data-copy-glyph') || '';
-        delete el.dataset.copySaving;
-      }, 1200);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, function () { /* clipboard refused: leave the button as-is */ });
     }
   });
 

@@ -1219,8 +1219,9 @@ class TaskServiceTest {
         // so a hand-typed `?edit=` comes back as the ordinary page rather than as an editor for put-away work.
         assertNull(TaskService.openableBy(card, "EMP0001", canManage = true))
         assertNull(TaskService.openableBy(card, "EMP0002", canManage = false))
-        // No write through a hand-built save either, and no permanent delete outside the panel: the panel's two
-        // buttons are the only pair of answers an archived card has.
+        // No write through a hand-built save either, and no permanent delete outside the archive routes: **Stage
+        // 106** retired the panel those routes' buttons lived on, so what an archived card has left is the row, a
+        // restore route and a delete route — none of them reachable from a page.
         val save = TaskService.updateAssigned(card, draft(title = "Rewritten"), "EMP0001", canManage = true)
         assertNull(save.taskId, "an archived card took a save")
         assertNotNull(save.errors[TaskField.PERMISSION], "the refusal did not name the Archive")
@@ -1433,16 +1434,21 @@ class TaskServiceTest {
         val haul = extraLane()
         val card = TaskService.create(draft(lane = haul.name), "EMP0001", canManage = true).taskId!!
         // **Stage 81 withdrew the refusal Stage 73 wrote here.** An occupied column is no longer something the
-        // reader must empty by hand first: the column and its cards leave together, which is the prototype's
-        // third answer, and the sentence says where the work went. Commissioning is also asked for, so this is
-        // one press doing both halves of the picker.
+        // reader must empty by hand first: the column and its cards leave together, which is the prototype's third
+        // answer, and the sentence says how much work went with it. Commissioning is also asked for, so this is
+        // one press doing both halves of the picker. **Stage 106** retired the panel the cards used to be listed
+        // on, so the sentence stops at the board (pinned below).
         TypeDefaultBucketRepository.insert("Site projects", "Commissioning")
         val saved = ticked(id, *DEFAULT_PROJECT_BUCKETS.toTypedArray(), "Commissioning")   // Haul left off
         assertTrue(saved.ok, "an occupied bucket was refused its untick: ${saved.message}")
         assertEquals(DEFAULT_PROJECT_BUCKETS + listOf("Commissioning"), TaskService.lanesOf(id).map { it.name })
         assertTrue(
-            saved.message!!.contains("1 card went to Archive"),
-            "the answer does not say where the work went: ${saved.message}",
+            saved.message!!.contains("1 card left the board with it"),
+            "the answer does not say what happened to the work: ${saved.message}",
+        )
+        assertFalse(
+            saved.message!!.contains("Archive"),
+            "the sentence sends the reader to a panel that no longer exists: ${saved.message}",
         )
         // The card is off the board and in this project's archive, with the column it came from remembered.
         assertEquals(0, ProjectBucketRepository.cardCounts(id).values.sum(), "archived work still counted as held")
@@ -1464,7 +1470,7 @@ class TaskServiceTest {
         assertTrue(saved.ok, "a press taking two buckets off was refused: ${saved.message}")
         assertEquals(DEFAULT_PROJECT_BUCKETS, TaskService.lanesOf(id).map { it.name })
         assertTrue(
-            saved.message!!.contains("1 card went to Archive"),
+            saved.message!!.contains("1 card left the board with it"),
             "the sentence does not count the work it took off: ${saved.message}",
         )
         assertEquals(dewatering.id, TaskRepository.findById(card)!!.archivedLaneId)

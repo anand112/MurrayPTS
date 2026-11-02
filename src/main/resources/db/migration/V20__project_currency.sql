@@ -1,0 +1,26 @@
+-- ============================================================================
+-- Murray PTS — V20 a project's money is in its own currency (SQLite)
+-- ----------------------------------------------------------------------------
+-- Stage 108 put the tugrik sign on revenue because the app had one currency: `projects.revenue` and
+-- `projects.invoiced` were bare REAL columns (V3, V11) and every amount was tugrik. The user then asked for
+-- **USD and CNY to be choosable, with tugrik the default when creating a project**, which needs the currency
+-- to be a fact about the row rather than a rule about the app.
+--
+-- The column is a short ISO code (`MNT`, `USD`, `CNY`) with a NOT NULL default. SQLite's ALTER TABLE ADD COLUMN
+-- rewrites no row: every project already on a board gets `MNT` from the default, which is exactly the unit its
+-- figures were always written in. The app reads anything it does not recognise as `MNT` too
+-- (`Currency.of`), so a hand-edited row can never render a revenue figure with no sign or with a stranger's.
+--
+-- What this migration deliberately does not do:
+--
+--   * **convert anything.** The amount stays the number that was typed. Choosing USD relabels the figures, it
+--     does not divide them by an exchange rate the app does not have and cannot keep current.
+--   * touch `forecasts` (V8). Its ledger is per project and therefore inherits that project's currency when the
+--     sheet renders; the rows themselves keep their bare amounts, and the sheet's totals stay bare because two
+--     projects on one panel may be in different currencies.
+--   * add a CHECK constraint. The three codes are the form's rule (`Currency.of` + `ProjectService`), the same
+--     way V1 left `projects.status` free text — a row the app cannot name falls back to `MNT` rather than
+--     breaking the board.
+-- ============================================================================
+
+ALTER TABLE projects ADD COLUMN currency TEXT NOT NULL DEFAULT 'MNT';

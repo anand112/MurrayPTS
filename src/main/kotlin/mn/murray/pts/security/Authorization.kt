@@ -1,49 +1,68 @@
 package mn.murray.pts.security
 
-import mn.murray.pts.domain.Position
+import mn.murray.pts.domain.AccessRole
+import mn.murray.pts.domain.Permission
 import mn.murray.pts.domain.User
-import mn.murray.pts.repository.PositionRepository
-import mn.murray.pts.repository.UserRepository
+import mn.murray.pts.repository.RoleRepository
 
 /**
- * Central authorization decisions ("RoleGuard").
+ * Central authorization decisions (Stage 110).
  *
- * v2 change (locked decision): a user's effective role now derives from the linked
- * position's `permissionLevel`, falling back to the account's own `access` value when
- * the user has no position. Previously `permissionLevel` was stored but ignored and
- * `access` was the only effective role — so for users who have a position, the effective
- * role may differ from the legacy behaviour. Super admins are always [Role.Admin].
+ * Until this stage an account's rights were three ranks — Viewer < Manager < Admin — resolved from the
+ * super-admin flag, the account's position level and then its own `access` word. The picture the user
+ * attached to Access control replaced that with **roles and permissions**: thirteen named chips, a role
+ * holding any set of them, and every account filed under one role. So this object now answers exactly two
+ * questions:
  *
- * Resolution order:
- *   1. `isSuperAdmin`            -> Admin
- *   2. position.permissionLevel -> that role (when the user has a resolvable position)
- *   3. user.access              -> that role (fallback)
- *   4. otherwise                -> Viewer
+ *  * **[canDo]** — does this account's role hold this permission?
+ *  * **[canAny]** — does it hold at least one of these?
+ *
+ * and one convenience pair kept for the page-level flag every renderer already takes:
+ *
+ *  * **[canManage]** — the account holds any board/project right (all the chips except *View teammates'
+ *    tasks*). It is not itself a permission: a route still asks for the chip it is about.
+ *  * **[canAdmin]** — the account holds *Manage employees* or *Manage roles & permissions*, the two
+ *    people-facing chips.
+ *
+ * The role is read through [RoleRepository], which falls back to the default (Employee) when an account
+ * carries no role at all — so "no role" is never "no rights" and never "all rights".
+ *
+ * **Route guards use the chip, not the convenience flags.** `canManage` exists because a dozen renderers
+ * take one boolean for "draw the board as an editor"; the POST behind each of those renderers asks
+ * [canDo] for the permission the control is about, so a custom role that holds one chip gets exactly the
+ * one power that chip names.
  */
 object Authorization {
 
-    /** Effective role for an already-loaded [user], resolving its position from [positionsById]. */
-    fun effectiveRole(user: User, positionsById: Map<Int, Position> = emptyMap()): Role {
-        if (user.isSuperAdmin) return Role.Admin
-        val positionRole = user.positionId?.let { positionsById[it] }?.let { Role.from(it.permissionLevel) }
-        return positionRole ?: Role.from(user.access)
-    }
+    /** Every chip except *View teammates' tasks*: the rights that let somebody reshape shared work. */
+    val MANAGEMENT: Set<Permission> = Permission.entries.toSet() - Permission.VIEW_TEAMMATES_TASKS
 
-    /** Convenience: load the user + positions from the repositories and resolve the role. */
-    fun effectiveRole(employeeNumber: String): Role {
-        val user = UserRepository.findByEmpNo(employeeNumber) ?: return Role.Viewer
-        val positions = user.positionId?.let { PositionRepository.findById(it) }
-        val map = if (positions != null) mapOf(positions.id to positions) else emptyMap()
-        return effectiveRole(user, map)
-    }
+    /** The two chips that decide people: managing accounts, and managing the roles they sign in under. */
+    val ADMINISTRATION: Set<Permission> = setOf(Permission.MANAGE_EMPLOYEES, Permission.MANAGE_ROLES)
 
-    fun canManage(employeeNumber: String): Boolean = effectiveRole(employeeNumber).atLeast(Role.Manager)
-    fun canAdmin(employeeNumber: String): Boolean = effectiveRole(employeeNumber).atLeast(Role.Admin)
+    /** The chips whose panels live on Settings — the whole reason that page is opened at all. */
+    val SETTINGS: Set<Permission> =
+        setOf(Permission.MANAGE_EMPLOYEES, Permission.MANAGE_PROJECT_TYPES, Permission.MANAGE_EMAIL_SETTINGS)
 
-    /**
-     * Legacy compatibility helper. The pre-v2 app gated management UIs on
-     * `access in {"Admin","Manager"}`. This mirrors that check but through the new
-     * position-aware role resolution, so route code can migrate one call at a time.
-     */
-    fun isManagerOrAdmin(employeeNumber: String): Boolean = canManage(employeeNumber)
+    /** The role an account signs in under, already loaded with its chips. */
+    fun roleOf(employeeNumber: String): AccessRole = RoleRepository.roleOf(employeeNumber)
+
+    /** The role for an account read earlier, for callers that already hold the row. */
+    fun roleOf(user: User?): AccessRole = RoleRepository.roleFor(user)
+
+    fun permissionsOf(employeeNumber: String): Set<Permission> = roleOf(employeeNumber).permissions
+
+    /** Does this account hold [permission]? Unknown accounts answer through the default role. */
+    fun canDo(employeeNumber: String, permission: Permission): Boolean =
+        roleOf(employeeNumber).may(permission)
+
+    /** Does this account hold at least one of [permissions]? */
+    fun canAny(employeeNumber: String, permissions: Collection<Permission>): Boolean =
+        roleOf(employeeNumber).mayAny(permissions)
+
+    /** Any board/project right — the one boolean the content renderers take. Not a route guard. */
+    fun canManage(employeeNumber: String): Boolean = canAny(employeeNumber, MANAGEMENT)
+
+    /** *Manage employees* or *Manage roles & permissions* — the people-facing pair. */
+    fun canAdmin(employeeNumber: String): Boolean = canAny(employeeNumber, ADMINISTRATION)
 }

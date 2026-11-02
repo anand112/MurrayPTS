@@ -2,14 +2,14 @@ package mn.murray.pts.service
 
 import mn.murray.pts.MIN_PASSWORD_LENGTH
 import mn.murray.pts.PasswordStatus
-import mn.murray.pts.domain.ACCESS_LEVELS
+import mn.murray.pts.domain.Permission
 import mn.murray.pts.domain.User
 import mn.murray.pts.domain.autoEmail
 import mn.murray.pts.repository.PositionRepository
+import mn.murray.pts.repository.RoleRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.UserRepository
 import mn.murray.pts.security.Authorization
-import mn.murray.pts.security.Role
 
 /**
  * The rules behind the Team sheet on Settings (Stage 46): who is on it, which of its seven columns it
@@ -22,15 +22,14 @@ import mn.murray.pts.security.Role
  *    whose number is not on it — the same union the Access control table prints. A colleague with no
  *    account is a row with a pencil and no role: the popup opened there *creates* the login, it does
  *    not edit one.
- *  * **The role column prints what the account can actually do.** That is [Authorization.effectiveRole]
- *    — a linked position's permission level when the account has one, the account's own level
- *    otherwise — and not the raw `access` column, because a sheet a reader acts on has to answer the
- *    question the app itself asks before every write.
+ *  * **The role column prints what the account can actually do.** Since Stage 110 that is [Authorization.roleOf]
+ *    — the role the account is filed under, with the chips it holds — and not the raw `access` column, because
+ *    a sheet a reader acts on has to answer the question the app itself asks before every write.
  *  * **Nothing here re-decides an old rule.** The popup's save is a call into [UserService], whose
- *    legacy rules are the ones the app has always applied: only an administrator sets a position, a
- *    role or a password; a manager's new account starts as a Viewer whose password is its employee
- *    number and who has to change it; `EMP0000` cannot be deleted, nobody can delete themselves, and
- *    a manager cannot delete an administrator.
+ *    rules are the ones the app has always applied: only an administrator sets a position, a
+ *    role or a password; a new account added without that right starts as the catalogue's default role with
+ *    its employee number as password and has to change it; `EMP0000` cannot be deleted and nobody can delete
+ *    themselves.
  *
  * Rights are decided here and re-checked at every route, exactly as [LessonService] does: a button the
  * page did not print is not a permission the server granted, and a button it did print is not one
@@ -60,6 +59,7 @@ object EmployeeService {
             val account = accountsByEmp[emp]
             val member = teamByEmp[emp]
             val name = account?.name ?: member?.name.orEmpty()
+            val role = account?.let { Authorization.roleOf(it) }
             EmployeeRow(
                 employeeNumber = emp,
                 name = name,
@@ -70,7 +70,8 @@ object EmployeeService {
                 position = account?.positionId?.let { positionsById[it]?.name }
                     ?: member?.position?.takeIf { it.isNotBlank() }
                     ?: "Team Member",
-                role = account?.let { Authorization.effectiveRole(it, positionsById).name }.orEmpty(),
+                role = role?.name.orEmpty(),
+                roleOrder = role?.sortOrder ?: 0,
                 email = account?.email?.takeIf { it.isNotBlank() } ?: autoEmail(name),
                 // Management counts everybody's open cards; anyone else counts their own and prints a
                 // dash elsewhere. null is that dash, and it is why the column sorts with the blanks last
@@ -110,7 +111,11 @@ object EmployeeService {
         account == null -> NO_ACCOUNT_YET
         employeeNumber == UserService.SUPER_ADMIN -> PasswordStatus.CANNOT_DELETE_SUPER.text
         employeeNumber == actor -> PasswordStatus.CANNOT_DELETE_SELF.text
-        !canAdmin && account.access == "Admin" -> PasswordStatus.CANNOT_DELETE_ADMIN.text
+        // The bar on deleting an administrator reads the target's *role*, not a legacy access word: since
+        // Stage 110 the people-facing right is the chip, and an account holding Manage roles & permissions
+        // is the one a reader without it may not take away.
+        !canAdmin && account != null && Authorization.roleOf(account).may(Permission.MANAGE_ROLES) ->
+            PasswordStatus.CANNOT_DELETE_ADMIN.text
         else -> null
     }
 
@@ -151,8 +156,11 @@ object EmployeeService {
         return rows(actor, canManage, canAdmin).firstOrNull { it.employeeNumber == emp }
     }
 
-    /** The choices the popup's Role picker lists: the app's three access levels, in its own order. */
-    fun roles(): List<String> = ACCESS_LEVELS
+    /** The choices the popup's Role picker lists: the role catalogue, in its own order (V21). */
+    fun roles(): List<String> = RoleRepository.findAll().map { it.name }
+
+    /** The role a new account starts in — the catalogue's default, Employee as seeded. */
+    fun defaultRoleName(): String = RoleRepository.defaultRole().name
 
     /** The choices the popup's Position picker lists, with the automatic one left to the view. */
     fun positionNames(): List<String> = PositionRepository.findAll().map { it.name }.sortedBy { it.lowercase() }
@@ -181,7 +189,13 @@ object EmployeeService {
      * the roster row, the hashed password, the session revocation and the auto-generated email are its
      * rules, and duplicating any one of them is how two pages start disagreeing about the same account.
      */
-    fun save(draft: EmployeeDraft, actor: String, canManage: Boolean, canAdmin: Boolean): EmployeeResult {
+    fun save(
+        draft: EmployeeDraft,
+        actor: String,
+        canManage: Boolean,
+        canAdmin: Boolean,
+        canSetRoles: Boolean = canAdmin,
+    ): EmployeeResult {
         val editing = draft.edit.trim().uppercase()
         val target = (editing.ifEmpty { draft.employeeNumber }).trim().uppercase()
         val existing = if (target.isEmpty()) null else UserRepository.findByEmpNo(target)
@@ -209,21 +223,29 @@ object EmployeeService {
             errors += EmployeeField.EMP_NO to EMP_SHAPE
         }
 
+        // The role is the *Manage roles & permissions* chip; the position and the password are *Manage
+        // employees*. A reader holding only the second may add and rename people but not decide what they
+        // can do. A hand-built POST that carries a field the reader was never shown is refused on the form's
+        // own line rather than under that field, because the popup prints no picker for it — a reason parked
+        // under a field that is not on the page is a refusal with nowhere to print. What a reader *may*
+        // write is then checked against the catalogue it names, under its own field.
         val role = draft.role.trim()
-        if (role.isNotEmpty() && role !in ACCESS_LEVELS) errors += EmployeeField.ROLE to UNKNOWN_ROLE
         val position = draft.position.trim()
-        if (position.isNotEmpty() && PositionRepository.findByName(position) == null) {
-            errors += EmployeeField.POSITION to UNKNOWN_POSITION
-        }
-        // Only an administrator writes these three, and only an administrator reaches this branch at all:
-        // a manager's create leaves them blank and UserService applies its own defaults. A hand-built POST
-        // that carries them anyway is refused here rather than quietly applied.
         val password = draft.password.trim()
-        if (!canAdmin && (position.isNotEmpty() || role.isNotEmpty() || password.isNotEmpty())) {
-            errors += EmployeeField.PERMISSION to NOT_YOURS_ROLES
+        if (role.isNotEmpty() && !canSetRoles) {
+            errors += EmployeeField.PERMISSION to NOT_YOURS_ROLE
+        } else if (role.isNotEmpty() && RoleRepository.findByName(role) == null) {
+            errors += EmployeeField.ROLE to UNKNOWN_ROLE
         }
-        if (password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH) {
-            errors += EmployeeField.PASSWORD to "A password is $MIN_PASSWORD_LENGTH characters or more."
+        if ((position.isNotEmpty() || password.isNotEmpty()) && !canAdmin) {
+            errors += EmployeeField.PERMISSION to NOT_YOURS_PROFILE
+        } else {
+            if (position.isNotEmpty() && PositionRepository.findByName(position) == null) {
+                errors += EmployeeField.POSITION to UNKNOWN_POSITION
+            }
+            if (password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH) {
+                errors += EmployeeField.PASSWORD to "A password is $MIN_PASSWORD_LENGTH characters or more."
+            }
         }
         if (errors.isNotEmpty()) return EmployeeResult.refused(draft, errors)
 
@@ -234,9 +256,10 @@ object EmployeeService {
                     name = draft.name.trim(),
                     email = draft.email,
                     requestedPosition = position,
-                    requestedAccess = role,
+                    requestedRole = role,
                     newPassword = password,
-                    canSetRoles = canAdmin,
+                    canSetRoles = canSetRoles,
+                    canSetProfile = canAdmin,
                 )
             ) {
                 PasswordStatus.USER_ADDED -> EmployeeResult(values = draft)
@@ -250,7 +273,7 @@ object EmployeeService {
         // projects and cards name their people in words, so renaming here would leave them pointing at a
         // name that no longer exists.
         UserService.updateEmail(target, draft.email)
-        UserService.updateUserAccess(employeeNumber = target, positionName = position, access = role)
+        UserService.updateUserProfile(employeeNumber = target, positionName = position, roleName = role)
         if (password.isNotEmpty()) {
             val status = UserService.setPasswordByAdmin(target, password)
             if (status != PasswordStatus.CHANGED) {
@@ -261,17 +284,18 @@ object EmployeeService {
     }
 
     private const val ROW_GONE = "That account is no longer on the sheet."
-    private const val NOT_YOURS_EDIT = "Only an administrator can change an account."
-    private const val NOT_YOURS_ADD = "Only management can add an account."
-    private const val NOT_YOURS_ROLES = "Only an administrator can set a position, a role or a password."
+    private const val NOT_YOURS_EDIT = "Only somebody who manages employees can change an account."
+    private const val NOT_YOURS_ADD = "Only somebody who manages employees can add an account."
+    private const val NOT_YOURS_ROLE = "Only somebody who manages roles can set a role."
+    private const val NOT_YOURS_PROFILE = "Only somebody who manages employees can set a position or a password."
     private const val BLANK_EMP = "Every account is signed in by its employee number."
     private const val EMP_TAKEN = "There is already an account with that number."
     private const val EMP_SHAPE = "An employee number is letters and digits, like EMP0023."
     private const val BLANK_NAME = "Write the name the sheet should print."
-    private const val UNKNOWN_ROLE = "Choose one of the three roles on the list."
+    private const val UNKNOWN_ROLE = "Choose one of the roles on the list."
     private const val UNKNOWN_POSITION = "That position is no longer in the catalog."
     private const val PASSWORD_SHORT = "That password is too short."
-    private const val ONLY_MANAGEMENT_DELETE = "Only management can delete an account."
+    private const val ONLY_MANAGEMENT_DELETE = "Only somebody who manages employees can delete an account."
     private const val NO_ACCOUNT_YET = "This person has no account to delete yet — the pencil creates one."
 }
 
@@ -356,7 +380,7 @@ data class EmployeeFilter(
         EmployeeColumn.EMPLOYEE -> row.employeeNumber.lowercase()
         EmployeeColumn.POSITION -> row.position.lowercase()
         EmployeeColumn.DEPARTMENT -> row.department.lowercase()
-        EmployeeColumn.ROLE -> row.roleRank.toString().padStart(2, '0')
+        EmployeeColumn.ROLE -> row.roleOrder.toString().padStart(2, '0')
         EmployeeColumn.EMAIL -> row.email.lowercase()
         EmployeeColumn.TASKS -> (row.openTasks ?: 0).toString().padStart(6, '0')
     }
@@ -439,10 +463,9 @@ data class EmployeeRow(
     val mayEdit: Boolean,
     /** Null when the trash is live; the words to print on it when a rule says somebody else may. */
     val deleteBlocked: String?,
+    /** The role's place in the catalogue — what the ROLE column sorts by. No account sorts as zero. */
+    val roleOrder: Int = 0,
 ) {
-    /** Where this row stands when the ROLE column is the order. No account sorts as the least of all. */
-    val roleRank: Int get() = Role.from(role).rank
-
     /** Whether this row simply has nothing in [column] — the blanks-last rule the order asks for. */
     fun hollow(column: EmployeeColumn): Boolean = when (column) {
         EmployeeColumn.DEPARTMENT -> department.isBlank()

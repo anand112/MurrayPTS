@@ -16,6 +16,12 @@
                                          rewrites the lead, so a value that does not begin with it is the
                                          reader's own — a refused submit's code — and is left alone.
 
+     #projectCurrency option[data-symbol] the currency picker under Revenue (Stage 109), one option per money the
+     #projectRevenue                     app names. The amount box opens with the chosen money's sign in its
+                                         placeholder ("₮ 0"), and [syncCurrency] repaints it when the picker moves,
+                                         so the pair reads as one answer. The server describes the placeholder too,
+                                         for a browser with no scripts.
+
      #projectBucketPresets               one `.bucket-preset-row` per category, marked `[data-preset-for]`, each
      holding that category's Settings buckets as read-only names. Only the row for the chosen category is shown;
      the server paints the `.on` for the category the popup opens with, and [showPresetFor] moves it when the
@@ -94,6 +100,21 @@
     code.placeholder = suggested || (letter + '-01');
     var hint = el('projectCodeHint');
     if (hint) hint.textContent = letter + '-… — type the number after the dash; the letter follows the category.';
+  }
+
+  /* ---- the currency picker under Revenue (Stage 109) ---- */
+
+  /* Repaint the amount box's grey hint with the chosen money's sign, so the two boxes read as one answer: "how
+     much, in what". Nothing here decides what the server stores — the select posts an ISO code and the service
+     settles it — and the box's value, commas and all, is never rewritten. */
+  function syncCurrency() {
+    var select = el('projectCurrency');
+    var revenue = el('projectRevenue');
+    if (!select || !revenue) return;
+    var option = selectedOption(select) || {};
+    var symbol = option.getAttribute ? (option.getAttribute('data-symbol') || '') : '';
+    if (!symbol) return;
+    revenue.placeholder = symbol + ' 0';
   }
 
   /* ---- the Add bucket line (Stage 104) ---- */
@@ -214,6 +235,7 @@
   });
 
   document.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'projectCurrency') { syncCurrency(); return; }
     if (e.target && e.target.id === 'projectType') {
       refreshCodeHints();
       // The list of columns this board opens with belongs to the category, so it changes with it — and the
@@ -223,5 +245,5 @@
     }
   });
 
-  document.addEventListener('DOMContentLoaded', function () { refreshCodeHints(); });
+  document.addEventListener('DOMContentLoaded', function () { refreshCodeHints(); syncCurrency(); });
 })();

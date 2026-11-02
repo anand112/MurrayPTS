@@ -58,9 +58,16 @@ class SidebarTaskCountTest {
         TeamRepository.upsert(Member("EMP0001", "Munkhtsetseg", "Operations", "Project Manager"))
         TeamRepository.upsert(Member("EMP0002", "Bat-Erdene", "Workshop", "Engineer"))
         TeamRepository.upsert(Member("EMP0003", "Naran", "Site", "Technician"))
-        // One account with a role that sees the whole board, one without: the two readers the pill differs for.
+        TeamRepository.upsert(Member("EMP0004", "Sundui", "IT / Systems", "Administrator"))
+        // Three accounts whose roles answer the sidebar differently. Under Stage 110's [NAV_PERMISSIONS] the
+        // Manager row is filed as *Project Manager* (boards and backlog, no people pages), the Viewer as
+        // *Employee* (reads colleagues' cards and nothing else), and the Admin as *Administrator* (every chip).
+        // The pill itself no longer differs between them — it has been the reader's own cards since Stage 53 — so
+        // they are here for the gating test at the end of this file; EMP0003 stays a card-holder with no account,
+        // which is the shape the fallback to the default role is written for.
         UserRepository.insert("EMP0001", "Munkhtsetseg", "x", "Manager", "munkho@murray.mn", null, false, false)
         UserRepository.insert("EMP0002", "Bat-Erdene", "x", "Viewer", "bat@murray.mn", null, false, false)
+        UserRepository.insert("EMP0004", "Sundui", "x", "Admin", "sundui@murray.mn", null, false, false)
     }
 
     @AfterEach
@@ -203,20 +210,39 @@ class SidebarTaskCountTest {
     }
 
     @Test
-    fun `the management-only sections leave a viewer's sidebar but stay in the list the bell resolves through`() {
-        // Stage 51: Settings, Access control and Other tasks are management's functions, so a Viewer is not
-        // offered them in the menu. The three must still be in [navItems], because the notification bell maps a
-        // stored item's section back to a path through it — dropping them there would send a Viewer's own-card
-        // backlog notification to /app/projects instead of the board. So the filter lives at [navItemsFor], the
-        // sidebar's render, and not in the list every resolver reads.
-        val management = navItemsFor("EMP0001").map { it.id }
-        MANAGEMENT_ONLY_NAV.forEach { assertTrue(it in management, "management lost the $it link") }
-        val viewer = navItemsFor("EMP0002").map { it.id }
-        MANAGEMENT_ONLY_NAV.forEach { assertFalse(it in viewer, "a Viewer was offered the $it link") }
-        // The other seven links are untouched, and the complete list the bell resolves through still has all ten.
-        val personal = setOf("projects", "assigned-tasks", "calendar", "team", "forecasts", "lessons", "todo")
-        personal.forEach { assertTrue(it in viewer, "a Viewer lost the $it link, which is theirs") }
+    fun `the gated sections leave an employee's sidebar but stay in the list the bell resolves through`() {
+        // Stage 51 hid Settings, Access control and Other tasks from a Viewer. **Stage 110** replaced that
+        // rank-based hide with the chips of [NAV_PERMISSIONS], so the question is now per role rather than per
+        // account level, and *Forecasts* joined the gated four. A Project Manager runs boards and the backlog but
+        // holds no people or settings chip; an Employee reads its colleagues' cards and nothing else; only an
+        // Administrator is offered all four gates. The gated items must still be in [navItems], because the
+        // notification bell maps a stored item's section back to a path through it — dropping them there would
+        // send a Viewer's own-card backlog notification to /app/projects instead of the board. So the filter
+        // lives at [navItemsFor], the sidebar's render, and not in the list every resolver reads.
+        val boards = navItemsFor("EMP0001").map { it.id }
+        setOf("forecasts", "other-tasks").forEach {
+            assertTrue(it in boards, "a Project Manager lost the $it link, which its role has chips for")
+        }
+        setOf("access-control", "settings").forEach {
+            assertFalse(it in boards, "a Project Manager was offered the $it link with no chip to earn it")
+        }
+        assertEquals(8, boards.size, "a Project Manager's sidebar is not its role's links")
+
+        val people = navItemsFor("EMP0004").map { it.id }
+        NAV_PERMISSIONS.keys.forEach {
+            assertTrue(it in people, "an Administrator lost the $it link, and its role holds every chip")
+        }
+        assertEquals(10, people.size, "an Administrator's sidebar is not the complete list")
+
+        val employee = navItemsFor("EMP0002").map { it.id }
+        NAV_PERMISSIONS.keys.forEach { assertFalse(it in employee, "an Employee was offered the $it link") }
+        // An account with no role row at all is read as the catalogue's default, so EMP0003 is measured the same
+        // way as the Employee above rather than falling through to somebody's page.
+        assertEquals(navItemsFor("EMP0003").map { it.id }, employee, "a role-less account is not the default role")
+        // Everything else is everybody's page, and the complete list the bell resolves through still has all ten.
+        val shared = setOf("projects", "assigned-tasks", "calendar", "team", "lessons", "todo")
+        shared.forEach { assertTrue(it in employee, "an Employee lost the $it link, which is theirs") }
+        assertEquals(6, employee.size, "an Employee's sidebar dropped more than the four gated sections")
         assertEquals(10, navItems("EMP0002").size, "the resolver's list was trimmed, not the render")
-        assertEquals(7, viewer.size, "a Viewer's sidebar dropped more than the three management sections")
     }
 }
