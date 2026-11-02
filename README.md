@@ -7,7 +7,8 @@ Kotlin + Ktor, server-rendered HTML, and a single SQLite file.
 This is **v2**. The v1 prototype (JSON file store, plaintext passwords, in-memory sessions) has
 been replaced: the app now runs on SQLite through Exposed with Flyway migrations, bcrypt
 passwords, DB-backed sessions, and a hardened static-asset/CSP layer. `ARCHITECTURE.md` documents
-the module design; this file is about running it.
+the module design and `STAGE-HISTORY.md` holds the stage-by-stage record behind it (Stages 6–110,
+one section each, indexed at the foot of `ARCHITECTURE.md`); this file is about running it.
 
 ## Requirements
 
