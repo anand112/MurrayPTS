@@ -48,6 +48,11 @@
    Delegation on `document` also covers rows inserted later via fetch (the board on every refresh), which
    per-element inline handlers could not. */
 (function () {
+  // `app.css` scopes the off-canvas drawer to `html.js` (Stage 119), so the class goes on before the
+  // first paint: with scripting off the hamburger would open nothing, and the sidebar stays in the
+  // flow instead — a smaller shell, but one that still navigates.
+  document.documentElement.classList.add('js');
+
   function liveBox() { return document.querySelector('[data-livefilter]'); }
   function liveRegion() { return document.querySelector('[data-live-region]'); }
 
@@ -391,5 +396,59 @@
       e.stopPropagation();
     }
   });
+
+  /* ------------------------------------------------------------------ *
+   *  Small-screen navigation — the page head's hamburger
+   * ------------------------------------------------------------------ */
+
+  /* Below 900px `app.css` turns the sidebar into an off-canvas drawer and prints `#navToggle`; above
+     it the button is display:none and the sidebar is simply the sidebar. The whole state is one class
+     on <body> — `nav-open` — so the slide is a CSS transition and the script only decides when it is
+     on. The drawer is full width there (the breakpoint's rule), the backdrop closes it, Escape closes
+     it, and a keyboard reader gets focus moved into the drawer on opening and back to the button on
+     closing. A window that grows past the breakpoint closes it quietly, without moving focus away from
+     the desktop layout the reader has just been handed. */
+  var navToggle = document.getElementById('navToggle');
+  var navDrawer = document.getElementById('appSidebar');
+  var navBackdrop = document.getElementById('navBackdrop');
+  if (navToggle && navDrawer) {
+    function navOpen() { return document.body.classList.contains('nav-open'); }
+    function setNav(open) {
+      document.body.classList.toggle('nav-open', open);
+      navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    }
+    function closeNav() {
+      if (!navOpen()) return;
+      setNav(false);
+      navToggle.focus();
+    }
+    navToggle.addEventListener('click', function () {
+      if (navOpen()) {
+        closeNav();
+      } else {
+        setNav(true);
+        // The drawer's first link, not the panel: the thing a reader wants next is where to go.
+        var first = navDrawer.querySelector('a, button');
+        if (first) first.focus();
+      }
+    });
+    if (navBackdrop) navBackdrop.addEventListener('click', closeNav);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' || e.key === 'Esc') closeNav();
+    });
+    // A link inside the drawer answers by navigating, and the drawer must not sit open over the page
+    // that answers — the back-forward cache hands that DOM back exactly as it was left.
+    navDrawer.addEventListener('click', function (e) {
+      var link = e.target && e.target.closest ? e.target.closest('a') : null;
+      if (link) setNav(false);
+    });
+    if (window.matchMedia) {
+      var wide = window.matchMedia('(min-width: 901px)');
+      var leave = function (e) { if (e.matches) setNav(false); };
+      if (wide.addEventListener) wide.addEventListener('change', leave);
+      else if (wide.addListener) wide.addListener(leave);
+    }
+  }
 
 })();

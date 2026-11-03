@@ -288,6 +288,24 @@ agree, and the combination is what the production warnings check for:
 In production the app also sends `Strict-Transport-Security: max-age=31536000;
 includeSubDomains`, so only enable it once the certificate is valid and HTTP redirects to HTTPS.
 
+## The shell on a small screen
+
+`app.css` has one breakpoint, `@media (max-width: 900px)`. Below it the sidebar becomes a full-width
+off-canvas drawer opened by the hamburger beside the page title; the page's card boards — the five status
+columns and a project's lane board — fold to two fluid columns a row; tables keep their percentage columns
+and wrap rather than scroll sideways. Above 900px nothing changes: the hamburger and its backdrop are
+`display: none`.
+
+The open drawer is one class, `body.nav-open`, plus `html.js`, which `app.js` puts on the document before
+the first paint. Press the hamburger to slide the sidebar in from the left; press the dimmed backdrop,
+press Escape, follow a link, or grow the window past 900px to close it. Opening moves focus into the
+drawer and closing returns it to the button, whose `aria-expanded` and `aria-label` follow the state. With
+JavaScript off there is no hamburger to press, so the sidebar stays in the flow above the page — a smaller
+shell, but a usable one.
+
+Both static files changed in **Stage 119**, so an open tab needs **Ctrl+F5** before the breakpoint or the drawer
+will look absent.
+
 ## Projects and categories
 
 Every project belongs to exactly one of nine categories, and each category leads its project numbers
@@ -2252,7 +2270,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (704 tests in 47 classes), on schema v21.
+2. `./gradlew test installDist` is green (707 tests in 48 classes), on schema v21.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2712,6 +2730,13 @@ configuration, and it is the one to settle first: it decides what you can safely
    that account leaves the card on the board. Deleting a card moves one figure you can check afterwards —
    the sidebar pill beside **Assigned tasks**, and on the Team sheet that holder's **Total** — both of which count
    cards, so both drop by one.
+   Then check **Stage 119** with the window, not the tab: drag it narrower than 900px (or use the browser's
+   responsive mode). The sidebar should disappear and a hamburger appear beside the page title; press it and
+   the menu should slide in from the left, full width, with the page dimmed behind it. Press the dimmed area,
+   press Escape, and follow a link — each should close it, and Escape should put focus back on the hamburger.
+   The five status columns and a project's lane board should now read as two columns a row, with no sideways
+   scrolling; grow the window back past 900px and the desktop sidebar should return with the hamburger gone,
+   and tables should still fit their panels. Use **Ctrl+F5** first if the tab predates the deploy.
 8. `PTS_SEED_DEMO` is `false` and `data/pts-data.json` is either imported or absent — no demo
    accounts in the live system.
 9. Backup job exists and you have restored from it once (`logs/` and `data/` both covered). Take one
@@ -2778,10 +2803,10 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-704 tests in 47 classes — 38 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+707 tests in 48 classes — 41 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
-(**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**).
+(**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2825,6 +2850,8 @@ onto their existing row. The fifth is `SettingsRenderTest`'s picker case: exactl
 selected after it changes, and no `department` anywhere in a manager's popup.
 
 **Stage 118** adds two. `AccessControlRenderTest`'s department case: the heading between Position and Role, a picker on every roster row (the row with no login included), the stored off-list word selected and disabled with the nine after it, the form's live target, hidden number and autosubmit, the picker following the all-chip pair rather than *Manage employees*, no picker for a people-only reader who still reads the words, and a row already on the list opening on its own word with no placeholder. `EmployeeServiceTest`'s `setDepartment` case: the move writes the roster row and leaves the job title, *Projects*, blank, a lowercase word and a stranger's number all answer false and write nothing, and re-picking the current word is a no-op that answers true.
+
+**Stage 119** adds three, all in `ShellRenderTest` (a temp database, the whole shell rendered through `appPage`): the page head's opener (aside `#appSidebar`, a `button#navToggle` with its `aria-controls` / `aria-expanded` / `aria-label` and three bars, the title wrapper holding it and the `<h1>`, and the `#navBackdrop` with `aria-hidden`), the single 900px `@media` block (each named rule, the hidden-by-default pair, and no unscoped sidebar translation above it), and the script's `html.js` class, ids, `nav-open` toggle, aria label swap, Escape and 901px query.
 
 **Stage 108** adds one, `ProjectsPageRenderTest`'s *revenue is written and shown in tugrik on
 every surface that carries it*: the header box holds `₮ 12,500,000` and still asks for a numeric keypad, the Viewer's

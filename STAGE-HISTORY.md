@@ -653,8 +653,9 @@ table-layout: fixed }`. Three details that are easy to get wrong from here:
 - **The rules are scoped to `.projects-table`,** because `table.grid` is shared with Team, Calendar,
   Access control and Settings. A bare `table.grid { table-layout: fixed }` would have re-laid out those
   four pages on widths chosen for the projects board.
-- **Percentages, not pixels,** because this project has no `@media` queries at all — 100% of the card is
-  the only responsive mechanism it has, and `overflow-wrap: anywhere` on the cells makes a narrow window
+- **Percentages, not pixels,** because this project had no `@media` queries at all when this rule was written — 100% of the card is
+  the only responsive mechanism it has (**Stage 119** added the stylesheet's first `@media` rule, the
+  900px shell breakpoint, and it deliberately does not restyle this table, so the sentence stands), and `overflow-wrap: anywhere` on the cells makes a narrow window
   wrap a long client name instead of overflowing the panel.
 - **`.c-progress` gets 14%** since the bar is a fixed 110 px `inline-block` plus an 8 px margin; a
   narrower column would push the percentage label onto its own line.
@@ -1092,7 +1093,8 @@ applies to any page opened before the restart — it holds the old `app.css` and
 `data-live-extra` handler.
 
 Unchanged and still open: CSRF (the operator's call), the edit form for an existing project's client / dates /
-revenue, and the kanban's missing minimum column width on narrow windows.
+revenue, and the kanban's missing minimum column width on narrow windows (**Stage 119**'s breakpoint now
+gives both card boards two fluid columns below 900px; the desktop five-column board still has no minimum).
 
 <a id="stage-22"></a>
 
@@ -9891,3 +9893,23 @@ stage.
 **Deploy.** No migration, schema **21**, no CSS or JavaScript changed (the picker is server-rendered and uses the live-region script already loaded, so no Ctrl+F5 is owed). Stopped PID 7980 (force), backed up in place with the JVM stopped — `data/pts.pre-stage118-20261103-1241.db` (471,040 bytes, `-wal` 0, `-shm` 32,768); `installDist` jar **1,930,899 bytes**; relaunched detached through `deploy/run.bat` → **PID 14788**, `/` **200**, boot log "Schema "main" is up to date. No migration necessary", 9 categories. Read-back on the real data (metadata only): 21 accounts, 21 roster rows still under their **3** old labels (*General* 19, *IT / Systems* 1, *Executive* 1 — deliberately not rewritten), 15 projects, 31 tasks, 4 roles. **No commit, no push.**
 
 **Never re-propose:** gating this picker by *Manage employees*; printing it in the Add user card (a department belongs to the roster row, not a login); clearing or migrating the old free-text words (a setter moves one deliberately); a free-text department box; deciding the right by a role's name rather than its chips; or writing the department on `users` instead of `team_members`.
+
+<a id="stage-119"></a>
+
+## Stage 119 — The shell folds to a drawer below 900px, and a card board keeps two columns (2026-11-03, live, no migration, Kotlin + CSS + JS + test)
+
+**The ask:** *"Apply responsive behaviour Add a breakpoint at 900px in app.css: hide the sidebar and replace it with a hamburger button that slides it in, make the side panel full-width on small screens, and stack the dashboard cards 2 per row."*
+
+**There is no dashboard page, and "the cards" are the boards.** PTS's home page is the projects board; the things laid out as cards are the five status columns on a card board (`.kanban`) and a project's lane board (`.kanban-lanes`). So "stack the dashboard cards 2 per row" is read as those two boards: below 900px each becomes a grid of two fluid tracks instead of five status columns across or auto-filled 288px lanes. Tables — the projects board, Team, Calendar, Access control, Settings — keep their percentage columns; the breakpoint deliberately does not restyle a table.
+
+**The markup: one hamburger in the page head, one backdrop on every page.** `appPage` (`DashboardCommon.kt`) now wraps the heading in `.page-title` and prints `#navToggle` before it, so the page's actions and the bell keep `.page-head`'s far edge. The opener is a real `<button type="button" class="nav-toggle">` with `aria-controls="appSidebar"`, `aria-expanded="false"` and `aria-label="Open navigation"`, and three `.nav-bar` spans for the bars — no icon font and no inline SVG. The sidebar gets `id="appSidebar"`; a `.nav-backdrop` with `id="navBackdrop"` and `aria-hidden="true"` closes the drawer when pressed. Both are printed on every page, and the stylesheet decides whether they can be seen.
+
+**The breakpoint: the first `@media` rule in `app.css`.** `@media (max-width: 900px)` takes `.app` to block layout, narrows `.main` to 16px side padding, gives `.sidebar` the full width, and makes it an off-canvas drawer — `position: fixed; width: 100%; transform: translateX(-100%)`, a `.2s` transition, `z-index: 60` above a `z-index: 55` backdrop. `body.nav-open` slides it to `transform: none`, locks the page's scroll, shows the backdrop and tints the button. `.kanban, .kanban-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }` is the "two per row" half; the lane board's fixed 288px tracks are overridden so both boards agree at this width. Above the breakpoint `.nav-toggle, .nav-backdrop { display: none; }`, which is what leaves a desktop unchanged.
+
+**One class, `body.nav-open`, and a script that only sets it.** `app.js` adds `html.js` to the document before the first paint, and the off-canvas rules are scoped to it — with JavaScript off the sidebar stays in the flow and stacks above the page, a smaller shell but one that still navigates. With it, the toggle flips `nav-open` and `aria-expanded` and swaps the label between *Open navigation* and *Close navigation*. Opening moves focus to the drawer's first `a, button`; closing (the toggle again, the backdrop, Escape, a drawer link, or the window growing past 900px through `matchMedia('(min-width: 901px)')`) removes the class, and every close except the grow returns focus to the button. The grow closes quietly without stealing focus, because the reader has just been handed the desktop layout.
+
+**Verified:** **707 tests / 48 classes / 0 failures** (from 704/47). `ShellRenderTest` (3) renders the whole shell on a temp database: the opener's id, classes, `type`, `aria-controls`, `aria-expanded="false"`, `aria-label` and three bars; the title wrapper holding the toggle and `<h1>Projects</h1>`; the backdrop's id and `aria-hidden`; exactly one `@media` at-rule, the 900px block's named rules, the hidden-by-default pair, and no unscoped `.sidebar` translation above it; and the script's `html.js` class, ids, `nav-open` toggle, `aria-expanded`, Escape and 901px query. The live behaviour was exercised with `scratch/stage119-js-harness.cjs` (15 checks, 0 failures) driving the shipped `app.js` through a DOM stub: class added, open state, aria and label, focus into the drawer, Escape closing and returning focus, backdrop closing, a drawer link closing, widening closing without moving focus, and Escape as a no-op when already closed.
+
+**Deploy.** No migration, schema **21**; stopped PID 14788 (force), backed up in place with the JVM stopped — `data/pts.pre-stage119-20261103-1309.db` (471,040 bytes, `-wal` 86,552, `-shm` 32,768); `installDist` jar **1,934,345 bytes**; relaunched detached → **PID 12764**, `/` **200**, boot log "Schema "main" is up to date. No migration necessary", 9 categories. Read-back on the real data (metadata only): schema 21, 21 accounts, 21 roster rows, 15 projects, 31 tasks, 4 roles and 36 role-permission rows; the roster's departments still add up to 21 (Project 5, Engineering 5, Management 3, Production 2, and six one-person labels including the off-list *IT / Systems*). CSS and JavaScript changed, so every open tab needs **Ctrl+F5**. **No commit, no push.**
+
+**Never re-propose:** inventing a dashboard page to hold "the cards"; an always-visible hamburger on a desktop; a second breakpoint for the drawer and the boards; reopening the drawer when the window grows back; a drawer that exists only with JavaScript (the `html.js` gate is the scripting-off fallback); or restyling the tables at 900px, whose percentage columns are the projects board's own responsive rule.

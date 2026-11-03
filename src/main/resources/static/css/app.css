@@ -51,6 +51,10 @@ a.logout:hover { background: var(--input-border); }
    without one keep the plain left-aligned heading — but .page-right always holds the bell. */
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-head h1 { font-size: 22px; font-weight: 800; color: var(--title); margin: 0; }
+/* The hamburger and the title share this wrapper (Stage 119). Above 900px the button is display:none,
+   so the wrapper is just the heading; below it, the two sit on one line and the page's actions keep
+   the row's far edge as they always did. */
+.page-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
 /* The one page whose name needs a second half (Stage 47, Other tasks). It sits on the title's baseline at a
    size that reads as a description rather than a competing heading — the sentence used to be a section head of
    its own, under the board it described, and the page now has one head instead of two. */
@@ -66,8 +70,10 @@ table.grid tr:last-child td { border-bottom: none; }
 /* The projects board renders one table per category panel, and the browser sizes each table from its
    own contents — so "Project" sat at one x in the Maintenance group and another x in the Site group,
    and nothing lined up from one panel to the next. Fixed layout plus these <col> widths is what makes
-   every one of those tables agree. They are percentages summing to exactly 100, never pixels: this
-   stylesheet has no @media rules, so a percentage column that gets too narrow wraps its cell (see
+   every one of those tables agree. They are percentages summing to exactly 100, never pixels: the
+   table has no breakpoint of its own — Stage 119's one @media rule moves the drawer and the card
+   boards' column count, never this table — so a percentage column that gets too narrow wraps its
+   cell (see
    overflow-wrap below) instead of pushing the table out of the card. Project gets the widest share
    because the description is the one free-text column; Progress needs 14% because the bar is a fixed
    110px inline-block with the percentage label beside it; and the two date columns each get 9% because
@@ -155,7 +161,9 @@ form.cell-edit select { border: 1px solid var(--input-border); background: var(-
    bucket appearing because a card had no lane — took 134px off each of the other three and every card in them.
    With the tracks fixed, a column can arrive and go without anything else on the board moving, so the lane board
    is free to print Unsorted only while it holds a card. `min(288px, 100%)` is the floor, not a second width: it
-   keeps one column on a window too narrow for it from spilling out of the page. */
+   keeps one column on a window too narrow for it from spilling out of the page. **Stage 119** gives the board
+   two fluid tracks below 900px, where even one 288px column plus the page's padding leaves no room for a
+   second, so the fixed width is a desktop rule and the breakpoint is the one place this line is overridden. */
 .kanban-lanes { grid-template-columns: repeat(auto-fill, minmax(min(288px, 100%), 288px)); gap: 16px; }
 /* A column is as tall as the cards it holds, and that is deliberate (Stage 38): the width of a lane is written
    in the rule above, so nothing about a card's size is left to follow a count, while its length is allowed to
@@ -372,8 +380,9 @@ a.tcode:focus-visible { outline: 2px solid var(--accent-strong); outline-offset:
    because the state is what the eye is sweeping the sheet for.
 
    Column widths are percentages summing to exactly 100 on a `table-layout: fixed` grid, the same
-   contract the projects board keeps (see the note above it): this stylesheet has no @media rules,
-   so a column that is too narrow has to wrap its cell rather than push the sheet sideways.
+   contract the projects board keeps (see the note above it): nothing in app.css's breakpoint
+   (Stage 119) restyles this sheet, so a column that is too narrow has to wrap its cell rather
+   than push the sheet sideways.
    Description gets the biggest share because it is the widest free text; the four figures get
    equal shares because they are the four columns a reader compares; the two typed columns are
    wider than a bare number because a box needs the padding a span does not. */
@@ -1401,3 +1410,57 @@ label.perm-pick {
     letter-spacing: normal; text-transform: none; color: var(--title); cursor: pointer;
 }
 .perm-pick input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+
+/* ---- Small screens (Stage 119) ------------------------------------------------------------
+   The first `@media` rule in this stylesheet. Everything above is laid out for a desktop window:
+   a 240px drawer beside the page, five status columns across, tables measured in percentages so
+   they wrap rather than scroll. At 900px there is no longer room for the drawer *beside* the page,
+   so the shell gives the width back: the sidebar becomes an off-canvas panel that the page head's
+   hamburger slides in from the left, the panel is as wide as the screen while it is open, and a
+   card board keeps two columns a row instead of five. Tables keep their percentage columns — the
+   breakpoint does not restyle them, which is why the notes above about wrapping still hold.
+
+   The off-canvas half is scoped to `html.js`, the class `app.js` puts on the document before the
+   page paints. With JavaScript off there is no hamburger that could open a hidden drawer, so the
+   sidebar stays in the flow and stacks above the page instead — a smaller shell, but a usable one. */
+.nav-toggle, .nav-backdrop { display: none; }
+
+@media (max-width: 900px) {
+    .app { display: block; }
+    .main { padding: 20px 16px; }
+
+    /* Without JavaScript the sidebar is simply the page's first block. */
+    .sidebar {
+        position: static; width: auto; height: auto; flex-basis: auto;
+        border-right: none; border-bottom: 1px solid var(--input-border);
+    }
+
+    /* With it, the same sidebar is a drawer: full width, out of the flow, off the left edge until
+       the hamburger says otherwise. The transition is on the panel only, so the page underneath
+       never slides. */
+    html.js .sidebar {
+        position: fixed; top: 0; bottom: 0; left: 0; width: 100%; height: 100vh;
+        z-index: 60; border-right: none; box-shadow: 0 0 24px rgba(0, 0, 0, .28);
+        transform: translateX(-100%); transition: transform .2s ease;
+    }
+    html.js body.nav-open .sidebar { transform: none; }
+    html.js body.nav-open { overflow: hidden; }
+
+    html.js .nav-toggle {
+        display: inline-flex; align-items: center; justify-content: center; flex-direction: column;
+        gap: 4px; width: 40px; height: 40px; flex: 0 0 40px; padding: 0;
+        border: 1px solid var(--input-border); border-radius: 8px;
+        background: var(--card-bg); cursor: pointer;
+    }
+    .nav-toggle .nav-bar { display: block; width: 18px; height: 2px; border-radius: 1px; background: var(--title); }
+    html.js body.nav-open .nav-toggle { background: var(--input-bg); }
+
+    .nav-backdrop { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 55; background: rgba(10, 16, 24, .45); }
+    html.js body.nav-open .nav-backdrop { display: block; }
+
+    /* Two cards a row, not five: the status board and the lane board are narrow enough at this
+       width that five columns would print a card at a phone's text size. The lane board's fixed
+       288px tracks are overridden with fluid ones so both boards agree at this width. */
+    .kanban, .kanban-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+

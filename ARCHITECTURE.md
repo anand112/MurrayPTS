@@ -248,7 +248,7 @@ but is not covered by a committed test.
 ## Stage history
 
 One section per stage, in order, in [STAGE-HISTORY.md](STAGE-HISTORY.md) — from the first
-route/service migration to the latest stage, 2026-11-03's department picker on Access control. The middle column is that section's own
+route/service migration to the latest stage, 2026-11-03's small-screen shell and its 900px breakpoint. The middle column is that section's own
 heading text; the right column is its heading's parenthesised tail: the date it landed, whether
 it is live, which migration it carries, which layers it touched. A stage with no date predates
 the convention.
@@ -367,6 +367,7 @@ the convention.
 | [116](STAGE-HISTORY.md#stage-116) | Lesson learnt drops its archive, and the assignment notice is verified end to end | 2026-11-03, live, no migration, Kotlin + CSS + test |
 | [117](STAGE-HISTORY.md#stage-117) | A new employee's popup files them under a department, and only an owner or administrator may choose it | 2026-11-03, live, no migration, Kotlin + test |
 | [118](STAGE-HISTORY.md#stage-118) | Access control's People sheet files a person under a department, and only the all-chip pair may move it | 2026-11-03, live, no migration, Kotlin + test |
+| [119](STAGE-HISTORY.md#stage-119) | The shell folds to a drawer below 900px, and a card board keeps two columns | 2026-11-03, live, no migration, Kotlin + CSS + JS + test |
 
 **Read the newest few before changing anything they touch.** A section is never trimmed when a
 later stage supersedes it — the superseding stage says so in its own heading and explains what no

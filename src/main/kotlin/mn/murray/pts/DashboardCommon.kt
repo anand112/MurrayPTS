@@ -214,6 +214,9 @@ fun HTML.appPage(
     body("app-body") {
         div("app") {
             aside("sidebar") {
+                // Named so the page head's hamburger can say what it opens (`aria-controls`) and so the
+                // drawer's own script has one element to look for (Stage 119).
+                id = "appSidebar"
                 a(href = "/app") {
                     img(src = "/static/assets/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
                         attributes["class"] = "logo-img side-logo"
@@ -277,9 +280,15 @@ fun HTML.appPage(
             }
             main("main") {
                 div("page-head") {
-                    h1 {
-                        +title
-                        subtitle?.let { span("page-sub") { +it } }
+                    // The drawer's opener and the title share this wrapper so the page's actions and the bell
+                    // stay at the far right as they always did — a third child of .page-head would otherwise
+                    // pull the heading to the middle of the row (Stage 119).
+                    div("page-title") {
+                        navToggle()
+                        h1 {
+                            +title
+                            subtitle?.let { span("page-sub") { +it } }
+                        }
                     }
                     div("page-right") {
                         actions?.let { render -> div("page-actions") { render() } }
@@ -290,11 +299,37 @@ fun HTML.appPage(
                 }
                 div("content") { block(session) }
             }
+            // The page under an open drawer, so a press outside the menu closes it (Stage 119). It is
+            // markup on every page and only ever shown by the breakpoint's own rule.
+            div("nav-backdrop") {
+                id = "navBackdrop"
+                attributes["aria-hidden"] = "true"
+            }
         }
         themeScript()
         // Delegated handlers for [data-autosubmit] / [data-confirm]; must load on every
         // authenticated page because the sidebar pin forms and nav use them too.
         script(src = "/static/js/app.js") {}
+    }
+}
+
+/**
+ * The hamburger in the page head (Stage 119): below 900px the sidebar becomes a drawer and this is the
+ * only control that opens it, so it is printed on every page and hidden above the breakpoint by `app.css`
+ * rather than left out of the markup — the shell is drawn by one function for every page, and a button
+ * that came and went with the window would have to be redrawn to appear.
+ *
+ * It is a real `<button>` with `aria-controls`/`aria-expanded` because it is a disclosure, not a link;
+ * `app.js` flips the state and the label, and the three bars are spans so no icon font or inline SVG is
+ * needed for a control that is three lines (data, not executable, either way).
+ */
+private fun DIV.navToggle() {
+    button(type = ButtonType.button, classes = "nav-toggle") {
+        id = "navToggle"
+        attributes["aria-controls"] = "appSidebar"
+        attributes["aria-expanded"] = "false"
+        attributes["aria-label"] = "Open navigation"
+        repeat(3) { span("nav-bar") { } }
     }
 }
 
