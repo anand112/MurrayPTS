@@ -93,10 +93,6 @@ object LessonRepository {
         Lessons.update({ Lessons.id eq id }) { it[Lessons.discussed] = discussed }
     }
 
-    fun setArchived(id: Int, archived: Boolean) = transaction {
-        Lessons.update({ Lessons.id eq id }) { it[Lessons.archived] = archived }
-    }
-
     /** Rows actually removed — 0 is how a write against a lesson that has gone reports itself. */
     fun remove(id: Int): Int = transaction { Lessons.deleteWhere { Lessons.id eq id } }
 

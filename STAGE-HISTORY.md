@@ -9790,3 +9790,62 @@ rounded corners. Keep one named PNG and no `/favicon.ico`. Do not make the rende
 sha1. If the logo raster changes, re-render with `scratch/favicon-site.py` (the shipped square is `site-g`,
 side 1600 at (80, 120)) rather than editing the PNG; and read the site's icon as *the logo's left square*, not
 as a separate design to copy.
+
+<a id="stage-115"></a>
+
+## Stage 115 — The tab is titled MPTS (2026-11-03, live, no migration, Kotlin + test)
+
+**The ask.** *"make web title MPTS"* — then, the same day, *"web title dont have to change as go to the
+different function"*. The browser tab's text, the line beside the Stage 114 icon, had carried the long system
+name: `MURRAY Project Tracking System (PTS)` on sign-in and `MURRAY PTS — <page>` signed in. A short per-page
+form (*MPTS — Projects*) was the first cut; the user withdrew it, and the tab is now the one word **MPTS on
+every page**, sign-in included.
+
+**The change, two lines and one test.** `Views.kt:35` and `DashboardCommon.kt:206` both call `title("MPTS")`.
+The page's own name did not go anywhere: it is the **on-screen heading**, printed by `appPage` from the `title`
+parameter it still takes (`+title`), and a project page still heads with the project's name. The sign-in page's
+**h1** still prints the long system name — that is the page, not the tab — and nothing else moved: README's own
+title, the docs and the `start "MURRAY PTS"` window title named in the deploy note are untouched.
+`LoginPageRenderTest` gained *the tab is titled MPTS*, which reads the `<title>` and compares it exactly, so the
+long name cannot quietly come back; the throwaway check pins the signed-in pages too, including that the tab
+does not follow the page.
+
+**Verification.** Full suite **695 tests / 47 classes / 0 failures** (694 at Stage 114; the new case is the one
+added). `scratch/stage115-verify.ps1` (throwaway **8097**, empty `%TEMP%` DB, `PTS_SEED_DEMO=false`, nonexistent
+`PTS_DATA_FILE`, random bootstrap password): the sign-in tab is **MPTS**; `/app/projects`,
+`/app/assigned-tasks` and `/app/settings` all read plain **MPTS**; the signed-in head no longer contains
+`MURRAY PTS`; and no page's title carries the `MPTS — ` prefix — **7 checks / 0 failures**.
+
+**Deploy.** No migration, schema **21**; stopped PID 6012 (graceful, then force), backup
+`data/pts.pre-stage115-20261103-095425.db` (471,040 bytes, `-shm` 32,768, `-wal` 0); `installDist` jar
+**1,929,128 bytes**; relaunched detached → **PID 18824**, `/` **200**, live title **MPTS**, icon still named
+before the stylesheet. Read-back (counts only): 15 projects, 30 tasks, 14 accounts. **No commit, no push.**
+Harness traps: the titles compile into the **outer** classes (`DashboardCommonKt.class`, `ViewsKt.class`) —
+`title()` is not inside `unsafe{}`, unlike Stage 112's icon — so grepping the `$appPage$1$3`/`$loginPage$1$3`
+lambdas prints 0 and looks like a missing title; and PowerShell 5.1 hands a native `grep` its pattern in the
+ANSI code page, so an em dash typed into the pattern never matches the class file's UTF-8 — match `MPTS` and
+read the prefix with `grep -o` from bash. The Stage 114 count snippet was also missing a `)`
+(`max(cast(version as integer)` where the working form is `max(cast(version as integer))`).
+
+**If this is restated.** Do not put the long system name back in `<title>` — it is the sign-in page's **h1**,
+not the tab. Do not re-add a per-page suffix (`MPTS — Projects`): the tab stays one word everywhere, and the
+page's name belongs to the on-screen heading. No other copy, route, schema or static asset belongs to this
+stage.
+
+<a id="stage-116"></a>
+
+## Stage 116 — Lesson learnt drops its archive, and the assignment notice is verified end to end (2026-11-03, live, no migration, Kotlin + CSS + test)
+
+**The ask:** *"since we are not archiving projects we dont need archived button on lesson learnt, also when user gets assigned task send notification also"*. Two asks: the first is a removal this stage makes; the second was already built, and this stage proves it rather than rebuilding it.
+
+**The archive came out whole; the column stayed.** Removed: the `▾ Archived N` heading with its caret and pill, the archive and `↩` restore buttons on a row, the `?archived=1` view key and its hidden carriage on every write, the "3 active, 1 archived" halves of the toolbar count, `POST /app/lessons/archive`, `LessonService.setArchived`, `LessonRepository.setArchived`, and `LessonBoard.archived`/`archivedCount` with `LessonFilter.showArchived`. The count now reads "3 lessons" / "1 lesson" / "0 lessons". What did **not** move is `lessons.archived`: a row put away before this stage is data, not a lesson, so `LessonService.board` still drops it (`filter.matches(it) && !it.archived`) and `LessonRepository.countActive` still counts only `archived = 0`. No route or control can bring one back. That is the stored rule — remove the control, not its data — with the column kept as the data.
+
+**What the sheet still does.** An ordinary account sees two buttons on its own row (discussed, delete) and none on anybody else's; management sees those two on every row. `✓`/`↺` still swaps only its own `<tr>`; delete still swaps `#ll-board` plus `#ll-counts`. The retired key is ignored if typed into the address (`LessonFilter.of` reads project/employee/sort only), and no writing form carries `archived` any more.
+
+**Assignment notifications: already there, now proven through the real route.** `TaskService.create`, `createBacklog` and `updateAssigned` each call `NotificationService.taskAssigned`; the bell has carried `TASK_ASSIGNED` items since Stage 13, and an actor is never told about their own action. On throwaway 8096 (demo-seeded, 2026-11-03) a management create assigned to EMP0002 answered **302**; the database held one `TASK_ASSIGNED` row for EMP0002 with `mail_status=logged` and no `read_at`; EMP0002's bell printed *"T-00011 S116 notify check"* with *"Super Admin assigned this task to you on S-01 - Tavan Tolgoi East Expansion. Due 2026-11-10."*; and the log recorded the composed mail and `Notification mail for EMP0002 (TASK_ASSIGNED): logged`. The notice is **status-blind**, which this stage pinned when the user restated the ask (*"it does not matter if the task is started early before put in the system"*): `taskAssigned` reads who holds the card and never consults its status, so a create saved as *In progress* — or *Completed* — writes the same inbox row and the same mail, and moving an in-progress card still tells the person it moved to; `NotificationServiceTest` now holds both cases. **Mail is log-only by deployment** — `PTS_SMTP_DRY_RUN=true` in `data/.env` and no `PTS_SMTP_PASSWORD` — so turning on real email is an operator decision (a credential, the flag, and the Settings Email switch), not something this stage changed.
+
+**Sandbox note.** `DemoSeeder` writes users through the legacy importer and leaves `users.role_id` NULL, so a freshly seeded throwaway's EMP0000 holds no permission chip and its first create is refused. The throwaway proved the flow after setting EMP0000 → Owner and EMP0002 → Employee in that temp DB only. Live accounts have roles (V21's backfill); the gap is the demo seed's.
+
+**Verified:** **697 tests / 47 classes / 0 failures** — the archive cases were replaced one-for-one, and two new cases pin the assignment notice as status-blind. Throwaway 8096: 3 rows, 1 table, `ll-counts` `"3 lessons"`, and **0** hits for `ll-arch`, `ll-arch-toggle`, `/app/lessons/archive`, `Archive this lesson` and `Nothing has been archived`.
+
+**Deploy.** No migration, schema **21**; stopped PID 18824 (force — it refused the close event), backup `data/pts.pre-stage116-20261103-102042.db` (471,040 bytes, `-wal` 214,272, `-shm` 32,768); `installDist` jar **1,920,128 bytes**; relaunched detached → **PID 23460**, `/` **200**, boot log "Schema "main" is up to date. No migration necessary", 9 categories. Read-back (counts only): 16 project rows, 30 tasks, 15 accounts, 3 lessons (0 archived), 130 notifications of which 28 are `TASK_ASSIGNED`. `POST /app/lessons/archive` now answers **404**, and the built `LessonsKt`/`LessonService`/`ApplicationKt` classes contain none of the retired strings. **No commit, no push.**

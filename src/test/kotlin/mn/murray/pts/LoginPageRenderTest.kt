@@ -2,6 +2,7 @@ package mn.murray.pts
 
 import kotlinx.html.html
 import kotlinx.html.stream.createHTML
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -25,6 +26,13 @@ class LoginPageRenderTest {
         assertNotNull(password)
         assertTrue(password!!.contains("type=\"password\""))
         assertTrue(password.contains("autocomplete=\"current-password\""))
+    }
+
+    @Test
+    fun `the tab is titled MPTS`() {
+        val html = createHTML().html { loginPage(error = null) }
+        val title = Regex("<title>(.*?)</title>").find(html)?.groupValues?.get(1)
+        assertEquals("MPTS", title, "the tab should carry the short name, not the long system name")
     }
 
     @Test

@@ -93,7 +93,12 @@ class NotificationServiceTest {
 
     // --- helpers -------------------------------------------------------------
 
-    private fun createTask(title: String, assignee: String, caller: String = manager): Int {
+    private fun createTask(
+        title: String,
+        assignee: String,
+        caller: String = manager,
+        status: String = "Not started",
+    ): Int {
         val id = TaskService.create(
             TaskDraft(
                 title = title,
@@ -101,6 +106,7 @@ class NotificationServiceTest {
                 assigneeEmpNo = assignee,
                 due = "2026-11-12",
                 projectLane = DEFAULT_PROJECT_BUCKETS.first(),
+                status = status,
             ),
             callerEmpNo = caller,
             canManage = true,
@@ -142,6 +148,44 @@ class NotificationServiceTest {
         assertTrue("Munkhtsetseg" in row.body && "EMP0001" !in row.body, row.body)
         assertEquals(1, NotificationService.unreadCount(worker))
         assertEquals(0, NotificationService.unreadCount(manager), "the manager is not told about their own act")
+    }
+
+    /**
+     * The notice is about *who holds the card*, not about where the card starts.
+     *
+     * Work is often under way — or even finished — by the time somebody enters it, and the popup's Status
+     * field is how that is recorded on a create. None of those statuses make the person already doing the
+     * work any less the person who was handed it, so the same inbox row and the same mail are written as
+     * for a card saved as *Not started*.
+     */
+    @Test
+    fun `a card entered already under way, or already finished, still tells the assignee`() {
+        createTask("Strip the pump", worker, status = "In progress")
+        createTask("Pour the pad", technician, status = "Completed")
+        val underWay = NotificationService.inbox(worker).single()
+        assertEquals(NotificationService.KIND_TASK_ASSIGNED, underWay.kind)
+        assertTrue(underWay.isUnread, "whatever the status, the notice is new")
+        assertTrue(underWay.title.contains("Strip the pump"), underWay.title)
+        assertEquals("/app/projects/$projectId", underWay.link)
+        assertEquals(1, NotificationService.unreadCount(worker))
+        assertEquals("logged", mailStatus(underWay.id), "the mail goes with the bell row, status or no status")
+        assertEquals(1, NotificationService.inbox(technician).size, "a card entered as finished is still an assignment")
+    }
+
+    @Test
+    fun `a card already under way still tells the person it moves to`() {
+        val id = createTask("Strip the pump", worker, status = "In progress")
+        TaskService.updateAssigned(
+            id,
+            TaskDraft(
+                title = "Strip the pump", projectName = projectName,
+                assigneeEmpNo = technician, status = "In progress",
+            ),
+            callerEmpNo = manager,
+            canManage = true,
+        )
+        assertEquals(1, NotificationService.inbox(technician).size, "a move is a move at any status")
+        assertEquals(1, NotificationService.inbox(worker).size, "and the card that left is still the old holder's news")
     }
 
     @Test

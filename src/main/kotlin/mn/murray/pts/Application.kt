@@ -733,20 +733,6 @@ fun main() {
                 // routes send back for a denied rename.
                 call.respondRedirect(lessonFilterOfForm(form).queryFor())
             }
-            /** Move one lesson between the sheet and the Archived list beneath it. */
-            post("/app/lessons/archive") {
-                val session = call.requireSession() ?: return@post
-                val form = call.receiveParameters()
-                LessonService.setArchived(
-                    id = form["id"]?.trim()?.toIntOrNull() ?: 0,
-                    archived = form["archived"]?.trim() == "1",
-                    employeeNumber = session.employeeNumber,
-                    canManage = session.may(Permission.EDIT_ANY_TASK),
-                )
-                // Kept open on purpose: a reader archiving from the archived half of the page (`↩`) would
-                // otherwise be bounced to a sheet with the list they are working through folded shut.
-                call.respondRedirect(lessonFilterOfForm(form).queryFor())
-            }
             /** Take one lesson off the database. The one write here with no way back, hence the confirm. */
             post("/app/lessons/delete") {
                 val session = call.requireSession() ?: return@post

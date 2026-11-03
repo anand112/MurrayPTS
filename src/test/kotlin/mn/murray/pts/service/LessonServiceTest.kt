@@ -14,6 +14,7 @@ import mn.murray.pts.repository.TeamRepository
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -43,7 +44,8 @@ import java.time.format.DateTimeFormatter
  *    that decides them.
  *
  * The rest is the sheet's own arithmetic: which rows the two pickers leave, where an undated
- * carry-over sorts to, and what "archived" does to a row that is not deleted.
+ * carry-over sorts to, and that a row put away before the archive was retired (Stage 116) is not
+ * a lesson the sheet prints.
  */
 class LessonServiceTest {
 
@@ -170,10 +172,8 @@ class LessonServiceTest {
         log(who = "EMP0002")
         val id = one().id
         assertEquals(LessonWrite.DENIED, LessonService.setDiscussed(id, true, "EMP0003", canManage = false))
-        assertEquals(LessonWrite.DENIED, LessonService.setArchived(id, true, "EMP0003", canManage = false))
         assertEquals(LessonWrite.DENIED, LessonService.remove(id, "EMP0003", canManage = false))
         assertFalse(LessonRepository.find(id)!!.discussed, "a refused write still landed")
-        assertFalse(LessonRepository.find(id)!!.archived)
         // The edit popup is the same guard, and it answers under the field the reader cannot fix.
         val refused = LessonService.save(draft(text = "Rewritten by a colleague.", id = id), "EMP0003", false)
         assertEquals(LessonField.PERMISSION, field(refused))
@@ -185,7 +185,6 @@ class LessonServiceTest {
         val id = one().id
         LessonService.remove(id, "EMP0002", canManage = false)
         assertEquals(LessonWrite.MISSING, LessonService.setDiscussed(id, true, "EMP0002", false))
-        assertEquals(LessonWrite.MISSING, LessonService.setArchived(id, true, "EMP0002", false))
         assertEquals(LessonWrite.MISSING, LessonService.remove(id, "EMP0002", false))
         assertEquals(LessonField.ROW, field(LessonService.save(draft(text = "Back again.", id = id), "EMP0002", false)))
         assertTrue(rows().isEmpty())
@@ -300,26 +299,26 @@ class LessonServiceTest {
     }
 
     @Test
-    fun `archiving moves a row to the other list and bringing it back moves it again`() {
+    fun `a row put away before the archive was retired stays off the sheet`() {
+        // Stage 116 took the archive out of the sheet; the flag stays on the rows put away before then.
+        // It is data, not a lesson: nothing prints it, nothing counts it, and the service offers no
+        // write that could bring it back.
         log(who = "EMP0002", text = "Camp beds: keep a buffer.")
         val id = one().id
         assertEquals(1, LessonService.board().activeCount)
-        assertEquals(0, LessonService.board().archivedCount)
-
-        assertEquals(LessonWrite.SAVED, LessonService.setArchived(id, true, "EMP0002", false))
-        val away = LessonService.board(LessonFilter(showArchived = true), "EMP0002", false)
-        assertTrue(away.active.isEmpty(), "an archived row is still on the sheet")
-        assertEquals(listOf("Camp beds: keep a buffer."), away.archived.map { it.text })
-        assertEquals(0, away.activeCount)
-        assertEquals(1, away.archivedCount)
-        assertEquals(0, LessonService.activeCount(), "the sidebar pill counted a lesson somebody put away")
-        // A row in the archive keeps its text, its author and its date, so it comes back as it went.
-        assertEquals("EMP0002", away.archived.single().employeeNumber)
-        assertEquals("2026-07-30", away.archived.single().loggedOn)
-
-        LessonService.setArchived(id, false, "EMP0002", false)
-        assertEquals(1, LessonService.board().activeCount)
         assertEquals(1, LessonService.activeCount())
+
+        transaction { Lessons.update({ Lessons.id eq id }) { it[archived] = true } }
+        assertTrue(LessonService.board(employeeNumber = "EMP0002").isEmpty, "an archived row is still on the sheet")
+        assertEquals(0, LessonService.board().activeCount)
+        assertEquals(0, LessonService.activeCount(), "the sidebar pill counted a lesson somebody put away")
+        // The row itself is untouched: the flag is the only thing that changed, and its text, its author
+        // and its date are still there for whoever reads the database.
+        val stored = LessonRepository.find(id)!!
+        assertTrue(stored.archived)
+        assertEquals("Camp beds: keep a buffer.", stored.text)
+        assertEquals("EMP0002", stored.employeeNumber)
+        assertEquals("2026-07-30", stored.loggedOn)
     }
 
     @Test
@@ -382,16 +381,15 @@ class LessonServiceTest {
         assertFalse(blank.isActive)
         assertEquals("old", blank.sortKey, "the control offers the order the page does not have")
 
-        val view = LessonFilter(project = 7, employee = "EMP 0002", oldestFirst = true, showArchived = true)
+        val view = LessonFilter(project = 7, employee = "EMP 0002", oldestFirst = true)
         assertTrue(view.isActive)
         assertEquals("new", view.sortKey)
-        assertEquals("/app/lessons?project=7&employee=EMP+0002&sort=old&archived=1", view.queryFor())
+        assertEquals("/app/lessons?project=7&employee=EMP+0002&sort=old", view.queryFor())
         // The carried view is the same view: a row write that lost a key would answer on another sheet.
-        val back = LessonFilter.of(
-            mapOf("project" to " 7 ", "employee" to "EMP 0002", "sort" to "old", "archived" to "1"),
-        )
+        val back = LessonFilter.of(mapOf("project" to " 7 ", "employee" to "EMP 0002", "sort" to "old"))
         assertEquals(view, back)
-        assertEquals(LessonFilter(), LessonFilter.of(mapOf("sort" to "sideways", "archived" to "yes")))
+        // The retired archive's key is not one the sheet reads any more (Stage 116).
+        assertEquals(LessonFilter(), LessonFilter.of(mapOf("sort" to "sideways", "archived" to "1")))
     }
 
     @Test

@@ -17,6 +17,7 @@ import mn.murray.pts.service.LessonService
 import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -101,7 +102,9 @@ class LessonsRenderTest {
             } get Lessons.id
         }
         LessonService.setDiscussed(theirs, true, "EMP0003", false)
-        LessonService.setArchived(away, true, me, false)
+        // A row put away before Stage 116 retired the archive. Its flag stays in the database, but the
+        // sheet prints neither the row nor a control that could bring it back.
+        transaction { Lessons.update({ Lessons.id eq away }) { it[archived] = true } }
     }
 
     @AfterEach
@@ -240,25 +243,24 @@ class LessonsRenderTest {
             Regex("<col class=\"(l-[a-z]+)\"").findAll(html).map { it.groupValues[1] }.toList(),
             "the sheet's widths are not over its headers",
         )
-        // Three rows above the Archived heading, newest first, and the undated carry-over last of them.
+        // Three rows on the sheet, newest first, and the undated carry-over last of them.
         assertEquals(
             listOf(mine, theirs, carried),
             Regex("id=\"ll-row-(\\d+)\"").findAll(html).map { it.groupValues[1].toInt() }.toList(),
-            "the active list is not the three rows in the order the date column says",
+            "the sheet is not the three rows in the order the date column says",
         )
     }
 
     @Test
     fun `the employee column is the person who logged it, in their own colour`() {
-        val html = sheet(LessonFilter(showArchived = true))
+        val html = sheet()
         assertTrue(row(html, mine).contains("<span class=\"avatar sm ll-a1\">SB</span>"), "no avatar carrying the author's initials")
         assertTrue(row(html, mine).contains("<span class=\"ll-person-name\">Sarangerel Bold</span>"), "the column prints something other than the roster's name")
         assertTrue(row(html, theirs).contains(">GE</span>"), "a colleague's initials are missing")
 
         // The tint is the account's, not the row's: the same person is the same colour on every lesson,
         // which is what makes the column readable at a glance.
-        val tint = Regex("avatar sm (ll-a\\d)").find(row(html, mine))!!.groupValues[1]
-        assertEquals(tint, Regex("avatar sm (ll-a\\d)").find(row(html, away))!!.groupValues[1], "one account, two colours")
+        assertTrue(row(html, mine).contains("avatar sm ${avatarTint(me)}"), "the row's tint is not the account's")
 
         // A row nobody owns prints no person, because there is nobody to print.
         assertTrue(row(html, carried).contains("<td class=\"l-employee\"><span class=\"ll-none\">—</span></td>"), "an unowned lesson invented an author")
@@ -331,11 +333,11 @@ class LessonsRenderTest {
         // must not be in there is the element itself.
         assertTrue(html.indexOf("id=\"ll-counts\"") < html.indexOf("id=\"ll-board\""), "the count moved under the sheet")
         assertFalse(region(html).contains("<span class=\"ll-counts\""), "the count is inside the live region")
-        assertTrue(html.contains("<span class=\"ll-counts\" id=\"ll-counts\">3 active, 1 archived</span>"))
+        assertTrue(html.contains("<span class=\"ll-counts\" id=\"ll-counts\">3 lessons</span>"))
     }
 
     @Test
-    fun `the date header and the archived heading live in the region and belong to the toolbar`() {
+    fun `the date header lives in the region and belongs to the toolbar`() {
         val html = sheet()
         val sort = tagOf(html, "ll-sort")
         assertTrue(sort.contains("form=\"llFilter\""), "the header button is a form of its own")
@@ -345,48 +347,36 @@ class LessonsRenderTest {
         assertTrue(sort.contains("title=\"Show the oldest lesson first\""))
         assertTrue(html.contains("<span class=\"ll-sort-glyph\">▼</span>"), "the column does not say which way it runs")
         assertTrue(region(html).contains("class=\"ll-sort\""), "the header control is not part of the sheet it reorders")
-
-        val toggle = tagOf(html, "ll-arch-toggle")
-        assertTrue(toggle.contains("form=\"llFilter\""), "the heading is a form of its own")
-        assertTrue(toggle.contains("name=\"archived\""))
-        assertTrue(toggle.contains("value=\"1\""), "a closed archive offered to close again")
-        assertTrue(toggle.contains("aria-expanded=\"false\""))
-        assertTrue(html.contains("<span class=\"ll-arch-caret\">▸</span>"))
-        assertTrue(html.contains("<span class=\"pill\">1</span>"), "the heading does not count what is under it")
     }
 
     @Test
-    fun `the order and the open archive ride with every control on the sheet`() {
-        val view = LessonFilter(project = crusher, employee = me, oldestFirst = true, showArchived = true)
+    fun `the order rides with every control on the sheet`() {
+        val view = LessonFilter(project = crusher, employee = me, oldestFirst = true)
         val html = sheet(view)
         val form = pickers(html)
         // The pickers answer for `project` and `employee` themselves — duplicating those names in hidden
-        // fields would state the same choice twice in one address. The other two keys have no field of
-        // their own in the form, so they arrive as hidden ones or the first picker change loses them.
+        // fields would state the same choice twice in one address. The order has no field of its own in
+        // the form, so it arrives as a hidden one or the first picker change loses it.
         assertFalse(form.contains("<input type=\"hidden\" name=\"project\""), "the toolbar duplicates its own project picker")
         assertTrue(form.contains("<input type=\"hidden\" name=\"sort\" value=\"old\">"), "choosing a project jumps the sheet back to newest-first")
-        assertTrue(form.contains("<input type=\"hidden\" name=\"archived\" value=\"1\">"), "choosing a project folds the archive the reader is standing in")
 
-        // A row write cannot use those plain names: its own `archived` is the state the row is being
-        // moved to and its own `project` the job the lesson is about, so the view travels prefixed.
+        // A row write cannot use that plain name: its own `project` is the job the lesson is about, so
+        // the view travels prefixed.
         val actions = row(html, mine)
-        listOf("board_project" to "$crusher", "board_employee" to me, "board_sort" to "old", "board_archived" to "1").forEach { (name, value) ->
+        listOf("board_project" to "$crusher", "board_employee" to me, "board_sort" to "old").forEach { (name, value) ->
             assertTrue(actions.contains("<input type=\"hidden\" name=\"$name\" value=\"$value\">"), "a row posted without $name")
         }
         // The opener forms are GETs onto this page, so theirs are the plain keys.
         assertTrue(row(html, mine).contains("<input type=\"hidden\" name=\"project\" value=\"$crusher\">"), "the click on a lesson lost the picker")
 
-        // And the two flip controls ask for the other half, from the toolbar they belong to.
+        // And the flip control asks for the other order, from the toolbar it belongs to.
         assertTrue(tagOf(html, "ll-sort").contains("value=\"new\""), "oldest-first offered to go oldest-first again")
         assertTrue(html.contains("<span class=\"ll-sort-glyph\">▲</span>"))
-        assertTrue(tagOf(html, "ll-arch-toggle").contains("value=\"0\""), "an open archive offered to open")
-        assertTrue(tagOf(html, "ll-arch-toggle").contains("aria-expanded=\"true\""))
-        assertTrue(html.contains("<span class=\"ll-arch-caret\">▾</span>"))
 
         // Clearing the pickers is the reader's whole question, so the address it loads keeps the order
-        // they set and the half they had open.
+        // they set.
         val clear = Regex("<a href=\"[^\"]*\" class=\"board-reset\">").find(html)!!.value
-        assertTrue(clear.contains("sort=old") && clear.contains("archived=1"), "Clear reset the sheet's view: $clear")
+        assertTrue(clear.contains("sort=old"), "Clear reset the sheet's view: $clear")
         assertFalse(clear.contains("project"), "Clear left one picker still set")
     }
 
@@ -397,7 +387,6 @@ class LessonsRenderTest {
         // open too, because that is the state with the most forms on the page at once.
         listOf(
             sheet(),
-            sheet(LessonFilter(showArchived = true)),
             sheet(form = LessonForm(open = true, loggedOn = "2026-10-16")),
             sheet(form = popup(mine)),
             sheet(form = popup(theirs)),
@@ -406,9 +395,9 @@ class LessonsRenderTest {
 
     @Test
     fun `a row that only changes state stays exactly where it is`() {
-        // Drawn for management with the archive open, so every one of the four shapes — undiscussed,
-        // discussed, put away, carried over — is on the page and offered its buttons.
-        val html = sheet(LessonFilter(showArchived = true), who = "EMP0001", canManage = true)
+        // Drawn for management, so every shape — undiscussed, discussed, carried over — is on the
+        // page and offered its buttons.
+        val html = sheet(who = "EMP0001", canManage = true)
         val actions = row(html, mine)
         val status = Regex("<form action=\"/app/lessons/status\"[^>]*>").find(actions)!!.value
         assertTrue(status.contains("method=\"post\""))
@@ -422,36 +411,27 @@ class LessonsRenderTest {
         // The discussed row has already been ticked, so it offers the way back instead.
         assertTrue(row(html, theirs).contains("<input type=\"hidden\" name=\"discussed\" value=\"0\">"))
         assertTrue(row(html, theirs).contains("aria-label=\"Mark it not discussed\""))
-        // A lesson that has been put away is not also being discussed.
-        assertFalse(row(html, away).contains("/app/lessons/status"), "an archived row offers a discussion state")
     }
 
     @Test
     fun `a row that leaves the sheet takes the sheet and the count with it`() {
-        val html = sheet(LessonFilter(showArchived = true))
+        val html = sheet()
         val deleted = Regex("<form action=\"/app/lessons/delete\"[^>]*>").find(row(html, mine))!!.value
         assertTrue(deleted.contains("data-live-target=\"#ll-board\""), "deleting a row left its `<tr>` on the page")
         assertTrue(deleted.contains("data-live-extra=\"#ll-counts\""), "the count kept the deleted row in it")
-        val archived = Regex("<form action=\"/app/lessons/archive\"[^>]*>").find(row(html, mine))!!.value
-        assertTrue(archived.contains("data-live-target=\"#ll-board\""), "archiving a row left it on the active list")
-        assertTrue(archived.contains("data-live-extra=\"#ll-counts\""))
         assertTrue(html.contains("data-confirm=\"Delete this lesson? It cannot be brought back.\""), "the bin asks for nothing")
         assertTrue(html.contains("aria-label=\"Delete this lesson\""))
-
-        // An archived row comes back through the same door, and that is the only change it offers.
-        val awayRow = row(html, away)
-        assertTrue(awayRow.contains("<input type=\"hidden\" name=\"archived\" value=\"0\">"), "the archive list cannot bring a lesson back")
-        assertTrue(awayRow.contains("aria-label=\"Restore this lesson\""))
-        assertTrue(awayRow.contains(">↩</button>"), "an archived row does not offer the restore")
-        assertEquals(2, occurrences(awayRow, "class=\"ll-action\""), "an archived row changed its button count")
+        // The archive a row could once be put away in is gone with its button (Stage 116).
+        assertFalse(html.contains("/app/lessons/archive"), "the retired archive route is still on the sheet")
+        assertFalse(html.contains("Archive this lesson"), "the retired archive button is still on the sheet")
     }
 
     @Test
     fun `only the author and management are offered a row's buttons`() {
         val asStranger = sheet()
-        // Three buttons on the reader's own row, and nothing on the other two: an ordinary account writes
-        // its own lessons and reads everybody else's.
-        assertEquals(3, occurrences(asStranger, "class=\"ll-action\""), "the row buttons changed count for an ordinary account")
+        // Two buttons on the reader's own row — discussed and delete — and nothing on the other two: an
+        // ordinary account writes its own lessons and reads everybody else's.
+        assertEquals(2, occurrences(asStranger, "class=\"ll-action\""), "the row buttons changed count for an ordinary account")
         assertEquals(2, occurrences(asStranger, "<td class=\"l-actions\"></td>"), "a row somebody else owns is offering its buttons")
         assertFalse(row(asStranger, theirs).contains("/app/lessons/status"), "a colleague's row can be ticked from here")
         assertFalse(row(asStranger, carried).contains("ll-action"), "an unowned carry-over was open to any account")
@@ -460,15 +440,16 @@ class LessonsRenderTest {
 
         // Management is offered every row — including the carry-over nobody owns — and nothing else moves.
         val asManagement = sheet(who = "EMP0001", canManage = true)
-        assertEquals(9, occurrences(asManagement, "class=\"ll-action\""), "management was not offered every active row")
+        assertEquals(6, occurrences(asManagement, "class=\"ll-action\""), "management was not offered every active row")
         assertEquals(3, occurrences(asManagement, "class=\"opener-form ll-text-form\""), "management's sheet grew a control of its own")
     }
 
     @Test
     fun `the counter counts the sheet the reader is looking at`() {
-        assertTrue(sheet(LessonFilter(project = crusher)).contains("1 active, 0 archived"), "the count is the whole list rather than the filtered one")
-        assertTrue(sheet(LessonFilter(employee = me)).contains("1 active, 1 archived"), "the reader's own sheet miscounts its halves")
-        assertTrue(sheet(LessonFilter(project = haulRoad, employee = me)).contains("0 active, 0 archived"), "an empty cut still counts the unfiltered sheet")
+        assertTrue(sheet(LessonFilter(project = crusher)).contains("1 lesson<"), "the count is the whole list rather than the filtered one")
+        // The archived row is not on the sheet it would be counted against.
+        assertTrue(sheet(LessonFilter(employee = me)).contains("1 lesson<"), "the reader's own sheet miscounts itself")
+        assertTrue(sheet(LessonFilter(project = haulRoad, employee = me)).contains("0 lessons<"), "an empty cut still counts the unfiltered sheet")
     }
 
     // --- the popup ----------------------------------------------------------------------------------
@@ -583,27 +564,24 @@ class LessonsRenderTest {
         }
     }
 
-    // --- the archive and the two empties -------------------------------------------------------------
+    // --- the retired archive and the two empties -----------------------------------------------------
 
     @Test
-    fun `the archived heading is printed whether or not there is anything under it`() {
-        val closed = sheet()
-        assertEquals(1, occurrences(closed, "class=\"ll-archived\""), "the page hides the place lessons go")
-        assertEquals(1, occurrences(closed, "<table class=\"grid lessons-table\">"), "a closed archive drew a second table")
-        assertFalse(closed.contains("Camp beds"), "an archived lesson is printed on the active sheet")
+    fun `a row put away before the archive was retired stays off the sheet`() {
+        // Stage 116 removed the archive from this page, but a row put away before then still carries the
+        // flag. It is data, not a lesson: no list prints it, no count includes it, and no control offers
+        // to bring it back.
+        assertEquals(3, occurrences(sheet(), "id=\"ll-row-"), "an archived row was printed on the active sheet")
+        assertFalse(sheet().contains("Camp beds: keep a ten percent buffer."), "an archived lesson is printed on the sheet")
+        assertFalse(sheet().contains("id=\"ll-row-$away\""), "the archived row is still on the page")
 
-        val open = sheet(LessonFilter(showArchived = true))
-        assertEquals(2, occurrences(open, "<table class=\"grid lessons-table\">"), "the open archive did not print its own list")
-        // The same seven columns, so a row that was put away reads exactly as it did before.
-        listOf("l-date", "l-employee", "l-project", "l-task", "l-text", "l-status", "l-actions").forEach {
-            assertEquals(2, occurrences(open, "<th class=\"$it\">"), "the archive list is missing the $it column")
+        listOf(sheet(), sheet(who = "EMP0001", canManage = true)).forEach { html ->
+            assertEquals(1, occurrences(html, "<table class=\"grid lessons-table\">"), "the sheet grew a list for the archive")
+            listOf("ll-archived", "ll-arch-toggle", "ll-arch-caret", "Nothing has been archived.", "archived=1").forEach {
+                assertFalse(html.contains(it), "the retired archive's \"$it\" is still on the page")
+            }
+            assertFalse(html.contains("/app/lessons/archive"), "the retired archive route is still on the page")
         }
-        assertTrue(open.contains("Camp beds: keep a ten percent buffer."))
-
-        // With the heading open over nothing the page says so in words instead of a table of blanks.
-        val noneArchived = sheet(LessonFilter(project = crusher, showArchived = true))
-        assertTrue(noneArchived.contains("Nothing has been archived."), "an open empty archive printed a table of nothing")
-        assertEquals(1, occurrences(noneArchived, "<table class=\"grid lessons-table\">"), "the empty archive drew its own table anyway")
     }
 
     @Test

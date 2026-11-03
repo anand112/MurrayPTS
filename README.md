@@ -7,7 +7,7 @@ Kotlin + Ktor, server-rendered HTML, and a single SQLite file.
 This is **v2**. The v1 prototype (JSON file store, plaintext passwords, in-memory sessions) has
 been replaced: the app now runs on SQLite through Exposed with Flyway migrations, bcrypt
 passwords, DB-backed sessions, and a hardened static-asset/CSP layer. `ARCHITECTURE.md` documents
-the module design and `STAGE-HISTORY.md` holds the stage-by-stage record behind it (Stages 6–114,
+the module design and `STAGE-HISTORY.md` holds the stage-by-stage record behind it (Stages 6–115,
 one section each, indexed at the foot of `ARCHITECTURE.md`); this file is about running it.
 
 ## Requirements
@@ -1463,9 +1463,9 @@ thing.
 columns that make a row findable — the day, the person, the project, the card, the words, and whether
 anybody has talked about it yet. It opens newest-first with nothing filtered. The **Date** heading is also
 the control that reverses it, and the two pickers above the grid cut the sheet to one project or one
-person. The address names the view in use (`?project=3&employee=EMP00005&sort=old&archived=1`), so what you
-are reading is a link you can reload, bookmark or send — and the order and the open half of the sheet, which
-no picker in that form answers for, ride along as hidden fields so the first picker change cannot lose them.
+person. The address names the view in use (`?project=3&employee=EMP00005&sort=old`), so what you
+are reading is a link you can reload, bookmark or send — and the order, which no picker in that form answers
+for, rides along as a hidden field so the first picker change cannot lose it.
 **Clear** is drawn only while a picker is set, and it drops the two pickers and nothing else: a control that
 widened the list by also jumping it back to newest-first and folding the half you are reading would be two
 answers to one press.
@@ -1485,32 +1485,28 @@ read off the database, never off what the form chose to say about the card it po
 project or a card that has since gone, and text past 500 characters are answered the same way: the reason
 under its own field, the popup still open, the characters still in it, nothing written.
 
-Writing rights split once, and the same split answers all four routes: every signed-in account logs a lesson
-under its own name and may tick, archive, edit or delete **its own**; only management may change or delete
-somebody else's. A reader without that right gets no buttons on the row at all, and the popup their click
+Writing rights split once, and the same split answers all three routes: every signed-in account logs a lesson
+under its own name and may tick, edit or delete **its own**; only management may change or delete somebody
+else's. A reader without that right gets no buttons on the row at all, and the popup their click
 opens shows the full text, the project and the card as plain lines with no form inside it — "Logged by … Only
 its author and management can change what a lesson says." Hiding markup is not the check:
-`LessonService.mayWrite` is asked again by `/app/lessons/save`, `/status`, `/archive` and `/delete`, and each
-of them reads the row back rather than trusting the id the page was drawn with — so a lesson that has since
-been deleted, or that has changed hands, cannot be written by the stale row still standing in front of you.
+`LessonService.mayWrite` is asked again by `/app/lessons/save`, `/status` and `/delete`, and each of them
+reads the row back rather than trusting the id the page was drawn with — so a lesson that has since been
+deleted, or that has changed hands, cannot be written by the stale row still standing in front of you.
 
-Two columns answer two questions and are deliberately not one status. **Status** is whether the lesson has
-been talked about, the green `● Discussed` or the grey `● Not discussed` pill; the archive is whether it is
-still in the way. A lesson can be discussed *and* archived, or neither. The tick is the one write that leaves
-a row exactly where it is, so `✓`/`↺` replaces that row's own `<tr>` and your place on the sheet is
-untouched; archiving and deleting move a row between lists, so they redraw the whole sheet and the
-"3 active, 0 archived" line beside the pickers with it. That line lives outside the live region because it is
-the toolbar's and the toolbar is never replaced — it is named as the swap's companion (`data-live-extra`)
-instead, by the pickers and by the row buttons both, since a filter changes that number exactly as a row
-leaving the list does. An archived row gets its `↩` and the bin and no tick box: a lesson somebody put away
-is not also being discussed. Delete is the one write here with no way back, which is why it asks first.
+The one state a row carries is **Status** — whether the lesson has been talked about, the green
+`● Discussed` or the grey `● Not discussed` pill. The tick is the one write that leaves a row exactly where
+it is, so `✓`/`↺` replaces that row's own `<tr>` and your place on the sheet is untouched. Delete moves a row
+off the sheet, so it redraws the whole sheet and the "3 lessons" line beside the pickers with it. That line
+lives outside the live region because it is the toolbar's and the toolbar is never replaced — it is named as
+the swap's companion (`data-live-extra`) instead, by the pickers and by the delete button both, since a
+filter changes that number exactly as a row leaving the list does. Delete is the one write here with no way
+back, which is why it asks first.
 
-The **Archived** heading prints even with nothing under it, because it is where archived lessons live and a
-sheet that only admits the place exists once something has been put in it reads as a sheet with a hidden
-half; what is *not* printed when that list is shut, or open and empty, is a second table of nothing — the
-toggle says so in words instead. The heading is a button of the toolbar's own form (`form="llFilter"`, the
-same arrangement the date column's control uses), which is what lets it live inside the region it re-renders
-without nesting a form in a form, and it puts `?archived=1` in the address bar like any other view key.
+**The archive is gone (Stage 116).** The sheet used to carry an **Archived** heading and an archive/restore
+button on each row; since projects are not archived in practice, the whole affordance came out rather than
+sit there unused. The `archived` column stays on the table so rows put away before then are still data, but
+nothing prints them, nothing counts them and no route offers to bring one back.
 
 Under the page this is the same `lessons` table the importer filled, widened (V9) rather than replaced: a V1
 row was already the same *kind* of fact — a piece of text about a project — and a second table would have
@@ -1524,9 +1520,8 @@ The carry-overs show with no employee, no card, no date and status `Not discusse
 never a peer's to write. Author, card and project are all `ON DELETE SET NULL`: a lesson outlives the person
 who logged it, the card it came from, and the project it was about, because what it says is the most useful
 thing on the sheet and not a dependent row to clean up after. The sidebar pill beside **Lesson learnt**
-counts the active list, so a lesson somebody archived has stopped asking for attention. With JavaScript
-switched off, `+ Add lesson`, the tick, the archive and the bin are ordinary forms to the same routes and the
-page that comes back says the same thing.
+counts that list. With JavaScript switched off, `+ Add lesson`, the tick and the bin are ordinary forms to
+the same routes and the page that comes back says the same thing.
 
 ## Settings and the Team sheet
 
@@ -1946,9 +1941,9 @@ Logs roll at midnight and at 10 MB, keep 14 days, and cap at 200 MB
   no **+ New role** and no **Edit** anywhere on it. Within Other tasks the whole board is management's: writing a
   card, naming a column, renaming and deleting one and the `⋮` are all management's, and `POST /app/other-buckets` and
   the save endpoint's column branch check the role again before the (still role-permissive) service is reached. A lesson splits the same way (Stage 44), but by authorship rather than by
-  field: every account may log one and may tick, archive, edit or delete **the rows logged under its own employee
+  field: every account may log one and may tick, edit or delete **the rows logged under its own employee
   number**, while somebody else's lesson is management's alone. `LessonService.mayWrite` decides that once and is
-  asked again by all four lesson routes, each of which reads the row back instead of trusting the id the page was
+  asked again by all three lesson routes, each of which reads the row back instead of trusting the id the page was
   drawn with — so a lesson that has since been deleted, or that has changed hands, cannot be written by the stale row
   still on the screen. A row with no author (a V1 carry-over) is management's to tidy and never a peer's to claim.
   Editing a task is
@@ -2199,6 +2194,8 @@ shouting:
 
 Renaming a card, dragging it between columns, and changing a due date notify nobody. Losing an
 assignment notifies the person who lost it not at all — only the new holder hears.
+
+The notice depends on **who holds the card, never on its status**. Work is often under way — or already finished — by the time somebody writes it down, so a card entered as *In progress* or *Completed* tells its assignee exactly like one saved as *Not started*, bell row and mail attempt alike, and moving a card that is already under way still tells the person it moved to. Only the status changes; the notice does not.
 
 `read_at = ''` means unread; that single column is the badge count, the dot on each row, and what
 "Mark all read" flips. Opening a row is `GET /app/notifications/{id}/open`, which marks it read and
@@ -2615,14 +2612,14 @@ configuration, and it is the one to settle first: it decides what you can safely
    comes back to the same sheet having written nothing. Create one project with **Status** set to `Completed` and it
    is not in its panel's grid at all: it prints below those rows, in **Completed projects — invoiced**, carrying
    whatever its ledger actually holds, and its tab's pill counts it.
-   Then read the lesson sheet (Stage 44). `/app/lessons` lists every active lesson newest first, each under its
+   Then read the lesson sheet (Stage 44). `/app/lessons` lists every lesson newest first, each under its
    author's initials, the project's number and the card it came from. `+ Add lesson` opens the popup, which asks
    four things and never asks *who* — save one and it stands at the top of the sheet under your own name, the list
-   and the "N active, M archived" line redrawn and the page not reloading. Press `✓` on your row and that row
-   alone redraws, its pill green and nothing else moved; press `⏸` and the row leaves the list for the
-   **Archived** heading below it, whose count moves with it, and `↩` brings it back. Choose a card that belongs to
-   another project and the popup comes back open, holding your words, with the reason under the card field and
-   nothing written. Sign in as the `Viewer` on the same sheet: their own row carries its buttons, a lesson logged
+   and the "N lessons" line redrawn and the page not reloading. Press `✓` on your row and that row alone
+   redraws, its pill green and nothing else moved; the bin asks and then takes the row off the sheet, the count
+   moving with it. There is no Archived heading any more (Stage 116), and no row carries an archive button.
+   Choose a card that belongs to another project and the popup comes back open, holding your words, with the
+   reason under the card field and nothing written. Sign in as the `Viewer` on the same sheet: their own row carries its buttons, a lesson logged
    by somebody else carries none and opens to be read rather than written, and a hand-built
    `POST /app/lessons/delete` naming that row comes back to the same sheet having deleted nothing. The rows the
    importer carried over print with no employee, no date and no card, and sit at the end of the list whichever way
@@ -2767,9 +2764,9 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-694 tests in 47 classes — 28 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
-**Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**) and the tab icon's
-one render test (**Stage 112**).
+697 tests in 47 classes — 31 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+**Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
+one render test (**Stage 112**), the tab's title case (**Stage 115**) and the assignment notice's two status-blind cases (**Stage 116**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2846,6 +2843,8 @@ and the new `LoginPageRenderTest` reads the form: lowercase example, `autocapita
 `/static/assets/favicon.png` href, and its position before the first stylesheet. **Stage 113** changed only the PNG's
 pixels — the tab then wore the wordmark's emblem instead of its M — and **Stage 114** changed them again, to a
 transparent crop of the logo cut like murrays.mn's own favicon — so that case, and the count, still pass unchanged.
+**Stage 115** adds the tab's title case: `<title>MPTS</title>` on every page, so neither the long system name nor
+a per-page suffix can quietly return to the tab.
 **Stage 101** adds the late-step render regression and changes the finished-card service
 case to prove new steps stay unticked until worked or finished. **Stage 100** moved the total by nothing and rewrote the bucket tests around the new rule: a
 shared `TestBoards.seedOpeningThree` / `seedOpeningThreeFor` fixture writes the legacy trio into a board or a catalogue

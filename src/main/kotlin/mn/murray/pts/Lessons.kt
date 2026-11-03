@@ -58,9 +58,9 @@ import java.time.format.DateTimeFormatter
  *    (`app.js`), so choosing a project fetches and swaps the sheet — the toolbar is never replaced.
  *  * the date column's header is a `<button name="sort">` **inside** the region that points back at
  *    that form with `form="llFilter"`, so the order flips in place and the pickers ride with it.
- *  * each row's three buttons are forms of their own. Ticking a lesson swaps only that row;
- *    archiving or deleting one swaps the whole sheet, because the row is changing list — and the
- *    "N active, M archived" line beside the pickers swaps with it, from the same response.
+ *  * each row's two buttons are forms of their own. Ticking a lesson swaps only that row;
+ *    deleting one swaps the whole sheet, because the row is changing list — and the lesson count
+ *    beside the pickers swaps with it, from the same response.
  *  * the popup opens by URL (`?new=1`, `?edit=<id>`) and is a block like the backlog's, so a reader
  *    with scripts switched off still gets the same form on a fresh page load.
  *
@@ -82,8 +82,7 @@ fun DIV.lessonsContent(
         if (board.isEmpty) {
             lessonEmpty(filter)
         } else {
-            if (board.active.isNotEmpty()) lessonTable(board.active, filter)
-            lessonArchived(board, filter)
+            lessonTable(board.active, filter)
         }
     }
     lessonModal(form, projects, tasks, filter)
@@ -101,7 +100,7 @@ fun DIV.lessonsContent(
  *
  * The count line is outside the live region because it is the toolbar's, not the sheet's, and it is
  * named as a companion (`data-live-extra`) of both kinds of send: the pickers change it as much as a
- * row being archived does, and a "3 active" beside a board that filtered down to five rows is the
+ * row being deleted does, and a "3 lessons" beside a board that filtered down to five rows is the
  * half-updated page this mechanism exists to prevent.
  */
 private fun DIV.lessonToolbar(filter: LessonFilter, projects: List<Project>, employees: List<Member>, board: LessonBoard) {
@@ -128,25 +127,22 @@ private fun DIV.lessonToolbar(filter: LessonFilter, projects: List<Project>, emp
                 }
             }
             // Clearing the two pickers is the reader's whole question, so the address it loads keeps the
-            // order they set and the archive they had open: a control that widened the list by also
-            // jumping it back to newest-first and folding the half they are reading would be two answers
-            // to one press.
+            // order they set: a control that widened the list by also jumping it back to newest-first
+            // would be two answers to one press.
             if (filter.isActive) {
                 a(classes = "board-reset", href = filter.copy(project = 0, employee = "").queryFor()) { +"Clear" }
             }
-            // Only the two view keys the form does not already hold as fields ride along. The pickers
+            // Only the one view key the form does not already hold as a field rides along. The pickers
             // answer for `project` and `employee` themselves, and a duplicate name in a GET form is a
-            // address that states the same choice twice — `?project=3&project=5`. The order and the open
-            // half of the sheet have no control of their own in here, so they would otherwise be lost by
-            // the first picker change: a sheet sorted oldest-first and showing its archive must still be
-            // that sheet after the reader picks a project, not the default view with a row missing.
+            // address that states the same choice twice — `?project=3&project=5`. The order has no
+            // control of its own in here, so it would otherwise be lost by the first picker change: a
+            // sheet sorted oldest-first must still be that sheet after the reader picks a project.
             if (filter.oldestFirst) input(type = InputType.hidden, name = "sort") { value = "old" }
-            if (filter.showArchived) input(type = InputType.hidden, name = "archived") { value = "1" }
         }
         div("ll-tail") {
             span("ll-counts") {
                 id = "ll-counts"
-                +"${board.activeCount} active, ${board.archivedCount} archived"
+                +"${board.activeCount} ${if (board.activeCount == 1) "lesson" else "lessons"}"
             }
             addLessonForm(filter)
         }
@@ -178,8 +174,7 @@ private fun DIV.addLessonForm(filter: LessonFilter) {
 }
 
 /**
- * The pickers, the order and the open half of the sheet, carried into a GET form that is not the
- * toolbar's.
+ * The pickers and the order, carried into a GET form that is not the toolbar's.
  *
  * A row write or an opener that dropped them would answer on a different sheet than the one the
  * reader is standing on: the row they just touched could move out from under them, or the popup
@@ -190,24 +185,19 @@ private fun FORM.viewCarriage(filter: LessonFilter) {
     if (filter.project != 0) input(type = InputType.hidden, name = "project") { value = "${filter.project}" }
     if (filter.employee.isNotEmpty()) input(type = InputType.hidden, name = "employee") { value = filter.employee }
     if (filter.oldestFirst) input(type = InputType.hidden, name = "sort") { value = "old" }
-    if (filter.showArchived) input(type = InputType.hidden, name = "archived") { value = "1" }
 }
 
 /**
- * The same view for a form that writes: the four keys under `board_*`, as the forecast sheet carries
+ * The same view for a form that writes: the three keys under `board_*`, as the forecast sheet carries
  * its toolbar.
  *
- * The prefix is not decoration here. A row's own form posts an `archived` state and a lesson's form
- * posts the `project` it is about — the same two names the sheet uses for which rows to show and
- * which project to show them under. Un-prefixed, a restore pressed while the archived list is open
- * would arrive stating the state twice, and the popup would answer with the row filed back in the
- * archive it was being brought out of.
+ * The prefix is not decoration here. A lesson's form posts the `project` it is about — the same name
+ * the sheet uses for which rows to show. Un-prefixed, a save would arrive stating the choice twice.
  */
 private fun FORM.boardCarriage(filter: LessonFilter) {
     if (filter.project != 0) input(type = InputType.hidden, name = "board_project") { value = "${filter.project}" }
     if (filter.employee.isNotEmpty()) input(type = InputType.hidden, name = "board_employee") { value = filter.employee }
     if (filter.oldestFirst) input(type = InputType.hidden, name = "board_sort") { value = "old" }
-    if (filter.showArchived) input(type = InputType.hidden, name = "board_archived") { value = "1" }
 }
 
 /** The active list: the seven columns the sheet is read by. */
@@ -310,32 +300,28 @@ private fun TD.lessonText(entry: LessonEntry, filter: LessonFilter) {
 }
 
 /**
- * The row's three buttons, for the reader who may write it: the discussion state, the bin, and the
- * archive. An archived row gets the archive back out and the bin, and nothing else — a lesson that
- * has been put away is not also being discussed.
+ * The row's two buttons, for the reader who may write it: the discussion state and the bin.
  *
- * Nobody else sees any of them. That is presentation of a right and not the right itself:
+ * Nobody else sees either. That is presentation of a right and not the right itself:
  * [LessonService] decides again on every one of these routes.
  */
 private fun TD.lessonActions(entry: LessonEntry, filter: LessonFilter) {
     if (!entry.mayEdit) return
     div("icon-btns") {
-        if (!entry.archived) {
-            rowForm(
-                id = entry.id,
-                action = "/app/lessons/status",
-                // A row that only changes state stays exactly where it is, so the send replaces that
-                // one `<tr>` and the reader's place on the sheet is untouched.
-                target = "#ll-row-${entry.id}",
-                extra = null,
-                filter = filter,
-                glyph = if (entry.discussed) "↺" else "✓",
-                hint = if (entry.discussed) "Mark it not discussed" else "Mark it discussed",
-                fields = {
-                    input(type = InputType.hidden, name = "discussed") { value = if (entry.discussed) "0" else "1" }
-                },
-            )
-        }
+        rowForm(
+            id = entry.id,
+            action = "/app/lessons/status",
+            // A row that only changes state stays exactly where it is, so the send replaces that
+            // one `<tr>` and the reader's place on the sheet is untouched.
+            target = "#ll-row-${entry.id}",
+            extra = null,
+            filter = filter,
+            glyph = if (entry.discussed) "↺" else "✓",
+            hint = if (entry.discussed) "Mark it not discussed" else "Mark it discussed",
+            fields = {
+                input(type = InputType.hidden, name = "discussed") { value = if (entry.discussed) "0" else "1" }
+            },
+        )
         rowForm(
             id = entry.id,
             action = "/app/lessons/delete",
@@ -346,18 +332,6 @@ private fun TD.lessonActions(entry: LessonEntry, filter: LessonFilter) {
             hint = "Delete this lesson",
             confirm = "Delete this lesson? It cannot be brought back.",
             fields = {},
-        )
-        rowForm(
-            id = entry.id,
-            action = "/app/lessons/archive",
-            target = "#ll-board",
-            extra = "#ll-counts",
-            filter = filter,
-            glyph = if (entry.archived) "↩" else "⏸",
-            hint = if (entry.archived) "Restore this lesson" else "Archive this lesson",
-            fields = {
-                input(type = InputType.hidden, name = "archived") { value = if (entry.archived) "0" else "1" }
-            },
         )
     }
 }
@@ -391,42 +365,6 @@ private fun DIV.rowForm(
             attributes["aria-label"] = hint
             if (confirm != null) attributes["data-confirm"] = confirm
             +glyph
-        }
-    }
-}
-
-/**
- * The Archived heading and, when it is open, the rows underneath it.
- *
- * The heading is always printed, because the picture prints it with nothing in the list: it is where
- * archived lessons live, and a sheet that only admits the place exists once something has been put
- * in it reads as a sheet with a hidden half. What is *not* printed when the list is empty is a
- * second table of nothing — the toggle says so in words instead.
- *
- * The heading is a button of the toolbar's form rather than a form of its own (`form="llFilter"`, the
- * same arrangement the date column's control and the forecast sheet's month controls use). That is
- * what lets it live inside the live region it re-renders without nesting a form in a form, it puts
- * `?archived=1` in the address bar like any other view key, and the pickers ride along because they
- * are that form's own fields.
- */
-private fun DIV.lessonArchived(board: LessonBoard, filter: LessonFilter) {
-    div("ll-archived") {
-        button(type = ButtonType.submit, classes = "ll-arch-toggle") {
-            attributes["form"] = "llFilter"
-            name = "archived"
-            value = if (filter.showArchived) "0" else "1"
-            attributes["aria-expanded"] = filter.showArchived.toString()
-            attributes["title"] = if (filter.showArchived) "Hide the archived lessons" else "Show the archived lessons"
-            span("ll-arch-caret") { +if (filter.showArchived) "▾" else "▸" }
-            +"Archived"
-            span("pill") { +"${board.archivedCount}" }
-        }
-        if (filter.showArchived) {
-            if (board.archived.isEmpty()) {
-                p("task-meta") { +"Nothing has been archived." }
-            } else {
-                lessonTable(board.archived, filter)
-            }
         }
     }
 }
@@ -653,11 +591,10 @@ fun lessonFilterOf(query: Parameters): LessonFilter =
 /**
  * The same sheet as a row's or the popup's form states it.
  *
- * The four keys arrive under `board_*` because the posting form's own fields are the lesson's: an
- * un-prefixed `archived` would be the state the row is being moved to and `project` the project the
- * lesson belongs to. [boardCarriage] writes them prefixed, so reading them back is only a question of
- * taking the prefix off — which is why this hands the plain map to the same [LessonFilter.of] a GET
- * uses and cannot drift from it.
+ * The three keys arrive under `board_*` because the posting form's own fields are the lesson's: an
+ * un-prefixed `project` would be the job the lesson belongs to. [boardCarriage] writes them
+ * prefixed, so reading them back is only a question of taking the prefix off — which is why this
+ * hands the plain map to the same [LessonFilter.of] a GET uses and cannot drift from it.
  */
 fun lessonFilterOfForm(form: Parameters): LessonFilter = LessonFilter.of(
     LESSON_VIEW_KEYS.associateWith { form["board_$it"] }
@@ -668,7 +605,7 @@ fun lessonDraftOf(form: Parameters): LessonDraft = LessonDraft.of(
     LESSON_FORM_KEYS.associateWith { form[it] }
 )
 
-private val LESSON_VIEW_KEYS = listOf("project", "employee", "sort", "archived")
+private val LESSON_VIEW_KEYS = listOf("project", "employee", "sort")
 
 private val LESSON_FORM_KEYS = listOf("id", "text", "project", "task", "on")
 

@@ -20,9 +20,9 @@ import java.time.format.DateTimeFormatter
  *  * **A card pins its lesson to its project.** [LessonDraft] carries both, and they may not
  *    name two different projects: a row that read "M-01250 / a card on S-00005" would be a
  *    statement the sheet cannot check. The refusal says which of the two has to move.
- *  * **Archived is not deleted.** A row that leaves the active list keeps its text, its author and
- *    its date, and comes back the same way it went. The two states are separate columns because
- *    they answer different questions — see V9.
+ *  * **A lesson is read, discussed or deleted.** The archive a row could once be put away in is
+ *    retired (Stage 116); its `archived` column stays so rows put away before then are still data,
+ *    but nothing prints them and nothing writes the flag any more.
  *
  * Rights are decided here and re-checked at every route, exactly as [ProjectService] does: a
  * button the page did not print is not a permission the server granted.
@@ -34,8 +34,8 @@ object LessonService {
         canManage || (entry.isOwned && entry.employeeNumber == employeeNumber)
 
     /**
-     * The sheet: the active list, then the archived one, both cut to the two pickers and ordered by
-     * the date column.
+     * The sheet: every lesson that is not put away, cut to the two pickers and ordered by the date
+     * column.
      *
      * [LessonEntry.mayEdit] is stamped on each row here, so the view asks a row rather than
      * re-deriving the rule — and so a row an ordinary account wrote prints its buttons beside their
@@ -48,11 +48,8 @@ object LessonService {
     ): LessonBoard {
         val rows = LessonRepository.all().map {
             it.copy(mayEdit = mayWrite(it, employeeNumber, canManage))
-        }.filter { filter.matches(it) }
-        return LessonBoard(
-            active = rows.filter { !it.archived }.sortedWith(filter.order),
-            archived = rows.filter { it.archived }.sortedWith(filter.order),
-        )
+        }.filter { filter.matches(it) && !it.archived }
+        return LessonBoard(active = rows.sortedWith(filter.order))
     }
 
     /** What the sidebar pill counts, with no filter and no archive list in the way. */
@@ -140,10 +137,6 @@ object LessonService {
     fun setDiscussed(id: Int, discussed: Boolean, employeeNumber: String, canManage: Boolean): LessonWrite =
         write(id, employeeNumber, canManage) { LessonRepository.setDiscussed(id, discussed) }
 
-    /** The row's home: the active sheet, or the Archived list below it. */
-    fun setArchived(id: Int, archived: Boolean, employeeNumber: String, canManage: Boolean): LessonWrite =
-        write(id, employeeNumber, canManage) { LessonRepository.setArchived(id, archived) }
-
     /** Take the row off the database. The one write on this page that has no way back. */
     fun remove(id: Int, employeeNumber: String, canManage: Boolean): LessonWrite =
         write(id, employeeNumber, canManage) { LessonRepository.remove(id) }
@@ -185,23 +178,17 @@ object LessonService {
 }
 
 /**
- * Which rows the sheet is cut down to, in which order, and whether the archived list is open.
+ * Which rows the sheet is cut down to, and in which order.
  *
  * The two pickers are the picture's own — a project and an employee — and the date column's glyph
  * is the third: newest first is how a sheet of lessons is read, and the flip is there for whoever
  * wants the oldest at the top. An undated carry-over sits at the end of **both**, because a row
  * with no date has no place in a date order and hiding it altogether would be worse.
- *
- * [showArchived] is not a filter — it never decides which rows exist, only which half of the page
- * they are printed in — but it travels with the other three for the same reason they do: every
- * control on this page is a form onto it, and a view key that only the toolbar knows would be lost
- * by the first row write that followed it.
  */
 data class LessonFilter(
     val project: Int = 0,
     val employee: String = "",
     val oldestFirst: Boolean = false,
-    val showArchived: Boolean = false,
 ) {
     val isActive: Boolean get() = project != 0 || employee.isNotEmpty()
 
@@ -211,7 +198,7 @@ data class LessonFilter(
         return true
     }
 
-    /** The order the sheet prints, and the order the Archived list prints in beside it. */
+    /** The order the sheet prints. */
     val order: Comparator<LessonEntry>
         get() = if (oldestFirst) {
             compareBy<LessonEntry> { it.loggedOn.isEmpty() }.thenBy { it.loggedOn }.thenBy { it.id }
@@ -235,7 +222,6 @@ data class LessonFilter(
         if (project != 0) keys += "project=$project"
         if (employee.isNotEmpty()) keys += "employee=${java.net.URLEncoder.encode(employee, "UTF-8")}"
         if (oldestFirst) keys += "sort=old"
-        if (showArchived) keys += "archived=1"
         if (keys.isNotEmpty()) append('?').append(keys.joinToString("&"))
     }
 
@@ -245,16 +231,14 @@ data class LessonFilter(
             project = query["project"]?.trim()?.toIntOrNull() ?: 0,
             employee = query["employee"].orEmpty().trim(),
             oldestFirst = query["sort"]?.trim() == "old",
-            showArchived = query["archived"]?.trim() == "1",
         )
     }
 }
 
-/** The two lists the page prints, in the order it prints them. */
-data class LessonBoard(val active: List<LessonEntry>, val archived: List<LessonEntry>) {
+/** The list the page prints, in the order it prints it. */
+data class LessonBoard(val active: List<LessonEntry>) {
     val activeCount: Int get() = active.size
-    val archivedCount: Int get() = archived.size
-    val isEmpty: Boolean get() = active.isEmpty() && archived.isEmpty()
+    val isEmpty: Boolean get() = active.isEmpty()
 }
 
 /** The raw popup, kept as the form sent it so a refusal can hand the words back. */

@@ -553,16 +553,9 @@ form.ll-text-form { display: block; margin: 0; min-width: 0; }
 .chip.ll-undiscussed::before { background: var(--muted); }
 html[data-theme="dark"] .chip.ll-discussed { background: rgba(139, 195, 74, .16); color: #a5d6a7; }
 html[data-theme="dark"] .chip.ll-discussed::before { background: #a5d6a7; }
-/* The row's three writes: forms that exist only to carry one button each, laid out as the app's
+/* The row's two writes: forms that exist only to carry one button each, laid out as the app's
    other icon-button groups do. */
 .ll-action { display: inline-flex; margin: 0; }
-/* The Archived heading: a control that opens the same sheet's other half, drawn as a heading because
-   that is what it is, and carrying the count in the app's own pill so the number cannot be missed. */
-.ll-archived { margin-top: 20px; }
-.ll-arch-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 0; border: none; background: none;
-    font-size: 14.5px; font-weight: 700; color: var(--title); cursor: pointer; }
-.ll-arch-toggle:hover { color: var(--accent-strong); }
-.ll-arch-caret { font-size: 11px; color: var(--muted); }
 /* The tail of the toolbar: the count line and the add button, opposite the pickers. It is pushed to
    the right rather than sitting after them because the picture counts what the sheet holds, and a
    total belongs where the eye finishes the line. The two pickers are one GET form of their own and the

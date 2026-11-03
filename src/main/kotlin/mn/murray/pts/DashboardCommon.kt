@@ -203,7 +203,8 @@ fun HTML.appPage(
     head {
         meta { charset = "utf-8" }
         meta { name = "viewport"; content = "width=device-width, initial-scale=1" }
-        title("MURRAY PTS — $title")
+        // The tab is one name on every page (Stage 115): the page's own name is the on-screen heading, not the tab.
+        title("MPTS")
         unsafe {
             +("""<link rel="icon" type="image/png" href="/static/assets/favicon.png">""")
             +("""<link rel="stylesheet" href="/static/css/base.css">""")

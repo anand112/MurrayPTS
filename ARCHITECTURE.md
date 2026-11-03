@@ -4,7 +4,7 @@ This document describes the restructured layout the app is built on: the package
 SQLite data model, the security model, the behavior the v2 rewrite had to preserve, and how it is
 tested. Stages 1–9 are complete and the app is launch-ready (see README → Launch checklist).
 
-**The stage-by-stage record — Stages 6 through 114, what each one asked for, decided, shipped,
+**The stage-by-stage record — Stages 6 through 116, what each one asked for, decided, shipped,
 verified and superseded — lives in [STAGE-HISTORY.md](STAGE-HISTORY.md)**, which this file was
 split in two to create on 2026-11-02. Those sections moved verbatim and stay in order; the index
 under [Stage history](#stage-history) links every one of them. Go there for the reasoning behind
@@ -144,7 +144,7 @@ the form, which is why V19 could rename a status with one `UPDATE`. See Stage 12
 | `buckets` | `id` PK, `name`, `position` INT | Kanban columns for other-tasks — the backlog's buckets. **Never seeded**: V1 creates it empty, `V10` seeds only `project_buckets`, `V12` creates `type_default_buckets` empty and `V16` touches only a project's phases, so a fresh database opens **Other tasks** with no columns; every bucket is named by management through `POST /app/other-buckets`. There are therefore **no default buckets** for project-unrelated task work, and nothing on Settings' **Project bucket settings** card reads or writes this table — the two sets are separate on purpose. Naming a column is management's, confirmed by the user on 2026-10-26 (Stage 51's gate). |
 | `project_buckets` | `id` PK, `project_id` FK cascade, `name`, `position` INT | V7, Stage 30: one **project's** lanes — the phases its own cards are filed under. Separate from `buckets` on purpose (see Stage 30). `tasks.project_bucket_id` is `ON DELETE SET NULL`, so removing a lane un-files its cards rather than deleting them. Since **Stage 111** this table is also what a create popup reads *across* projects: `ProjectBucketRepository.allByProject()` groups it by project, `TaskService.lanesByProjectName()` keys that by project **name** (the value the picker posts), and the general board's `+ New task` puts each board into its own option as `data-lanes` — so a project with no rows here is listed with an empty list rather than dropped. |
 | `forecasts` | `id` PK, `project_id` FK, `period`, `hours`, `note` | V1's legacy row set: hours per project per period, kept for the importer. Since Stage 43 **nothing reads it** — the Forecasts page is `project_forecasts` now, and the sidebar pill counts projects instead of these rows. |
-| `lessons` | `id` PK, `title`, `project_id` FK NULL, `summary`, `lesson`, `employee_number` FK NULL, `task_id` FK NULL, `logged_on` (`yyyy-MM-dd`, `''` = undated), `discussed` BOOL, `archived` BOOL (all six since V9) | V1's row set widened in place by V9, Stage 44: the Lesson learnt sheet's own record — the one text the page prints, who logged it, which card it came from, the day, and its two states. `title`/`summary` stay (`title` is `NOT NULL`, no default) and the page prints `lesson`; the repository falls back to the old pair only if `lesson` came through blank; the backfill joins each old pair into `lesson` once, guarded by `WHERE lesson = ''`. All three FKs are `ON DELETE SET NULL`, so a lesson outlives the account, the card and the project it names — an unowned row is management's to tidy. See Stage 44. |
+| `lessons` | `id` PK, `title`, `project_id` FK NULL, `summary`, `lesson`, `employee_number` FK NULL, `task_id` FK NULL, `logged_on` (`yyyy-MM-dd`, `''` = undated), `discussed` BOOL, `archived` BOOL (all six since V9) | V1's row set widened in place by V9, Stage 44: the Lesson learnt sheet's own record — the one text the page prints, who logged it, which card it came from, the day, and its states. **Since Stage 116 the archive is read-only data**: the control, its route and its writes are gone, and `board()` hides `archived = 1` rows; the column stays so rows put away before then are not lost. `title`/`summary` stay (`title` is `NOT NULL`, no default) and the page prints `lesson`; the repository falls back to the old pair only if `lesson` came through blank; the backfill joins each old pair into `lesson` once, guarded by `WHERE lesson = ''`. All three FKs are `ON DELETE SET NULL`, so a lesson outlives the account, the card and the project it names — an unowned row is management's to tidy. See Stage 44. |
 | `todo_lists` | `id` PK, `name`, `done` BOOL, `owner_emp_no` FK, `due`, `position` INT | Explicit `position` column replaces array-order. |
 | `todo_items` | `id` PK, `title`, `done` BOOL, `list_id` FK, `owner_emp_no` FK, `due`, `position` INT | |
 | `pins` | `employee_number` FK, `project_id` FK, PK(both) | Replaces `Map<empNo, List<projectId>>`. |
@@ -216,7 +216,11 @@ Every item below must still work after Stage 9:
   **since Stage 112** the tab icon is a separate derived `/static/assets/favicon.png` (256 px, opaque) named
   by both heads, and `/favicon.ico` is not served — **since Stage 113 it was the wordmark's ring/crosshair
   emblem** on the bar's green field, and **since Stage 114 it is the logo cropped the way murrays.mn crops
-  its own favicon** — the emblem, the bar's start with "MUR", a sliver of MINING SERVICES, on transparency
+  its own favicon** — the emblem, the bar's start with "MUR", a sliver of MINING SERVICES, on transparency.
+  **Since Stage 115 every page's tab is titled MPTS** — `title("MPTS")` in both `appPage` and `loginPage`, so the
+  tab does not change as the reader moves between functions; the page's own name is the on-screen heading
+  (`appPage`'s `title` parameter drives that heading, not the tab) and the long system name survives only as the
+  sign-in page's visible heading
 - [x] Read-only Forecasts and Lessons pages with seed content (now DB-backed) — **both superseded**: Stage 43
   rebuilt Forecasts as the monthly money grid on `project_forecasts` (V8) and Stage 44 rebuilt Lesson learnt as the
   dated, per-person sheet on the widened `lessons` table (V9)
@@ -244,7 +248,7 @@ but is not covered by a committed test.
 ## Stage history
 
 One section per stage, in order, in [STAGE-HISTORY.md](STAGE-HISTORY.md) — from the first
-route/service migration to the latest stage, 2026-11-02's tab icon. The middle column is that section's own
+route/service migration to the latest stage, 2026-11-03's lesson-sheet trim. The middle column is that section's own
 heading text; the right column is its heading's parenthesised tail: the date it landed, whether
 it is live, which migration it carries, which layers it touched. A stage with no date predates
 the convention.
@@ -359,6 +363,8 @@ the convention.
 | [112](STAGE-HISTORY.md#stage-112) | The browser tab carries the wordmark's M on its green bar | 2026-11-02, live, no migration, Kotlin + asset |
 | [113](STAGE-HISTORY.md#stage-113) | The browser tab wears the wordmark's emblem, not its M | 2026-11-02, live, no migration, asset only |
 | [114](STAGE-HISTORY.md#stage-114) | The tab wears the logo the way murrays.mn's tab does | 2026-11-03, live, no migration, asset only |
+| [115](STAGE-HISTORY.md#stage-115) | The tab is titled MPTS | 2026-11-03, live, no migration, Kotlin + test |
+| [116](STAGE-HISTORY.md#stage-116) | Lesson learnt drops its archive, and the assignment notice is verified end to end | 2026-11-03, live, no migration, Kotlin + CSS + test |
 
 **Read the newest few before changing anything they touch.** A section is never trimmed when a
 later stage supersedes it — the superseding stage says so in its own heading and explains what no
