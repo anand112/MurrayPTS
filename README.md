@@ -7,7 +7,7 @@ Kotlin + Ktor, server-rendered HTML, and a single SQLite file.
 This is **v2**. The v1 prototype (JSON file store, plaintext passwords, in-memory sessions) has
 been replaced: the app now runs on SQLite through Exposed with Flyway migrations, bcrypt
 passwords, DB-backed sessions, and a hardened static-asset/CSP layer. `ARCHITECTURE.md` documents
-the module design and `STAGE-HISTORY.md` holds the stage-by-stage record behind it (Stages 6–110,
+the module design and `STAGE-HISTORY.md` holds the stage-by-stage record behind it (Stages 6–114,
 one section each, indexed at the foot of `ARCHITECTURE.md`); this file is about running it.
 
 ## Requirements
@@ -367,7 +367,11 @@ the three gives way to the earliest row, the three take positions 0–2 by name,
 them, and **no card is touched** — a lane with cards in it keeps its name and its cards rather than being dropped and
 un-filing them, which is why a board that was using *Fabrication/Manufacturing* as a working column still shows it, now
 as an editable lane like any other. That is history on the live boards: since **Stage 100** no new board follows V16's
-rule, and no create path reads `DEFAULT_PROJECT_BUCKETS`. The legacy JSON importer still writes the three for every
+rule, and no create path reads `DEFAULT_PROJECT_BUCKETS` — neither the seeding of a board (Stage 100) nor, since
+**Stage 111**, the Sub-category list of the general board's `+ New task` popup, which reads the columns of the project
+chosen in that popup. What still falls back to the three names is `TaskForm.laneChoices`, which is an *edit* half's
+list (a card being refiled by management) and is resolved by name against the board that receives it. The legacy JSON
+importer still writes the three for every
 project it imports, because an import predates any Settings list for the category it is filing.
 
 The bucket picker now lives on the project page alone — the **+ Add bucket** popup and a column's `⋯` — and two rules
@@ -2295,7 +2299,14 @@ configuration, and it is the one to settle first: it decides what you can safely
    board prints only the cards with *their own* employee number on them — the colleague's cards are gone, exactly as
    on a `Viewer`'s copy of the page — and the line *"Only the cards assigned to you are on this board."* sits above it.
    The manager can still press `+ New task` and open a full editor there; it is the *list* that went personal, not the
-   rights. Then create a project and read what its popup asks. It still holds its nine fields and no lane input —
+   rights. Since **Stage 111** that editor is also the one place a card picks its project **inside the popup**: it opens
+   on *— Choose a project —* with **Sub-category** greyed and saying *— Choose a project first —*, and choosing a project
+   puts **that project's own columns** into the Sub-category picker while the reader is still typing — no reload, so the
+   title they wrote is where they left it. Save it with the project left unchosen and it comes back at **200** with
+   *"Choose which project this card is on."* under that picker — and only that one, because the service reads a lane
+   against a project and says nothing about the column until a project is named; choose the project and save with the
+   column left out, and the same round trip answers at **Sub-category** with the chosen project's own columns listed.
+   Then create a project and read what its popup asks. It still holds its nine fields and no lane input —
    no **Task lane 1**, no placeholder naming a default, no sentence about leaving one blank — and since **Stage 92**
    it asks nothing about buckets beyond saying where they come from: no tick-list, no added-bucket box, no
    category-wide tick. What it says instead is *"A new board opens with the buckets this category lists in Settings —
@@ -2756,7 +2767,9 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-687 tests in 47 classes — 21 more than **Stage 109** closed with, in three new files and one rewritten one.
+694 tests in 47 classes — 28 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+**Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**) and the tab icon's
+one render test (**Stage 112**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2829,6 +2842,10 @@ cases for the login spelling rule: `AuthServiceTest` signs in four ways — `emp
 `"  emp0100  "` — and proves each lands on `EMP0100` (session included) while a lowercased password is still refused,
 and the new `LoginPageRenderTest` reads the form: lowercase example, `autocapitalize="none"`, `spellcheck="false"`, no
 `pattern=` on the employee-number box, the case guidance present and the retired forced-change promise absent.
+**Stage 112** adds the tab icon's one case to the same class: one `<link rel="icon">`, `type="image/png"`, the exact
+`/static/assets/favicon.png` href, and its position before the first stylesheet. **Stage 113** changed only the PNG's
+pixels — the tab then wore the wordmark's emblem instead of its M — and **Stage 114** changed them again, to a
+transparent crop of the logo cut like murrays.mn's own favicon — so that case, and the count, still pass unchanged.
 **Stage 101** adds the late-step render regression and changes the finished-card service
 case to prove new steps stay unticked until worked or finished. **Stage 100** moved the total by nothing and rewrote the bucket tests around the new rule: a
 shared `TestBoards.seedOpeningThree` / `seedOpeningThreeFor` fixture writes the legacy trio into a board or a catalogue
@@ -3286,11 +3303,17 @@ state this stage stops creating rather than forbids, an `ASSIGNED` row with no p
 neither board, is answered twice over: its own account is refused with the sentence that names who can fix it
 (*"This card is on no project yet — ask management to choose one."*) with no other field touched, management naming
 no project for it gets the create's own refusal, and management naming either world lands it whole there.
-`TaskBoardRenderTest` holds the markup's half of the same rule: neither picker offers a blank choice any more —
-*— No project —* is gone from the general board's popup and from a project page's, so nothing on a page can leave a
-card on no project — a create opened on the general board lists the projects and opens on the
-first of the lanes **that** project has — the three it opens with, so **Engineering** unless its manager has retitled
-the board (`a new card on a project page lands on its first lane`) — and a card's own lane is printed, posted and read back
+`TaskBoardRenderTest` holds the markup's half of the same rule: neither picker offers a blank choice that **files** a
+card — *— No project —* is gone from the general board's popup and from a project page's, so nothing on a page can leave
+a card on no project. Since **Stage 111** the general board's create does print a blank, but only as the question it is
+still answering: it opens on *— Choose a project —* with exactly one selected option and a greyed Sub-category saying
+*— Choose a project first —*, and every project option carries **its own** board as a `data-lanes` list — including a
+board with nothing on it, which says *— This project has no column yet —*, and a name whose characters had to be
+escaped, which must still parse back. A project page's create is the unchanged half: the page names the project, so it
+opens on the first of the lanes **that** board has (`a new card on a project page lands on its first lane`), prints no
+marker and no blank. A create that came back refused comes back **holding the project the reader picked**, that
+project's columns listed, the borrowed name absent from the list, the field open and one `p.field-err` under its own
+field — and a backlog create is not asked which project it is on. Then a card's own lane is printed, posted and read back
 by **name**, with a project's
 extra lanes standing after the three both on its board and in its picker. What Stage 75 moved is *whose* names those are:
 the popup lists the three **and** the lanes this project added for itself, and a card filed in a lane the general board
@@ -3512,7 +3535,8 @@ way the board's stylesheet is read: it knows the panel by name, listens for `pag
 New `ResponseCachingTest` (3 tests) is the other half, and it is where the header is held: `isServerDrawnPage` answers
 yes for `/`, `/login`, `/logout`, `/app` and every `/app/…` (the pages whose bytes are only true for the instant they were
 drawn), no for `/static/**`, `/files` and `/favicon.ico` (the same bytes for every reader, where caching is a win and
-correctness is not at stake), and the third test pins the *emission* in `SecurityHeaders.kt` by position — the guard, the
+correctness is not at stake — `/favicon.ico` is a path left outside the `no-store` guard, not a file this app serves: it
+answers 404, and since **Stage 112** every page names `/static/assets/favicon.png` instead), and the third test pins the *emission* in `SecurityHeaders.kt` by position — the guard, the
 `call.request.path()` it runs against, and the `Cache-Control: no-store` it sends, inside a window short enough that a
 header moved out of the guarded block fails. It started as a regex and was replaced for a reason worth keeping: matching
 `if (isServerDrawnPage(path)) {` needs the two closes of the call *and* the one from `if (`, and the `\s*\{` that follows

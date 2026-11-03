@@ -26,4 +26,17 @@ class LoginPageRenderTest {
         assertTrue(password!!.contains("type=\"password\""))
         assertTrue(password.contains("autocomplete=\"current-password\""))
     }
+
+    @Test
+    fun `the tab carries the brand icon, named before the stylesheet`() {
+        val html = createHTML().html { loginPage(error = null) }
+        val icon = Regex("<link[^>]*rel=\"icon\"[^>]*>").find(html)?.value
+        assertNotNull(icon, "the head names no tab icon")
+        assertTrue(icon!!.contains("type=\"image/png\""), "the icon is the derived PNG, not a browser-guessed path")
+        assertTrue(icon.contains("href=\"/static/assets/favicon.png\""), "the icon's href is not the static asset")
+        assertTrue(
+            html.indexOf("rel=\"icon\"") < html.indexOf("rel=\"stylesheet\""),
+            "the icon should be named before the stylesheets, as every other head in the app does",
+        )
+    }
 }

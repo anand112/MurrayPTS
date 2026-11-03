@@ -205,6 +205,7 @@ fun HTML.appPage(
         meta { name = "viewport"; content = "width=device-width, initial-scale=1" }
         title("MURRAY PTS — $title")
         unsafe {
+            +("""<link rel="icon" type="image/png" href="/static/assets/favicon.png">""")
             +("""<link rel="stylesheet" href="/static/css/base.css">""")
             +("""<link rel="stylesheet" href="/static/css/app.css">""")
         }

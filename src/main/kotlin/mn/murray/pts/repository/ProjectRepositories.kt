@@ -316,6 +316,25 @@ object ProjectBucketRepository {
         ProjectBuckets.selectAll().associate { it[ProjectBuckets.id] to it[ProjectBuckets.name] }
     }
 
+    /**
+     * Every board's lanes at once, keyed by project id and in each board's own order.
+     *
+     * One read for the create popup that stands on no project — the general board's `+ New task`, where the
+     * reader picks which board the card lands on *inside* the popup, so the column list has to be knowable for
+     * every project before any one of them is chosen. Reading it per project would be one query per option.
+     * A project with no row here has no columns, which the popup says rather than leaving an empty picker.
+     */
+    fun allByProject(): Map<Int, List<ProjectBucket>> = transaction {
+        ProjectBuckets.selectAll()
+            .orderBy(
+                ProjectBuckets.projectId to SortOrder.ASC,
+                ProjectBuckets.position to SortOrder.ASC,
+                ProjectBuckets.id to SortOrder.ASC,
+            )
+            .map { map(it) }
+            .groupBy { it.projectId }
+    }
+
     fun find(id: Int): ProjectBucket? = transaction {
         ProjectBuckets.selectAll().where { ProjectBuckets.id eq id }.firstOrNull()?.let { map(it) }
     }

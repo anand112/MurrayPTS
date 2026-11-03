@@ -33,7 +33,10 @@ fun HTML.loginPage(error: String?) {
         meta { charset = "utf-8" }
         meta { name = "viewport"; content = "width=device-width, initial-scale=1" }
         title("MURRAY Project Tracking System (PTS)")
-        unsafe { +("""<link rel="stylesheet" href="/static/css/base.css">""") }
+        unsafe {
+            +("""<link rel="icon" type="image/png" href="/static/assets/favicon.png">""")
+            +("""<link rel="stylesheet" href="/static/css/base.css">""")
+        }
     }
     body {
         themeToggle()

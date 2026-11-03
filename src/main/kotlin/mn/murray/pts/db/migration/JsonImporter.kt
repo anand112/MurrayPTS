@@ -41,7 +41,8 @@ data class ImportSummary(
  * `*.migrated-<timestamp>` so it is never imported twice (and is kept as a backup).
  *
  * A corrupt JSON file is logged and skipped — we never silently overwrite an existing DB
- * with demo data (that was a legacy data-loss risk; see ARCHITECTURE.md → Migration plan).
+ * with demo data (that was a legacy data-loss risk; see README → Configuration, whose
+ * `PTS_DATA_FILE` and `PTS_SEED_DEMO` rows state the same two guards).
  */
 object JsonImporter {
 

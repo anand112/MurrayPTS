@@ -73,6 +73,15 @@ data class TaskForm(
      */
     val lanes: List<ProjectBucket> = emptyList(),
     /**
+     * Every project's own columns, keyed by project **name** — the popup's only list for a create that stands on
+     * no particular project. Since **Stage 111** the general board's `+ New task` asks which project the card is
+     * for inside the popup, so the Sub-category picker cannot be one fixed list: it is the chosen project's, and
+     * the reader changes the project without leaving the form. Filled by [mn.murray.pts.service.TaskService.lanesByProjectName]
+     * on that one form and left empty everywhere else, where [laneChoices] already knows the board — a project
+     * page from its own [lanes], an edit from the row it was loaded from.
+     */
+    val lanesByProject: Map<String, List<String>> = emptyMap(),
+    /**
      * The Other tasks board's columns (Stage 42), so a **backlog** popup can fill its Column picker. Since
      * Stage 48 management's edit popup carries them for a project card too, because the "where it lives"
      * picker can send that card onto that board and the column has to be chosen in the same form — so their
@@ -419,6 +428,73 @@ const val BACK_OTHER = "other"
  * choose a world for the card.
  */
 const val NO_PROJECT_YET = "— No project yet —"
+
+/**
+ * The Project picker's own blank on the **general board's create** (Stage 111): the page names no project, so
+ * the card has none until the reader says which one it is. Unlike [NO_PROJECT_YET] this is not a fact about a
+ * row — it is a question, and it is the answer the route refuses a create with
+ * (*"Choose which project this card is on."*) when the field is left as it came.
+ */
+const val CHOOSE_A_PROJECT = "— Choose a project —"
+
+/**
+ * Sub-category picker, no project chosen yet (Stage 111). The columns belong to a board, and this popup has not
+ * named one, so the field says what it is waiting for instead of offering a list from a stranger's project.
+ */
+const val CHOOSE_A_PROJECT_FIRST = "— Choose a project first —"
+
+/**
+ * Sub-category picker for a chosen project whose board has no columns (Stage 111). Every board is created with
+ * at least one (Stage 100), so this is a board somebody has emptied since — said plainly, rather than as an
+ * empty drop-down that looks like a broken field.
+ */
+const val NO_COLUMN_ON_BOARD = "— This project has no column yet —"
+
+/**
+ * Sub-category picker for a refused create (Stage 111): the project above it does have columns, and the answer
+ * this form carried is not one of them — the board was renamed, or the card arrived here from a picker that has
+ * since changed. The field's own message says what to do; this says why the picker cannot show what was posted,
+ * which is the one thing [NO_COLUMN_ON_BOARD] must not be made to mean when the board plainly has columns.
+ */
+const val NOT_A_COLUMN_OF_THIS_PROJECT = "— Not a column of this project —"
+
+/**
+ * One project's columns as a JSON array, for the create popup's `data-lanes` attribute — the list
+ * `task-modal.js` refills the Sub-category picker from when the reader changes the project (Stage 111).
+ *
+ * The names are free text typed in Settings, so they are escaped for JSON rather than trusted: quote,
+ * backslash, the control characters. `<` and `&` go out as unicode escapes too, which keeps the attribute free
+ * of anything a page parser might read as markup or as an entity it has to resolve — a `&` that arrives as
+ * `&amp;` in the parsed attribute is a broken JSON escape, and the reader would get an empty picker for a board
+ * that has columns.
+ */
+fun laneOptionsJson(names: List<String>): String =
+    names.joinToString(separator = ",", prefix = "[", postfix = "]") { "\"" + laneNameJson(it) + "\"" }
+
+/** `\\uXXXX` for a character that has no JSON escape of its own, in lower-case hex. */
+private fun StringBuilder.appendJsonEscape(code: Int) {
+    append(BACKSLASH).append('u').append(code.toString(16).padStart(4, '0'))
+}
+
+private const val BACKSLASH = '\\'
+
+private fun laneNameJson(name: String): String = buildString {
+    for (c in name) {
+        when (c.code) {
+            0x22 -> append(BACKSLASH).append('"')
+            0x5C -> append(BACKSLASH).append(BACKSLASH)
+            0x08 -> append(BACKSLASH).append('b')
+            0x09 -> append(BACKSLASH).append('t')
+            0x0A -> append(BACKSLASH).append('n')
+            0x0C -> append(BACKSLASH).append('f')
+            0x0D -> append(BACKSLASH).append('r')
+            // `&` and `<` are the two that a page can change on the way to the script, so they never travel raw.
+            0x26 -> appendJsonEscape(0x26)
+            0x3C -> appendJsonEscape(0x3C)
+            else -> if (c.code < 0x20) appendJsonEscape(c.code) else append(c)
+        }
+    }
+}
 
 /**
  * Which board the popup says the card lives on (Stage 48): [BOARD_PROJECT] or [BOARD_OTHER], or null when the
@@ -1148,7 +1224,15 @@ fun DIV.taskFormModal(
     // carries no project — it prints that as a placeholder, and saving it stays refused until management chooses
     // a world for the card.
     val wanted = v.projectName.ifBlank { fixedProject?.name.orEmpty() }
+    // **Stage 111:** the general board's `+ New task` is the one create that picks its project *inside* the
+    // popup, so it opens on no project at all, and its Sub-category list is that project's own columns rather
+    // than the legacy trio [TaskForm.laneChoices] falls back to. Every other form here already names the board
+    // the card belongs to — a project page through [fixedProject], an edit through the row it was loaded from —
+    // and those keep behaving exactly as they did.
+    val choosesProject = !state.isEdit && !state.showsBacklog && fixedProject == null &&
+        state.mayWriteCard && state.lanesByProject.isNotEmpty()
     val selectedProject = when {
+        choosesProject -> wanted.takeIf { it in projectNames }.orEmpty()
         wanted.isNotEmpty() && wanted in projectNames -> wanted
         wanted.isNotEmpty() -> projectNames.firstOrNull().orEmpty()
         state.isEdit -> ""
@@ -1174,12 +1258,22 @@ fun DIV.taskFormModal(
     // Where a lane or a column picker has nothing to offer: an edit leaves the field out of the post (so the
     // card keeps the place it is in) and the popup says why there is no choice to make.
     val noColumns = state.showsBacklog && state.backlogColumns.isEmpty()
+    // Which columns this picker offers at all. On the general board's create that is the project chosen above it,
+    // read out of the popup's own per-project list — and with no project chosen yet, nothing. Everywhere else it
+    // is [TaskForm.laneChoices]: this page's board, or the row's, exactly as it has always been.
+    val laneOptions = if (choosesProject) state.lanesByProject[selectedProject] ?: emptyList() else state.laneChoices
     // Which sub-category the Lane picker opens on. An edit reads what the form posted and, behind that, the lane
     // the row is in; a create reads the lane its `+ Add task` line was pressed under and, behind that, the first
     // one on the board — because **Unsorted is where the cards that arrived before this rule rest, not a place
     // to send one** (Stage 48), so a new card is never aimed at it and a row with no lane opens on a placeholder
     // that has to be answered before anything else on the form saves.
     val currentLane: String? = when {
+        // On the general board's create the picker answers to the project chosen above it: what the form posted
+        // if that project really has that column, otherwise the first column on that board — the same default a
+        // project page's create has. With no project chosen there is no column to open on, which is the state the
+        // placeholder below speaks for.
+        choosesProject -> (v.projectLane?.trim()?.ifBlank { null } ?: laneOptions.firstOrNull())
+            ?.takeIf { it in laneOptions }
         v.projectLane != null -> v.projectLane.trim().ifBlank { null }
         else -> state.task?.projectBucket?.trim()?.ifBlank { null }
             ?: if (state.isEdit) null else state.laneChoices.firstOrNull()
@@ -1187,8 +1281,7 @@ fun DIV.taskFormModal(
     // A lane this picker does not list is still the card's lane: a project's extra sub-categories are offered on
     // that project's board only, so the same card opened from the general board would otherwise show a choice it
     // never made. It prints after the three, the way it prints after them on the board.
-    val laneNames = state.laneChoices +
-        listOfNotNull(currentLane?.takeIf { it !in state.laneChoices })
+    val laneNames = laneOptions + listOfNotNull(currentLane?.takeIf { it !in laneOptions })
     // Which half of the form the card is filed under. A popup that offers the choice ships **both** and leaves
     // one of them hidden, so the reader can switch and see the fields they are switching to without the page
     // moving under them — and because the service reads [TaskDraft.board] to decide which half it takes, a
@@ -1399,6 +1492,11 @@ fun DIV.taskFormModal(
                                 name = "project"
                                 id = "taskProject"
                                 disabled = readOnly || pinned
+                                // The marker `task-modal.js` fills the Sub-category picker from. It is on the
+                                // picker that can change its answer in the popup, which is this one and only on
+                                // the general board's create; a `fixedProject` page's create has one board and an
+                                // edit has a row, so neither needs a list that moves.
+                                if (choosesProject) attributes["data-lane-fill"] = "true"
                                 if (readOnly || pinned) {
                                     // Either a card whose project belongs to management, or a new card whose
                                     // project is the page it was opened from. One option either way, so the
@@ -1409,18 +1507,28 @@ fun DIV.taskFormModal(
                                     // or it is on the Other tasks board, and a form that cannot say which has
                                     // picked has to be told. The one blank this picker can show is a row that
                                     // arrived before the rule, and it prints as what it is rather than as an
-                                    // answer somebody could choose.
+                                    // answer somebody could choose. **Since Stage 111** a create opened on the
+                                    // general board starts on the same blank, and says what to do about it:
+                                    // choose a project, and its columns come up below.
                                     if (selectedProject.isEmpty()) {
                                         option {
                                             value = ""
                                             selected = true
-                                            +NO_PROJECT_YET
+                                            +if (choosesProject) CHOOSE_A_PROJECT else NO_PROJECT_YET
                                         }
                                     }
                                     projectNames.forEach { name ->
                                         option {
                                             value = name
                                             selected = name == selectedProject
+                                            // The board's own columns, in board order, riding on the option that
+                                            // names that board: `task-modal.js` reads this and refills the
+                                            // Sub-category picker when the project changes, so the two pickers
+                                            // never disagree and the page never moves.
+                                            if (choosesProject) {
+                                                attributes["data-lanes"] =
+                                                    laneOptionsJson(state.lanesByProject[name] ?: emptyList())
+                                            }
                                             +name
                                         }
                                     }
@@ -1429,10 +1537,18 @@ fun DIV.taskFormModal(
                             // Words about making a card, so they belong to a create form this reader is
                             // filling; an edit popup says which project the card is on in its own field.
                             if (!state.isEdit && (state.canEditAll || pinned)) {
-                                fixedProject?.let {
+                                if (choosesProject) {
+                                    // Said before the picker is used, because on this page nothing has decided the
+                                    // card's project yet — the page is the reader's own board, not a project.
                                     span("field-hint") {
-                                        if (pinned) +"New tasks land on ${it.name} — this project is yours to write for."
-                                        else +"New tasks land on ${it.name}; pick another project to move one off this page."
+                                        +"This card lands on whichever project you pick, under one of its columns."
+                                    }
+                                } else {
+                                    fixedProject?.let {
+                                        span("field-hint") {
+                                            if (pinned) +"New tasks land on ${it.name} — this project is yours to write for."
+                                            else +"New tasks land on ${it.name}; pick another project to move one off this page."
+                                        }
                                     }
                                 }
                             }
@@ -1534,14 +1650,31 @@ fun DIV.taskFormModal(
                             select {
                                 name = "lane"
                                 id = "taskLane"
-                                disabled = readOnly
+                                // Greyed while there is no column to offer: no board chosen, or a board that has
+                                // none. `task-modal.js` lifts this the moment a project with columns is picked,
+                                // in place.
+                                disabled = readOnly || (choosesProject && laneOptions.isEmpty())
+                                // The two sentences this field can be in while the project above is being chosen,
+                                // handed to `task-modal.js` as the strings it puts in the option it rebuilds — the
+                                // copy stays server-rendered, so the page and the script cannot drift.
+                                if (choosesProject) {
+                                    attributes["data-ask-project"] = CHOOSE_A_PROJECT_FIRST
+                                    attributes["data-no-columns"] = NO_COLUMN_ON_BOARD
+                                }
                                 if (currentLane == null) {
                                     // Not a choice so much as the card's own state, and the one value the route
-                                    // answers with a refusal for unless the row has no lane to keep.
+                                    // answers with a refusal for unless the row has no lane to keep. On the
+                                    // general board's create the two states above the field are said in their own
+                                    // words: no project chosen, or a board that has no column to file under.
                                     option {
                                         value = ""
                                         selected = true
-                                        +"— $UNSORTED_LANES —"
+                                        +when {
+                                            choosesProject && selectedProject.isEmpty() -> CHOOSE_A_PROJECT_FIRST
+                                            choosesProject && laneOptions.isEmpty() -> NO_COLUMN_ON_BOARD
+                                            choosesProject -> NOT_A_COLUMN_OF_THIS_PROJECT
+                                            else -> "— $UNSORTED_LANES —"
+                                        }
                                     }
                                 }
                                 laneNames.forEach { lane ->
@@ -1552,7 +1685,10 @@ fun DIV.taskFormModal(
                                     }
                                 }
                             }
-                            if (!state.isEdit) {
+                            // A project page can promise this sentence because the page fixed the board; the
+                            // general board's create is still being asked which board it is, and a line about the
+                            // column it "lands under" would be a guess the picker contradicts.
+                            if (!state.isEdit && !choosesProject) {
                                 currentLane?.let { span("field-hint") { +"A new card lands under $it." } }
                             }
                             state.error(TaskField.LANE)?.let { p("field-err") { +it } }
@@ -1949,6 +2085,10 @@ private fun kotlinx.html.SELECT.onlyOption(optionValue: String, optionLabel: Str
  * management's copy arrives even for a project card, because their popup can send that card onto that board and
  * the column has to be chosen in the same form; which popup *is* a backlog's is [backlog]'s answer, not the
  * list's. [lanes] and the columns are both filled on a management popup and one on anybody else's.
+ *
+ * [lanesByProject] is the refused general-board create's own answer (Stage 111): the reader picked a project
+ * inside this popup, so the re-render needs every board's column list again or the Sub-category picker they are
+ * being refused on falls back to a list that has nothing to do with the project they chose.
  */
 fun taskFormOf(
     taskId: Int,
@@ -1960,6 +2100,7 @@ fun taskFormOf(
     viewerEmpNo: String = "",
     backlogColumns: List<Bucket> = emptyList(),
     backlog: Boolean = false,
+    lanesByProject: Map<String, List<String>> = emptyMap(),
 ): TaskForm =
     TaskForm(
         taskId = taskId,
@@ -1969,6 +2110,7 @@ fun taskFormOf(
         canCreate = canCreate,
         task = task,
         lanes = lanes,
+        lanesByProject = lanesByProject,
         viewerEmpNo = viewerEmpNo,
         backlogColumns = backlogColumns,
         backlog = backlog,

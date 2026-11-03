@@ -186,7 +186,11 @@ private fun openingTaskForm(
         // form is filled with the lane's **name**, which is what the picker and the post both work in
         // (Stage 48); the id is only ever the board's way of saying which column was pressed.
         val into = query["into"]?.trim()?.toIntOrNull()?.let { id -> lanes.firstOrNull { it.id == id } }
-        return newFormOf(canManage, into = into?.name).copy(lanes = lanes)
+        // A create that stands on no project (the Assigned page's head, and the Other-tasks page's own `?new=1`)
+        // picks its project inside the popup, so the popup is handed every board's columns at once — Stage 111.
+        // A project page's create already has its own board in [lanes] and needs none of that list.
+        return newFormOf(canManage, into = into?.name)
+            .copy(lanes = lanes, lanesByProject = if (pageProjectId == 0) TaskService.lanesByProjectName() else emptyMap())
     }
     val id = query["edit"]?.trim()?.toIntOrNull() ?: return null
     return TaskService.openableBy(id, session.employeeNumber, canManage)?.let { task ->
@@ -1435,6 +1439,15 @@ fun main() {
                     // picker it was filled with — and the card's chosen lane still selected in it (V7). Any
                     // other page's popup lists the three phase names from its own state instead.
                     lanes = if (back == BACK_PROJECT && projectId > 0) TaskService.lanesOf(projectId) else emptyList(),
+                    // ... and a create that was refused on the *general* board keeps the per-project column list
+                    // it was opened with (Stage 111). Without it the Sub-category picker the reader was just
+                    // refused on would fall back to a list taken from no board at all, and the project they
+                    // named would have nothing to say about where the card lands.
+                    lanesByProject = if (taskId == 0 && !backlogCreate && projectId <= 0) {
+                        TaskService.lanesByProjectName()
+                    } else {
+                        emptyMap()
+                    },
                     // Likewise its columns: a refused backlog write comes back with the board's own picker, so
                     // the reader can see what they chose and change it without closing the form. Management gets
                     // them for a project card too, because their popup can send it onto that board and the

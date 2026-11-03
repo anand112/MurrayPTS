@@ -4,7 +4,7 @@ This document describes the restructured layout the app is built on: the package
 SQLite data model, the security model, the behavior the v2 rewrite had to preserve, and how it is
 tested. Stages 1–9 are complete and the app is launch-ready (see README → Launch checklist).
 
-**The stage-by-stage record — Stages 6 through 110, what each one asked for, decided, shipped,
+**The stage-by-stage record — Stages 6 through 114, what each one asked for, decided, shipped,
 verified and superseded — lives in [STAGE-HISTORY.md](STAGE-HISTORY.md)**, which this file was
 split in two to create on 2026-11-02. Those sections moved verbatim and stay in order; the index
 under [Stage history](#stage-history) links every one of them. Go there for the reasoning behind
@@ -114,7 +114,12 @@ src/main/kotlin/mn/murray/pts/
 │   ├── js/calendar-modal.js       ← calendar task-detail modal (delegated, no globals)
 │   ├── js/access-control.js       ← positions add/update/delete via fetch <tr> fragments, and since Stage 110
 │   │                                 the role popup's close/focus/address-cleanup (opening is app.js's live swap)
-│   └── assets/mms-logo.png        ← moved from static/; 301 from the old path
+│   └── assets/                    ← mms-logo.png (the in-page wordmark; moved from static/, 301 from
+│                                     the old path) and favicon.png (Stage 114 — the logo cropped the
+│                                     way murrays.mn crops its own icon: the emblem, the start of the
+│                                     MURRAY bar with "MUR", a sliver of MINING SERVICES, transparent,
+│                                     256 px, named by both heads; it replaced Stage 112's M and
+│                                     Stage 113's emblem tiles)
 ├── db/migration/V1__init.sql      ← Flyway picks up from classpath
 ├── logback.xml
 └── application.conf               ← optional HOCON for Ktor
@@ -137,7 +142,7 @@ the form, which is why V19 could rename a status with one `UPDATE`. See Stage 12
 | `project_assignees` | `project_id` FK, `employee_number` FK, PK(`project_id`,`employee_number`) | Replaces `List<String>`. |
 | `tasks` | `id` PK, `title`, `project_id` FK NULL, `due`, `priority`, `assignee_emp_no` FK NULL, `status`, `bucket`, `project_bucket_id` FK NULL (V7), `started`, `kind` (`ASSIGNED`/`OTHER`), `display_code` | Merges assignedTasks + otherTasks (they're the same shape). |
 | `buckets` | `id` PK, `name`, `position` INT | Kanban columns for other-tasks — the backlog's buckets. **Never seeded**: V1 creates it empty, `V10` seeds only `project_buckets`, `V12` creates `type_default_buckets` empty and `V16` touches only a project's phases, so a fresh database opens **Other tasks** with no columns; every bucket is named by management through `POST /app/other-buckets`. There are therefore **no default buckets** for project-unrelated task work, and nothing on Settings' **Project bucket settings** card reads or writes this table — the two sets are separate on purpose. Naming a column is management's, confirmed by the user on 2026-10-26 (Stage 51's gate). |
-| `project_buckets` | `id` PK, `project_id` FK cascade, `name`, `position` INT | V7, Stage 30: one **project's** lanes — the phases its own cards are filed under. Separate from `buckets` on purpose (see Stage 30). `tasks.project_bucket_id` is `ON DELETE SET NULL`, so removing a lane un-files its cards rather than deleting them. |
+| `project_buckets` | `id` PK, `project_id` FK cascade, `name`, `position` INT | V7, Stage 30: one **project's** lanes — the phases its own cards are filed under. Separate from `buckets` on purpose (see Stage 30). `tasks.project_bucket_id` is `ON DELETE SET NULL`, so removing a lane un-files its cards rather than deleting them. Since **Stage 111** this table is also what a create popup reads *across* projects: `ProjectBucketRepository.allByProject()` groups it by project, `TaskService.lanesByProjectName()` keys that by project **name** (the value the picker posts), and the general board's `+ New task` puts each board into its own option as `data-lanes` — so a project with no rows here is listed with an empty list rather than dropped. |
 | `forecasts` | `id` PK, `project_id` FK, `period`, `hours`, `note` | V1's legacy row set: hours per project per period, kept for the importer. Since Stage 43 **nothing reads it** — the Forecasts page is `project_forecasts` now, and the sidebar pill counts projects instead of these rows. |
 | `lessons` | `id` PK, `title`, `project_id` FK NULL, `summary`, `lesson`, `employee_number` FK NULL, `task_id` FK NULL, `logged_on` (`yyyy-MM-dd`, `''` = undated), `discussed` BOOL, `archived` BOOL (all six since V9) | V1's row set widened in place by V9, Stage 44: the Lesson learnt sheet's own record — the one text the page prints, who logged it, which card it came from, the day, and its two states. `title`/`summary` stay (`title` is `NOT NULL`, no default) and the page prints `lesson`; the repository falls back to the old pair only if `lesson` came through blank; the backfill joins each old pair into `lesson` once, guarded by `WHERE lesson = ''`. All three FKs are `ON DELETE SET NULL`, so a lesson outlives the account, the card and the project it names — an unowned row is management's to tidy. See Stage 44. |
 | `todo_lists` | `id` PK, `name`, `done` BOOL, `owner_emp_no` FK, `due`, `position` INT | Explicit `position` column replaces array-order. |
@@ -207,7 +212,11 @@ Every item below must still work after Stage 9:
 - [x] Dark mode + accent toggle persisted in `localStorage` keys `pts-theme` / `pts-accent` (verified in a real browser in Stage 7 — see below; the old inline `THEME_JS` was dead code and never ran)
 - [x] Per-user pins, per-user todo ownership and list ordering
 - [x] `pts.port` / `PTS_PORT` (8080), `pts.host` / `PTS_HOST` (0.0.0.0), LAN-address startup banner
-- [x] Logo served from `/static/assets/mms-logo.png`, with a 301 from the legacy `/static/mms-logo.png`
+- [x] Logo served from `/static/assets/mms-logo.png`, with a 301 from the legacy `/static/mms-logo.png`;
+  **since Stage 112** the tab icon is a separate derived `/static/assets/favicon.png` (256 px, opaque) named
+  by both heads, and `/favicon.ico` is not served — **since Stage 113 it was the wordmark's ring/crosshair
+  emblem** on the bar's green field, and **since Stage 114 it is the logo cropped the way murrays.mn crops
+  its own favicon** — the emblem, the bar's start with "MUR", a sliver of MINING SERVICES, on transparency
 - [x] Read-only Forecasts and Lessons pages with seed content (now DB-backed) — **both superseded**: Stage 43
   rebuilt Forecasts as the monthly money grid on `project_forecasts` (V8) and Stage 44 rebuilt Lesson learnt as the
   dated, per-person sheet on the widened `lessons` table (V9)
@@ -235,7 +244,7 @@ but is not covered by a committed test.
 ## Stage history
 
 One section per stage, in order, in [STAGE-HISTORY.md](STAGE-HISTORY.md) — from the first
-route/service migration to the 2026-11-02 role catalogue. The middle column is that section's own
+route/service migration to the latest stage, 2026-11-02's tab icon. The middle column is that section's own
 heading text; the right column is its heading's parenthesised tail: the date it landed, whether
 it is live, which migration it carries, which layers it touched. A stage with no date predates
 the convention.
@@ -346,6 +355,10 @@ the convention.
 | [108](STAGE-HISTORY.md#stage-108) | Revenue is written and shown in tugrik | 2026-10-30, live, no migration, Kotlin |
 | [109](STAGE-HISTORY.md#stage-109) | A project's revenue is in its own currency | 2026-10-30, live, migration V20, Kotlin + CSS + JS |
 | [110](STAGE-HISTORY.md#stage-110) | Access control gets roles and permissions, and the role decides access | 2026-11-02, live, migration V21, Kotlin + CSS + JS |
+| [111](STAGE-HISTORY.md#stage-111) | The Assigned page's `+ New task` asks which project, and its columns come from that project | 2026-11-02, live, no migration, Kotlin + JS |
+| [112](STAGE-HISTORY.md#stage-112) | The browser tab carries the wordmark's M on its green bar | 2026-11-02, live, no migration, Kotlin + asset |
+| [113](STAGE-HISTORY.md#stage-113) | The browser tab wears the wordmark's emblem, not its M | 2026-11-02, live, no migration, asset only |
+| [114](STAGE-HISTORY.md#stage-114) | The tab wears the logo the way murrays.mn's tab does | 2026-11-03, live, no migration, asset only |
 
 **Read the newest few before changing anything they touch.** A section is never trimmed when a
 later stage supersedes it — the superseding stage says so in its own heading and explains what no

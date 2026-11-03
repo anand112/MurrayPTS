@@ -3602,7 +3602,10 @@ which page gets the answer.
 
 *Stage 75 renamed the floor: the shared list is the **three** phases Engineering / Procurement / Production, and they are
 ordinary editable lanes rather than a protected set. Everything else on this page — a card belonging to exactly one of
-the two boards, filing in a lane being compulsory, and the empty-string exception being closed — is still the live rule.*
+the two boards, filing in a lane being compulsory, and the empty-string exception being closed — is still the live rule.
+And since **Stage 111** there is no shared list left on the general board's create at all: its Sub-category picker shows
+the columns of the project the reader named in the popup, read from `project_buckets`, so the three names below are what
+a board is *typically* drawn with, not a catalogue any create falls back to.*
 
 **The ask.** *"the structure is tasks are have to have either way assigned to a project or the other tasks. A project
 means have to be assigned on six sub categories as have on projects. Other tasks could be anything that the user can
@@ -3667,7 +3670,12 @@ one blank that can still print is `NO_PROJECT_YET` (*— No project yet —*), w
 it is what the field says when the row arrived before this rule and has nothing to say, and the save that receives it
 refuses. A card's **owner** in that state gets a different sentence — *"This card is on no project yet — ask
 management to choose one."* — because the field that would fix it is one they may not write; `updateAssigned` prints
-it from the row, not from the form.
+it from the row, not from the form. *(**Stage 111 puts one more blank back, and it is a different kind.** On the general
+board's create the Project picker opens on `CHOOSE_A_PROJECT` (*— Choose a project —*), and the Sub-category under it
+opens shut with *— Choose a project first —*. Neither is an option that files a card: a popup posted on either is
+refused at the field, so the rule above — no card is written against an unanswered project — is exactly what those
+placeholders exist to enforce. What Stage 48 retired was *— No project —*, an answer that meant "keep it off both
+boards"; Stage 111's blanks mean "not answered yet".)*
 
 **One popup, two halves, and the hidden half is not disabled.** `TaskForm.mayRefile` is `isEdit && canEditAll`: the
 *Where it lives* picker (On a project / Other tasks, `id="taskBoard"`, `data-board-toggle`) appears on an edit by
@@ -9364,3 +9372,421 @@ are seeds, not constants — they can be renamed or widened like any row, and no
 count of the accounts on file, so it will not show the picture's 14 here. And a role write refuses at the **name box**
 with one sentence: there is no invalid set of chips, so any other complaint would be about the wrong field.
 
+<a id="stage-111"></a>
+
+## Stage 111 — The Assigned page's `+ New task` asks which project, and its columns come from that project (2026-11-02, live, no migration, Kotlin + JS)
+
+**The ask.** *"when manager gets into assigned tasks and click on the new task button that button is working
+wrong should be working the same as when manager create a new task from projects project new task"*. It reads two
+ways — the *list* on the popup, or the *default* it opens on — so it was asked back as one multiple choice and
+answered as two: the symptom is **"Wrong column list"**, and the default is **"Force a choice"** — the Project
+picker opens on *— Choose a project —*, and Sub-category stays empty until a project is named.
+
+**What was actually wrong.** `/app/assigned-tasks` names no project, so its create reaches the renderer with
+`pageProjectId == 0` and an empty `lanes`. Since **Stage 110** a Project Manager holds *Edit any task*, which makes
+that popup management-shaped (`canEditAll`), so it printed the Project picker — and that picker **preselected the
+first project in the list** while the Sub-category picker fell back to `DEFAULT_PROJECT_BUCKETS`, the three legacy
+names Engineering / Procurement / Production. Those two answers are not one board. A lane travels by **name**
+(Stage 48) and is resolved against the project the card actually lands on (Stage 75), so the manager who left the
+default project alone and picked the column they were shown got *"Choose which part of this project the card is
+on."* at the field, or — if the name did happen to exist on that board — a card filed under a column the project
+page they then went to does not have. A project page's create never had this problem: it is drawn from that page's
+own `lanes`, so its list and its project are the same board by construction.
+
+**The rule.** On the general board a create **asks which project first, and only then which column of it**. The
+column list is not a second question the popup answers out of a shared catalogue; it is the chosen project's own
+board, the same rows the project page puts its columns under. Nothing about the rights moved: which fields a caller
+may write is still `TaskService.updateAssigned`'s answer, `+ New task` on that page is still management's (and,
+since Stage 90, the reader's own backlog line is still a separate popup with no project question in it), and no
+board was re-cut — there is **no migration**.
+
+`choosesProject` is the one predicate that decides the shape, and it is deliberately narrow:
+
+```
+!state.isEdit && !state.showsBacklog && fixedProject == null &&
+    state.mayWriteCard && state.lanesByProject.isNotEmpty()
+```
+
+so it is a **create** (never an edit, which knows its row), on the **project** half (never a backlog card, which has
+no lanes to name), with **no project pinned by the page** (a project page, an `into=<lane>` line), to a reader who
+**may write the card**, and only when the app actually has boards to offer. Every other popup is rendered exactly as
+before, which is what makes the negative checks below the interesting half.
+
+**What moved.**
+
+- `ProjectBucketRepository.allByProject()` reads the whole `project_buckets` table once, ordered by project, then
+  position, then id, and groups it by project id — one query per page rather than one per project.
+- `TaskService.lanesByProjectName()` keys it by **project name**, because that is what the picker's values are and
+  what the form posts (Stage 48's naming rule, reused rather than answered twice). A project with no columns stays
+  in the map **with an empty list** — "this board has no column yet" is an answer the popup has to be able to give,
+  and dropping the row would make the board vanish instead of reporting itself.
+- `TaskForm` gained `lanesByProject`, defaulted to empty so every other caller is untouched, and `openingTaskForm`
+  fills it only when `pageProjectId == 0`.
+- `taskFormModal` computes `choosesProject`, then draws the Project picker with the blank *— Choose a project —*
+  option in the selected slot, one `data-lanes` JSON list per project option, `data-lane-fill="true"` on the
+  select, and its own hint line. `laneOptions` reads from the chosen project when `choosesProject`, else from
+  `laneChoices` as it always did.
+- The save route answers a refused create with `lanesByProject` too (`taskId == 0 && !backlogCreate && projectId <= 0`),
+  which is the difference between coming back with the right list and coming back with the wrong one again.
+- `task-modal.js` grew a second document-level `change` handler that moves the chosen option's list into the
+  Sub-category picker **in place** — the same trick the "where it lives" toggle already used for two halves the page
+  had already shipped. It keeps the column the reader had picked when the new board has one under that name,
+  otherwise lands on that board's first column, re-disables the field when a board has nothing to offer, and
+  **fetches nothing and reloads nothing** — a reload would throw away the card being typed.
+
+**The popup's four sentences.** A disabled select is only honest if it says which of the three reasons it is shut,
+so the field carries two of them as attributes and the renderer picks the third, and the client picks the same two:
+*— Choose a project first —* (nothing named yet), *— This project has no column yet —* (a board with nothing on it),
+*— Not a column of this project —* (an answer posted that this board does not have). The last one is the state the
+old popup could not express at all — it was the bug's own face. `A new card lands under X.` is **suppressed**
+whenever `choosesProject`, because a sentence written by the server would be false the moment the reader changed
+project, and no script can walk it back.
+
+**The escaper, which was broken on the first try.** Lane names are free text typed in Settings, so they are escaped
+into the JSON attribute rather than trusted. The first version wrote `"\\u0026"` in Kotlin source, and the Kotlin
+lexer turned that into a backslash followed by a **raw `&`**, which `kotlinx.html` then printed as `\&amp;` — an
+attribute that is not valid JSON, so `JSON.parse` threw and a real board with an ampersand in a column name would
+have looked *empty* to the browser. The escapes are therefore built from characters (`append(BACKSLASH)` plus
+`code.toString(16)`), never written as an escape sequence in the literal, and the render test asserts on the
+**decoded** value: no raw `&`, `u0026` present, brackets intact.
+
+**Tests.** `TaskBoardRenderTest` gained the states this popup can be drawn in, each rendered the way the route
+renders it (`newFormOf().copy(lanesByProject = TaskService.lanesByProjectName())`) rather than through a bespoke
+helper: the create opens on the choice with exactly one selected option and a greyed Sub-category; every project
+option carries **its own** board as JSON, including a board with nothing on it and a name whose characters had to be
+escaped; a chosen empty board says so; a refused create comes back with the chosen project still held, that
+project's columns listed, the borrowed name absent, the field open, and one `p.field-err` under its own field; a
+project page's create keeps the board the page already names; and a backlog create is not asked which project it is
+on. Class: **77 tests**. Full suite: **693 tests / 47 classes, 0 failures**.
+
+**The browser half is verified with a stub, not the suite** — the markup was never the part at risk.
+`scratch/stage111-lane-fill.cjs` loads the shipped `task-modal.js`, builds two popups out of the same attributes the
+renderer prints, and drives **22 checks, 0 failures**: the list moves in place, a shared column name survives the
+change, an empty board and a non-JSON list both shut the field with the right sentence, an escaped name parses back
+to the column, a popup without the marker is left alone, nothing is fetched, nothing reloads, and the caret lands on
+the title rather than in a greyed field. Two of its own bugs came out of the first run, both harness rather than app:
+an `<option>`'s `value` was declared as a **bare getter**, so the script's `option.value = name` assignments
+vanished in sloppy mode and every list read back as `""`; and `choose()` silently deselected everything when asked
+for a label a picker did not offer, which is how a later check was reading a state the harness had never asked for.
+Both now fail loudly instead of quietly.
+
+**Over HTTP** — `scratch/stage111-verify.ps1`, an empty `%TEMP%` database on **8096**, `PTS_SEED_DEMO=false` and a
+throwaway bootstrap password; two projects of one category (so both boards come from Settings), a **third column
+added to one of those two boards only**, and a hand-added **Project Manager** account, because that role is the one
+the report is about. **52 checks, 0 failures.** `?new=1` carries `data-lane-fill`, opens on the choice with nothing
+pre-picked, and travels `["Design","Build"]` on one project and `["Design","Build","Commissioning"]` on the other —
+two lists that differ, which is the whole point. A create with no column and a create with a column borrowed from
+the other board are both answered at **200** with the one sentence at the field and **no card written**; the first
+comes back open on that project's own columns and lands on its first, the second names the refused answer in its
+placeholder. A create aimed at the chosen project's real column redirects and the row is `Stage 111 card | project 1 |
+Build`. A **project page's** `?new=1` prints no marker, no *— Choose a project —*, and an open picker that already
+knows its column — the unchanged half. With a board emptied out from under it (a direct write; the app refuses the
+last removal), the project is **still listed, with `[]`**, and a card aimed at it is refused by a shut field that says
+the board has no column. And the harness's own mistake is worth recording: it first joined `tasks.bucket_id`, which is
+the **backlog's** column, so a correctly filed card looked unfiled; the project's lane is `tasks.project_bucket_id`.
+
+**Deploy.** No migration; schema stays **21**. The live JVM (PID 18340) needed the force path — `taskkill` reports
+"this process can only be terminated forcefully" for it — then `data/pts.db` was copied **in place** to
+`data/pts.pre-stage111-20261102-162911.db` (471,040 bytes) with `-wal` (0) and `-shm` (32,768); `installDist` built
+**1,905,969 bytes** against a cold tree; relaunched detached through `deploy/run.bat` → **PID 21732** listening on
+127.0.0.1:8080 with `/` 200. The served `static/js/task-modal.js` changed from
+`5e12c2eaad749ddb983d6d68fdcdd869d85e1471` to `a699b647762995387ade83c08011a50e3a270536` and carries both markers, so
+the page needs a **Ctrl+F5**. Read-back on the real data: 15 projects, 46 project buckets, **0 projects with no
+bucket** — so the empty-board branch is a defensive state here, not one the live board can show today; 28 tasks, 15
+filed on a lane; 14 accounts (count only, no credential read). No commit, no push.
+
+**The shapes this stage left alone, and why each is a different case.** `choosesProject` is a **create** predicate, so
+three other popups keep the list they were drawn with, and none of them has this bug:
+
+- The Team sheet's `+ Assign a task` panel asks the same two questions. Its two halves were never at odds:
+  `Team.laneNamesFor()` reads the lanes of the project the box names and, while the box is still unanswered, the
+  **first** project's — which is the option the browser shows when nothing is marked `selected` — so the list it prints
+  is a real board. What it
+  lacks is only the live follow: change the project and the columns stay as drawn until the save resolves the name
+  against the project that actually gets the card. The Assigned create had a list from *no* project against a
+  preselected one, which is what made it a bug rather than a round trip.
+- A management **edit** that moves a card with *Where it lives* (Stage 48, narrowed by Stage 87) likewise keeps
+  `TaskForm.laneChoices`, which on the general board is `DEFAULT_PROJECT_BUCKETS` with the row's own lane printed after
+  it. That is the refile path, where the destination project is chosen in the same breath as the lane and the name is
+  still resolved by the service against the board the card lands on; the trio is a list of *names*, so a destination
+  that does not carry one refuses it at the field, exactly as Stage 75 left it.
+- A project page's create and edit are the untouched half by construction: the page's own `lanes` fill the picker, and
+  `lanesByProject` is never passed to it (`pageProjectId == 0` at both call sites).
+
+If this is ever restated as "the Team panel and the refile picker are broken too", the fix is the same
+`data-lanes` / `data-lane-fill` pair on those pickers — and for the refile path it needs the marker on the *edit* form,
+which is precisely what `!state.isEdit` is there to keep out.
+
+**If this is restated.** Do not put a project back as the popup's **default**: the first project in a list is not an
+answer anybody gave, and preselecting it is what made the column list a lie. Do not let the general create fall back
+to `DEFAULT_PROJECT_BUCKETS` either — since Stage 100 that list is not what a project's board *is*, and it has not
+been read by a create path since. Do not refill the column picker with a fetch or a reload; the reader is mid-card,
+and a page that restarts under the caret counts as broken. Do not print `A new card lands under X.` on a popup whose
+project is still to be chosen. Do not drop a project from the picker because its board is empty — list it with `[]`
+and let the field say which sentence it means. And a create refusal has to carry `lanesByProject` with it, or the
+popup comes back listing the wrong board again and the stage is undone in the round trip rather than the render.
+
+<a id="stage-112"></a>
+
+## Stage 112 — The tab carries the brand's M (2026-11-02, live, no migration, Kotlin + asset)
+
+**The imagery is superseded by Stage 113** — the tab now wears the wordmark's ring/crosshair emblem, not its
+white M. Everything else below still holds: the named `<link rel="icon">` in both heads, before the stylesheets,
+`type="image/png"`, no `/favicon.ico`, opaque full bleed, the single render test, and the Ctrl+F5 caveat. Only
+`static/assets/favicon.png`'s pixels (and its size and sha1) changed. **Stage 114 then replaced that tile too**,
+with a transparent crop of the logo cut the way murrays.mn cuts its own; the markup, test and Ctrl+F5 rules
+still hold.
+
+**The ask.** *"add logo to the favicon"* — the browser tab was the one surface still unbranded. Neither of the
+app's two heads named an icon, so a browser fell back to `/favicon.ico`, which this app does not serve (it
+answers **404**), and every tab — the signed-out screen and every page behind it — showed the browser's own
+generic page glyph instead of the company's mark.
+
+**Why the logo itself would not do.** `static/assets/mms-logo.png` is the shipped wordmark: **3,396 × 1,807**,
+MURRAY on its green bar with the corporate ring/crosshair mark at the left. A tab draws an icon at 16–32 px, so
+the whole wordmark would be an illegible smear. The obvious next step — crop the left-hand mark — was tried in
+four candidate boxes and rejected: the ring overlaps the MURRAY bar, so every crop carried letters of the
+wordmark with it, and the previews read **"MU"** rather than a mark. The tab therefore wears the part of the
+logo that survives being small: the wordmark's own white **M** on its own green bar, as a square tile.
+
+**How the tile is made.** `src/main/resources/static/assets/favicon.png` — **256 × 256**, 8-bit RGBA,
+**3,370 bytes**, every alpha byte **255** (fully opaque, full bleed), sha1
+`9ab5cd26367b368c7ece8712350b8b2d8744a7f5`. It is derived from the raster, not hand-drawn:
+
+- the M is cropped at `(925, 770)–(1255, 1025)` — 330 × 255, with a little air — and turned into coverage by
+  its lightness: `t = (min(r, g, b) − 45) / (250 − 45)`, clamped, which reads the white letter as 1 and the
+  bar's darkest channel (≈40) as 0;
+- the field is the bar's own gradient, sampled where no letter sits (rows 745 and 1050): **rgb(67, 98, 18)**
+  at x=700 to **rgb(76, 112, 27)** at x=2900, interpolated left to right across the tile;
+- the letter is fitted to **66%** of the tile's width — 168 px wide, 129 px tall — and centred, with a 2×2 tap
+  reading the raster's anti-aliased edge, then composited white over the gradient.
+
+Two throwaway scripts did it with the **standard library only** — `scratch/favicon.py` decodes the PNG
+(unfilters all five scanline types, re-encodes filter-0) and `scratch/favicon-tile.py` composes the tile —
+because Pillow is not installed here and the user's Python was not to be changed to get an icon.
+`build/favicon/tile-16x8.png` is the 16 px preview magnified 8× without smoothing, and the M still reads at
+tab size. No new route, no new dependency, no migration: the file sits beside `mms-logo.png` under
+`/static/assets/`, which `staticResources("/static", "static")` has served since Stage 7, and the CSP already
+allows it (`img-src 'self' data:`).
+
+**The two heads.** The app draws a page from exactly two heads — `Views.kt`'s `loginPage` and
+`DashboardCommon.kt`'s `appPage` — and each now names the icon in the same `unsafe` block that names its
+stylesheets, **before** them:
+
+```
+<link rel="icon" type="image/png" href="/static/assets/favicon.png">
+```
+
+PNG rather than `.ico` because every browser in use takes a PNG icon, and `type="image/png"` says so rather
+than making anything guess. Naming the link is also what stops the `/favicon.ico` request: a browser only
+falls back to that path when a page names no icon. The **404** at `/favicon.ico` is therefore known and
+harmless, and no `.ico` was added — one named asset cannot drift from a second file. (README's cache note
+lists `/favicon.ico` among the paths `isServerDrawnPage` says *not* to put `no-store` on; that is about the
+header decision, not about a file existing.)
+
+Opaque, not transparent, is deliberate: a transparent PNG is composited against whatever the tab strip is —
+dark chrome, a coloured theme, iOS's black home-screen tile — and the white M loses its contrast. A full-bleed
+green square with the letter inside keeps the brand's own field at every size, and the favicon does not try to
+follow the app's light/dark toggle.
+
+**Tests.** `LoginPageRenderTest` gained one test, *the tab carries the brand icon, named before the
+stylesheet*: exactly one `<link rel="icon">`, `type="image/png"`, `href="/static/assets/favicon.png"`, and its
+index before the first `rel="stylesheet"`. It pins the markup, not the pixels — the bytes are proved over
+HTTP, below, because a test that decoded the PNG would turn a brand asset into a fixture. Full suite: **694
+tests / 47 classes, 0 failures** (693/47 at Stage 111's close).
+
+**Over HTTP.** `scratch/stage112-verify.ps1` boots a throwaway on **8097** with an empty `%TEMP%` database,
+`PTS_SEED_DEMO=false`, `PTS_DATA_FILE` at a path that does not exist, and a random 18-character bootstrap
+password: EMP0000 signs in **302**; `/app` answers **302 → `/app/projects`**; the heads of `/app/projects`
+and `/app/assigned-tasks` both carry the exact tag with the icon before the stylesheet; the icon is
+**`200 image/png 3370`** and its sha1 matches the committed file; and `/favicon.ico` is noted as **404**.
+**8 checks, 0 failures.** One harness assertion was wrong on the first run: it expected `/app` to answer
+**200**, but `/app` is the shell's front door and redirects to `/app/projects` — a redirect check has to read
+the `Location` of its own response and then read the heads on the pages behind it, which is what the re-run
+does.
+
+**Deploy.** No migration; schema stays **21**. The live JVM (PID 21732) was stopped and `data/pts.db` copied
+**in place** first, to `data/pts.pre-stage112-20261102-165737.db` (**471,040** bytes) with `-wal`
+(**288,432**) and `-shm` (**32,768**); `installDist` built the **1,908,668-byte** jar against a cold tree;
+the app was relaunched detached through `deploy/run.bat` → **PID 7332** listening on 127.0.0.1:8080, `/`
+**200**. Live `/` carries the tag before the stylesheet, and `/static/assets/favicon.png` answers
+**`200 image/png 3370`** with the sha1 above on both sides. Read-back on the real data (metadata only):
+schema 21, 15 projects, 45 project buckets, 30 tasks, 14 accounts. No commit, no push.
+
+**Seeing it.** The page's HTML changed, but the **tab icon is one of the stickiest caches a browser keeps** —
+a normal reload can keep showing the old blank tab. **Ctrl+F5** (or a brand-new tab/window) is what asks for
+it again. Whether the tab now looks right is the user's check, not mine: this is the one surface I cannot read
+back from the server. Nothing else about the logo moved — `mms-logo.png` is still the in-page wordmark.
+
+**If this is restated.** Do not point `rel="icon"` at the wide `mms-logo.png`; a wordmark at 16 px is a blur,
+and the tab wants one letter. Do not add transparency, a white margin or a rounded-corner mask — the tile is
+opaque and full bleed on purpose, so no tab strip or home-screen compositor chooses its background for it. Do
+not add a `/favicon.ico` file beside the named PNG link; two assets are two things to keep in step, and a
+browser that sees the link never asks for the fallback. Do not make the render test decode pixels or pin the
+PNG's sha1 — the markup is what a later stage can break, and the bytes are checked over HTTP. And if the
+wordmark or the bar's colours ever change, regenerate the tile from the new raster with
+`scratch/favicon-tile.py` rather than editing the PNG by hand, so the icon stays the logo's own letter.
+
+<a id="stage-113"></a>
+
+## Stage 113 — The tab wears the wordmark's emblem (2026-11-02, live, no migration, asset only)
+
+**The imagery is superseded by Stage 114** — the tab now shows the logo cropped the way murrays.mn crops its
+own favicon (the emblem, the start of the MURRAY bar with "MUR", a sliver of MINING SERVICES) on a transparent
+field, not the white-on-green emblem tile. Everything else below still holds: the named link in both heads, the
+single render test, the CSP, the `/favicon.ico` 404 and the Ctrl+F5 caveat.
+
+**The ask.** *"add it on favicon"* — sent with the **wordmark itself** attached (`image.png`, 3396 × 1807), and
+byte-identical to the shipped `src/main/resources/static/assets/mms-logo.png` (sha1
+`e4fbe959810519266f8ad4e44c0c7aefbfbf64d4`). Stage 112 had chosen the wordmark's white **M** because the whole
+3396-px wordmark is an illegible smear at 16 px and a crop of the left-hand ring still carried the letters
+**"MU"**. The user looked at that tab and asked for the logo — meaning its **ring/crosshair emblem**, the part of
+the mark that is not a letter. So this stage replaces the tile's **pixels only**: the named `<link rel="icon">`
+in both heads, `type="image/png"`, its position before the stylesheets, the single `LoginPageRenderTest` case,
+the CSP, the routes and schema 21 are all untouched. Stage 112's section says the same in its heading.
+
+**What the emblem is, measured.** It is not a free-standing glyph in the raster; it is the mark at the left of
+the green MURRAY bar, drawn in thin strokes and **centred on the crosshair at (401, 898)**:
+
+- an **outer arc**, mid-radius **651.5**, stroke **26** (r 639–665), and an **inner arc**, mid-radius **404**,
+  stroke **25** (r 391.5–416.5); both are **C-shapes open to the left**, running from ~104° to ~256°;
+- a vertical axis **9 px** wide, y **163–1632**, and a horizontal axis y **894–902**, x **188–616**, which stops
+  before the bar and is symmetric about x = 402;
+- two short diagonals (~10 px) through the crosshair, small crosshair circles on the vertical axis at ±90° and
+  ~±36° (~170 px out), and two dots at ~±60° (~165 px out).
+
+The bar covers only the **right cap** of each arc — outer ±16°, inner ±26° — so masking the bar would leave two
+C-shapes visibly cut at 4 o'clock. Both caps are therefore **redrawn**: `scratch/favicon-emblem.py` copies the
+raster, zeroes the bar's rows from x 651, then for each pixel over the bar region tests 2 × 2 sub-samples against
+each annulus and paints the measured stroke colours — **rgb(99, 153, 50)** for the outer arc, **rgb(99, 154, 50)**
+for the inner — with alpha equal to coverage. The resulting emblem's content box is **(138,163)–(1065,1632)**,
+centre **(601.5, 897.5)**; the mark now reads as one continuous device instead of a C with a green wedge in it.
+
+**How the tile is made.** `scratch/favicon-emblem-final.py` (standard library only, borrowing `favicon.py`'s
+decoder and encoder — Pillow still is not installed) takes one **1400 × 1400** square centred on that content
+box, which clips the vertical axis's tips but nothing of the rings, dots or diagonals. It box-averages the square
+to **256 × 256** as ink coverage (alpha > 24), applies a **one-pixel max filter** (`sum > 0.5` in a 3 × 3 window,
+via a summed-area table) so the 26-px strokes survive a 16-px tab, and composites **white over the bar's own
+gradient** — **rgb(67, 98, 18)** at x = 700 to **rgb(76, 112, 27)** at x = 2900, interpolated left to right, the
+same two samples Stage 112 used. Every pixel's alpha is **255**: the field is opaque and full bleed so no tab
+strip, dark theme or home-screen compositor gets to choose a background behind a white line drawing.
+
+The installed file is `src/main/resources/static/assets/favicon.png` — **256 × 256**, 8-bit RGBA, **4,214
+bytes**, sha1 **5feeeb10901b9ed5bdfc5d4f8600f4b7d0ccde9a**. `build/favicon/emblem-favicon-16x8.png` is the 16-px
+face magnified 8 × without smoothing; the ring, crosshair and dots all read at tab size, though a hairline
+emblem is lighter at 16 px than a solid letter was — that is the ask's own trade, and the white-on-green field
+keeps it from disappearing.
+
+**Tests.** No Kotlin and no test changed; the asset is the only product change. Full suite after installing the
+PNG: **47 classes, 694 tests, 0 failures, 0 skipped** (BUILD SUCCESSFUL in 4m56s) — the same counts as Stage
+112's close, because the render case pins the markup and not the pixels.
+
+**Over HTTP.** `scratch/stage113-verify.ps1` boots a throwaway from the new distribution on **8097** with an empty
+`%TEMP%` database, `PTS_SEED_DEMO=false`, `PTS_DATA_FILE` at a path that does not exist and a random 18-character
+bootstrap password: EMP0000 signs in **302**; `/app` answers **302 → `/app/projects`**; both `/app/projects` and
+`/app/assigned-tasks` carry the exact tag before the first stylesheet; the icon is **`200 image/png 4214`** and
+its sha1 is the committed one; `/favicon.ico` is still **404** and still harmless. **8 checks, 0 failures.**
+
+**Deploy.** No migration; schema stays **21**. The live JVM (PID 7332) was stopped gracefully, then force-killed
+because `taskkill` alone refused; `data/pts.db` was copied **in place** first to
+`data/pts.pre-stage113-20261102-172704.db` (**471,040** bytes) with `-wal` (**288,432**) and `-shm`
+(**32,768**). `installDist` rebuilt against the cold tree — **BUILD SUCCESSFUL in 3s**, jar
+**1,909,885 bytes** (Stage 112's was 1,908,668; the asset's 844 extra bytes are most of it). The app was
+relaunched detached through `deploy/run.bat` → **PID 19232**, parent `cmd.exe`, listening on
+127.0.0.1:8080, `/` **200**. Live `/` names the icon **once**, before the first stylesheet, and
+`/static/assets/favicon.png` answers **`200 image/png 4214`** with sha1
+`5feeeb10901b9ed5bdfc5d4f8600f4b7d0ccde9a` on both sides. Read-back on the real data (metadata only):
+schema **21**, 15 projects, 30 tasks.
+
+One harness assertion was wrong, not the build: the deploy script first grepped `ViewsKt.class` and
+`DashboardCommonKt.class` for the icon path and printed **0**. Kotlin compiles those string constants into the
+head lambdas, so the strings live in `ViewsKt$loginPage$1$3.class` and `DashboardCommonKt$appPage$1$3.class`; a
+follow-up grep found **1** in each, and the jar lists `static/assets/favicon.png` at **4,214** bytes. Check the
+constant where the compiler puts it, not where the source function is named.
+
+**Seeing it.** This is the one surface no server check can see. A tab icon is among the stickiest caches a
+browser keeps, and the old M can survive a normal reload: **Ctrl+F5**, or a brand-new tab/window, is what asks
+for the new tile again. Whether the tab now shows the emblem is the user's check.
+
+**If this is restated.** Do not point `rel="icon"` at the wide `mms-logo.png` — the wordmark cannot be read at
+16 px, and the tab wants the emblem alone. Do not crop the emblem without masking the bar and rebuilding the
+arcs' right caps: a crop leaves **"MU"** in the tile, and a masked bar without caps leaves two cut C-shapes. Do
+not hand-edit the PNG, and do not rebuild it from a screenshot or a resized logo — regenerate with
+`scratch/favicon-emblem-final.py` from `mms-logo.png`, so the radii, stroke colours and gradient stay the
+raster's own. Do not add transparency, a margin or rounded corners. Do not resurrect Stage 112's M as a
+fallback or keep two icons; one named PNG is the whole rule. And do not make the render test decode pixels or
+pin the sha1 — the markup is what a later change can break, and the bytes are checked over HTTP.
+
+<a id="stage-114"></a>
+
+## Stage 114 — The tab wears the logo the way murrays.mn's tab does (2026-11-03, live, no migration, asset only)
+
+**The ask.** *"take this image make it look like https://www.murrays.mn/ favicon"* — sent with the wordmark
+attached again (`image.png`, byte-identical to `src/main/resources/static/assets/mms-logo.png`, sha1
+`e4fbe959810519266f8ad4e44c0c7aefbfbf64d4`). Stages 112 and 113 had both *redrawn* the mark into an opaque
+green tile; the user pointed at the company site's own tab and asked for that look instead. It is a different
+idea: the site's favicon is **not a redrawn tile at all**, it is the logo itself, cropped.
+
+**What the site actually serves.** `https://www.murrays.mn/` declares
+`<link rel="shortcut icon" href="templates/images/icon.png">` (and the same file as its `apple-touch-icon`);
+`/favicon.ico` there answers **404**. That icon is a **50 × 50**, 8-bit RGBA PNG, **5,741 bytes**, sha1
+`373b40a3cd2790f59bdcc02b03bb3f622f54c824`, with a **transparent** field. Measured against the site's own
+`logo.png` (**500 × 298**), it is exactly the logo's **left square** — x 0–298, y 0–298, side = the logo's
+height. That single rule produces everything visible in it: the emblem at the left, the green bar entering at
+**35%** of the width (bar rows 113–183 of 298), the white **M** at 44%, the "MUR" run cut by the right edge, and
+the top of **MINING SERVICES** at 65% — the "MININ" that shows in their tab. No element is redrawn; the crop
+does it.
+
+**The same rule on our raster.** Our logo is **3396 × 1807** and wider than theirs (1.879 against 1.678), so a
+left square of side = height reaches x 1807 and shows less of the wordmark. `scratch/favicon-site.py` renders
+that literal crop and seven neighbours at 1600–1807 px sides; the shipped one is **site-g**, the square
+**(80, 120)–(1680, 1720)** — side **1600**. It puts the emblem at **92%** of the frame's height (the mark spans
+y 163–1632), the bar's left edge at **36%**, "MUR" with the **R** cut by the right edge, and the first **M** of
+MINING at the bottom right — the closest square analogue of the site's tile. The brand raster is otherwise
+untouched: no masking, no cap rebuilding, no ink growth.
+
+The resample is a **premultiplied-alpha box average** — each output pixel's colour is weighted by source alpha
+and its alpha is the mean of the window — so a transparent edge does not bleed white halos into the green. The
+script also writes the **50-px face** (the site's own size) and a 16-px preview.
+
+The installed file is `src/main/resources/static/assets/favicon.png` — **256 × 256**, 8-bit RGBA, **18,842
+bytes**, sha1 **1aad188d864b4793d50bda85a95e75871f2c5158**, every **corner alpha 0**, content box
+**(9, 7)–(255, 242)**; the crop cuts the bar at the right edge exactly as the site's does. The markup that names
+it, the render case, the CSP, the `/favicon.ico` 404 and schema 21 are Stage 112's and do not move.
+
+**The honest trade.** This tile is transparent and hairline where Stage 112's M and Stage 113's emblem were
+opaque and solid, so at 16 px the arcs are lighter than either — the site's icon has the same property, and at
+50 px (its own size) ours reads the same way: emblem, bar, "MUR". The crop only changes composition; it cannot
+make the logo's 26-px strokes heavier at 16 without redrawing the mark, which is what the user asked to stop.
+
+**Tests.** No Kotlin and no test changed. Full suite after installing the PNG: **47 classes, 694 tests, 0
+failures, 0 skipped** (BUILD SUCCESSFUL in 6m54s).
+
+**Over HTTP.** `scratch/stage114-verify.ps1` boots a throwaway from the new distribution on **8097** with an
+empty `%TEMP%` database, `PTS_SEED_DEMO=false`, `PTS_DATA_FILE` at a path that does not exist and a random
+18-character bootstrap password: EMP0000 signs in **302**; `/app` answers **302 → `/app/projects`**; both
+`/app/projects` and `/app/assigned-tasks` carry the tag before the first stylesheet; the icon is **`200
+image/png 18842`** with the committed sha1; the served PNG's three tested corners are **alpha 0**; `/favicon.ico`
+is **404**. **9 checks, 0 failures.**
+
+**Deploy.** No migration; schema stays **21**. The live JVM (PID 10284, the Stage 113 restart from the same
+morning) was stopped by the force path; `data/pts.db` was copied **in place** first to
+`data/pts.pre-stage114-20261103-082334.db` (**471,040** bytes) with `-wal` (**589,192**) and `-shm`
+(**32,768**). `installDist` rebuilt in 2s — jar **1,924,793 bytes** (Stage 113's was 1,909,885; the icon's
+14,628 extra bytes are most of it). Relaunched detached through `deploy/run.bat` → **PID 6832**, parent
+`cmd.exe`, 127.0.0.1:8080, `/` **200**; live `/` names the icon **once**, before the stylesheet, and
+`/static/assets/favicon.png` answers **`200 image/png 18842`** with sha1
+`1aad188d864b4793d50bda85a95e75871f2c5158` on both sides; both head lambdas in the jar name it once. Read-back
+on the real data (metadata only): schema **21**, 15 projects, 30 tasks.
+
+**Seeing it.** The tab is the one surface no server check can see, and a tab icon is among the stickiest caches
+a browser keeps: **Ctrl+F5**, or a new tab/window, is what asks for this tile again. Compare it with
+murrays.mn's own tab if you want the reference side by side.
+
+**If this is restated.** Do not redraw the mark — no masking the bar, no rebuilt caps, no white-on-green box,
+no letter-only tile. Do not point `rel="icon"` at the wide `mms-logo.png`: it must stay a **square crop**, the
+site's own rule. Keep the field **transparent**, as the site's icon is; do not add a background, a margin or
+rounded corners. Keep one named PNG and no `/favicon.ico`. Do not make the render test decode pixels or pin the
+sha1. If the logo raster changes, re-render with `scratch/favicon-site.py` (the shipped square is `site-g`,
+side 1600 at (80, 120)) rather than editing the PNG; and read the site's icon as *the logo's left square*, not
+as a separate design to copy.

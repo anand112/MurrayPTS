@@ -22,6 +22,9 @@
      select[data-board-toggle]             management's "where it lives" picker, whose two halves it switches
                                           between in place — on a popup and on the Team sheet's assign panel
                                           alike; see the board picker section below
+     select[data-lane-fill]                the general board's project picker: every one of its options carries
+                                          that board's columns in `data-lanes`, and choosing one refills the
+                                          Sub-category picker below it in place — see the section of that name
      #taskModal [name=taskId]              0 while creating, the card's id while editing — the server puts
                                          it there, this script never touches it
 
@@ -150,6 +153,59 @@
     for (var i = 0; i < fields.length; i++) {
       var mine = fields[i].getAttribute('data-board-half') === 'other';
       if (mine === toOther) { fields[i].removeAttribute('hidden'); } else { fields[i].setAttribute('hidden', 'hidden'); }
+    }
+  });
+
+  /* --- the sub-category follows the project ---------------------------------------
+     `+ New task` on the Assigned page is the one create whose project is chosen inside the popup, because that
+     page is the reader's own board and names no project (Stage 111). So the Sub-category list cannot be fixed
+     when the page was rendered: each project option carries its own board's columns as `data-lanes`, and
+     picking a project moves that list into the picker below — the same way the "where it lives" toggle above
+     moves two halves the page already shipped. Nothing is fetched and the board behind the popup does not move,
+     because a reload would throw away whatever the reader has typed into the card they are writing.
+
+     A project page's create never comes through here. Its popup was rendered with that page's own columns and
+     the picker has nothing to follow, so the server leaves off both the marker and the lists.
+
+     With JavaScript off the popup is still honest, just slower: the column picker stays on "choose a project
+     first", the save posts no lane, and the route answers at the field with that project's real columns in the
+     picker this time — the refusal is the round trip that a script saves the reader. */
+  document.addEventListener('change', function (e) {
+    var pick = e.target && e.target.closest ? e.target.closest('select[data-lane-fill]') : null;
+    if (!pick) return;
+    var form = pick.closest('form');
+    if (!form) return;
+    var lane = form.querySelector('select[name="lane"]');
+    if (!lane) return;
+    var chosen = pick.options[pick.selectedIndex];
+    var raw = chosen && chosen.getAttribute ? chosen.getAttribute('data-lanes') : null;
+    var names = [];
+    try { names = raw ? JSON.parse(raw) : []; } catch (err) { names = []; }
+    if (!names || typeof names.length !== 'number') names = [];
+    // Keep the reader's column if the board they just moved to has one under the same name; otherwise land on
+    // that board's first column, which is what a create opened on a project page starts on too.
+    var keep = lane.value;
+    while (lane.firstChild) lane.removeChild(lane.firstChild);
+    var asked = pick.value === '';
+    if (asked || !names.length) {
+      // Nothing to offer — no project named, or a board whose columns have all been taken off. The field says
+      // which, and stays shut so the form cannot post a column out of a list it never printed.
+      var none = document.createElement('option');
+      none.value = '';
+      none.selected = true;
+      none.textContent = lane.getAttribute(asked ? 'data-ask-project' : 'data-no-columns') || '';
+      lane.appendChild(none);
+      lane.setAttribute('disabled', 'disabled');
+      return;
+    }
+    lane.removeAttribute('disabled');
+    var target = names.indexOf(keep) >= 0 ? keep : names[0];
+    for (var i = 0; i < names.length; i++) {
+      var o = document.createElement('option');
+      o.value = names[i];
+      o.textContent = names[i];
+      o.selected = names[i] === target;
+      lane.appendChild(o);
     }
   });
 

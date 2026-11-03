@@ -9,7 +9,8 @@ import javax.sql.DataSource
  *
  * This is the single seam between the app and schema evolution. If Flyway's SQLite
  * support is ever unavailable, only this file changes — the V*.sql files and the rest
- * of the DB layer stay put (see ARCHITECTURE.md → Migration plan).
+ * of the DB layer stay put (see ARCHITECTURE.md → Data model (SQLite), which lists the
+ * migrations and says where Flyway runs).
  */
 object Migrations {
 

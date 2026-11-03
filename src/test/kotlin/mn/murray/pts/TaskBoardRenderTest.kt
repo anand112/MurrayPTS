@@ -11,6 +11,7 @@ import mn.murray.pts.domain.TASK_STATUSES
 import mn.murray.pts.domain.UNSORTED_LANES
 import mn.murray.pts.domain.TaskItem
 import mn.murray.pts.domain.bucketDotClass
+import mn.murray.pts.repository.BucketRepository
 import mn.murray.pts.repository.ProjectBucketRepository
 import mn.murray.pts.repository.ProjectRepository
 import mn.murray.pts.repository.TaskRepository
@@ -45,7 +46,10 @@ import kotlinx.html.stream.createHTML
  * so a status-board card prints no button at all. A card prints
  * one number about its plan and nothing else (Stage 41) — the steps and their tick boxes are in the editor
  * the click opens, offered to exactly the two readers the route answers to. A rejected form comes back with
- * the popup open and its message under its own field.
+ * the popup open and its message under its own field. The Assigned page's `+ New task` asks which project the
+ * card is on and takes its columns from that project's own board — **Stage 111** — so its two pickers are
+ * pinned here in every state they can be rendered in: nothing chosen, a board named, a board with nothing on
+ * it, and a refusal that has to come back with the same list the reader was refused against.
  */
 class TaskBoardRenderTest {
 
@@ -338,7 +342,15 @@ class TaskBoardRenderTest {
             projectLane = DEFAULT_PROJECT_BUCKETS.first(),
         )
         val rejected = TaskService.create(draft, "EMP0001", canManage = true)
-        val html = render { taskFormModal(taskFormOf(taskId = 0, rejected), BACK_ASSIGNED) }
+        // Rendered with the same state the save route passes: a create refused on the general board comes back
+        // carrying every project's columns, so the field it names stays the field the reader can answer
+        // (Stage 111) — see the refusal test below for what that picker lists.
+        val html = render {
+            taskFormModal(
+                taskFormOf(taskId = 0, result = rejected, lanesByProject = TaskService.lanesByProjectName()),
+                BACK_ASSIGNED,
+            )
+        }
         assertTrue(html.contains("style=\"display:block\""))
         // The rendered markup has no line breaks, so "under the title field" is checked as
         // order: the sentence sits between the title input and the next field's control.
@@ -546,7 +558,7 @@ class TaskBoardRenderTest {
 
     @Test
     fun `a create popup carries neither section and no card to hang them on`() {
-        val html = render { taskFormModal(newFormOf(), BACK_ASSIGNED) }
+        val html = generalCreate()
         assertTrue(html.contains("style=\"display:block\""), "?new=1 came back closed")
         assertTrue(html.contains(">New task<"))
         assertFalse(html.contains("modal-checklist"))
@@ -554,14 +566,230 @@ class TaskBoardRenderTest {
         assertFalse(html.contains("modal-scope"), "a blank form is management's own")
         assertTrue(html.contains("name=\"taskId\" value=\"0\""))
         // Stage 48 took the blank choice out of both pickers: a card that names no project belongs to neither
-        // world, and one that names no lane of it is nowhere on that board. So the general board's create lists
-        // the projects and opens on the first real one, with its three phase columns beside it.
+        // world, and one that names no lane of it is nowhere on that board. **Stage 111** leaves that true and
+        // adds the other half of it — the blank this page's create opens on is a question, and the tests below
+        // say what its two pickers do about it.
         assertFalse(html.contains("— No project —"), "the general board can still create a card on no project")
-        assertTrue(html.contains("value=\"${project.name}\""), "this project is off the general board's picker")
-        assertTrue(selectedOption(html, DEFAULT_PROJECT_BUCKETS.first()), "a create opened on no lane")
-        val onProject = render { taskFormModal(newFormOf(), BACK_PROJECT, project) }
+        val onProject = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
         assertFalse(onProject.contains("— No project —"))
         assertTrue(selectedOption(onProject, project.name), "a new card was not opened on this project")
+    }
+
+    // --- the general board's create chooses its own board (Stage 111) ----------------------
+
+    /**
+     * The Assigned page's `+ New task` popup exactly as `/app/assigned-tasks?new=1` builds it: management's
+     * blank, plus every project's own columns, because this is the one create that asks which project the card
+     * is on and so cannot already know its board. [draft] is what a refused save would post.
+     */
+    private fun generalCreate(draft: TaskDraft = TaskDraft()): String = render {
+        taskFormModal(
+            newFormOf().copy(lanesByProject = TaskService.lanesByProjectName(), values = draft),
+            BACK_ASSIGNED,
+        )
+    }
+
+    /** One picker's contents — its option tags, nothing above or below them. */
+    private fun picker(html: String, name: String): String =
+        Regex("<select[^>]*name=\"$name\"[^>]*>(.*?)</select>", RegexOption.DOT_MATCHES_ALL)
+            .find(html)?.groupValues?.get(1) ?: error("no $name picker rendered")
+
+    /** The opening tag of the option that prints [text], so its attributes and its state can be read off it. */
+    private fun optionTag(picker: String, text: String): String {
+        val at = picker.indexOf(">$text</option>")
+        assertTrue(at >= 0, "no option prints $text")
+        val open = picker.lastIndexOf("<option", at)
+        return picker.substring(open, picker.indexOf('>', open) + 1)
+    }
+
+    /** How many of this picker's options the page opens on. */
+    private fun selectedCount(picker: String): Int =
+        Regex("<option[^>]*selected").findAll(picker).count()
+
+    /**
+     * [attribute] of the option that prints [text], exactly as the page wrote it — no entity read back, so an
+     * assertion can ask what the attribute is actually carrying.
+     */
+    private fun optionAttrRaw(picker: String, text: String, attribute: String): String {
+        val tag = optionTag(picker, text)
+        return Regex("$attribute=\"([^\"]*)\"").find(tag)?.groupValues?.get(1)
+            ?: error("$text carries no $attribute: $tag")
+    }
+
+    /**
+     * [attribute] of the option that prints [text], read back through whatever entities the attribute escaping
+     * put there — a column list is free text from Settings, so the comparison is made on the text, not on the
+     * byte form the page happened to write.
+     */
+    private fun optionAttr(picker: String, text: String, attribute: String): String =
+        optionAttrRaw(picker, text, attribute)
+            .replace("&quot;", "\"").replace("&#39;", "'")
+            .replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+
+    @Test
+    fun `the general create opens on a project to choose, and its columns wait for one`() {
+        val html = generalCreate()
+        val projects = picker(html, "project")
+        // The page this button sits on is the reader's own board, not a project, so the popup must not answer the
+        // project question for them. Stage 111 found it doing exactly that — opening on the first project in the
+        // list and filing the card under that board's columns, which the reader never chose and could not see.
+        assertTrue(optionTag(projects, CHOOSE_A_PROJECT).contains("selected"), "the picker chose a project anyway")
+        assertEquals(1, selectedCount(projects), "more than one project is picked")
+        // The Sub-category field is the same question one step later, and it has nothing to say yet.
+        val lanes = picker(html, "lane")
+        assertEquals(1, occurrences(lanes, "<option"), "columns were listed with no board chosen")
+        assertTrue(lanes.contains(CHOOSE_A_PROJECT_FIRST), "the empty column picker did not say what it waits for")
+        assertTrue(control(html, "lane").contains("disabled"), "a column was pickable out of no board")
+        // Not the legacy trio either: those three are a fallback for a form that already knows its board.
+        DEFAULT_PROJECT_BUCKETS.forEach {
+            assertFalse(lanes.contains("value=\"$it\""), "a board nobody chose was listed under it")
+        }
+        // And nothing on the form claims where the card lands, because nothing on it knows yet.
+        assertTrue(control(html, "project").contains("data-lane-fill"), "the column list has no way to follow the project")
+        assertFalse(html.contains("A new card lands under"), "the popup named a landing column it was never asked for")
+        assertTrue(html.contains("whichever project you pick"), "the popup said nothing about choosing a project")
+    }
+
+    @Test
+    fun `every project in the general create carries its own board's columns`() {
+        val second = ProjectRepository.insert(
+            code = "S-02", name = "Wash plant upgrade", status = "Planned", progress = 0,
+            managerEmpNo = "EMP0002", due = "2027-06-30", type = "Site projects",
+        )
+        ProjectBucketRepository.insert(second, "Design")
+        ProjectBucketRepository.insert(second, "Build")
+        ProjectRepository.insert(
+            code = "S-03", name = "Stockpile survey", status = "Planned", progress = 0,
+            managerEmpNo = "EMP0002", due = "2027-09-30", type = "Site projects",
+        )
+        val awkward = ProjectRepository.insert(
+            code = "S-04", name = "Tailings dam raise", status = "Planned", progress = 0,
+            managerEmpNo = "EMP0002", due = "2027-12-31", type = "Site projects",
+        )
+        ProjectBucketRepository.insert(awkward, "Drill & Blast \"phase\"")
+        val projects = picker(generalCreate(), "project")
+        // Each option names the columns of the board it names, in board order — which is what lets the browser
+        // swap the Sub-category list without asking the page again, and what stops one project's board from
+        // filing a card under another's names.
+        assertEquals(
+            "[\"Engineering\",\"Procurement\",\"Production\"]",
+            optionAttr(projects, project.name, "data-lanes"),
+            "this project's own board is not on its option",
+        )
+        assertEquals(
+            "[\"Design\",\"Build\"]",
+            optionAttr(projects, "Wash plant upgrade", "data-lanes"),
+            "a second board's columns were not carried on its own option",
+        )
+        assertEquals("[]", optionAttr(projects, "Stockpile survey", "data-lanes"), "a bare board invented a column")
+        // A column name is free text from Settings, and it travels inside a quoted attribute as JSON, so both
+        // layers have to hold: a raw quote there would end the attribute early and hand the browser half a list,
+        // and an ampersand the page resolves into something else is a JSON escape the script cannot parse — which
+        // would read as a board with no columns at all.
+        val awkwardTag = optionTag(projects, "Tailings dam raise")
+        assertTrue(
+            Regex("data-lanes=\"[^\"]*\">").containsMatchIn(awkwardTag),
+            "a column name broke the attribute it is carried in: $awkwardTag",
+        )
+        val awkwardList = optionAttr(projects, "Tailings dam raise", "data-lanes")
+        assertFalse(awkwardList.contains("&"), "an ampersand reached the JSON the script parses")
+        assertTrue(awkwardList.contains("u0026"), "the ampersand did not go out as a JSON escape")
+        assertTrue(awkwardList.startsWith("[") && awkwardList.endsWith("]"), "the column list is not a JSON array")
+    }
+
+    @Test
+    fun `a chosen project whose board has no columns says so`() {
+        ProjectRepository.insert(
+            code = "S-03", name = "Stockpile survey", status = "Planned", progress = 0,
+            managerEmpNo = "EMP0002", due = "2027-09-30", type = "Site projects",
+        )
+        // The state a project with an emptied board is in, reached without a script: the reader named it and the
+        // save came back refused on the column, because there is no column on that board to name.
+        val refused = TaskService.create(
+            TaskDraft(
+                title = "Drill the pit wall", projectName = "Stockpile survey", assigneeEmpNo = "EMP0002",
+                projectLane = DEFAULT_PROJECT_BUCKETS.first(),
+            ),
+            callerEmpNo = "EMP0001", canManage = true,
+        )
+        val html = generalCreate(refused.values)
+        val lanes = picker(html, "lane")
+        assertTrue(lanes.contains(NO_COLUMN_ON_BOARD), "an empty board was not named as empty")
+        assertEquals(1, occurrences(lanes, "<option"), "a board with no columns grew a choice")
+        assertTrue(control(html, "lane").contains("disabled"), "a column could be picked off an empty board")
+        assertFalse(lanes.contains(CHOOSE_A_PROJECT_FIRST), "a missing choice was blamed for a missing board")
+    }
+
+    @Test
+    fun `a refused create comes back on the chosen project's own columns`() {
+        val withBoard = ProjectRepository.insert(
+            code = "S-02", name = "Wash plant upgrade", status = "Planned", progress = 0,
+            managerEmpNo = "EMP0002", due = "2027-06-30", type = "Site projects",
+        )
+        ProjectBucketRepository.insert(withBoard, "Design")
+        ProjectBucketRepository.insert(withBoard, "Build")
+        // A column of one board posted against another — which is what the old popup let a reader do, because it
+        // listed three names from no board in particular. The refusal is the no-JavaScript round trip, so it has
+        // to be the honest one: the project they named comes back chosen, and its columns come back listed.
+        val refused = TaskService.create(
+            TaskDraft(
+                title = "Spread base course", projectName = project.name, assigneeEmpNo = "EMP0002",
+                projectLane = "Design",
+            ),
+            callerEmpNo = "EMP0001", canManage = true,
+        )
+        val html = render {
+            taskFormModal(
+                taskFormOf(taskId = 0, result = refused, lanesByProject = TaskService.lanesByProjectName()),
+                BACK_ASSIGNED,
+            )
+        }
+        val projects = picker(html, "project")
+        assertTrue(optionTag(projects, project.name).contains("selected"), "the refusal forgot the project they chose")
+        assertEquals(0, occurrences(projects, CHOOSE_A_PROJECT), "the refusal put the question back")
+        val lanes = picker(html, "lane")
+        DEFAULT_PROJECT_BUCKETS.forEach {
+            assertTrue(lanes.contains("value=\"$it\""), "$it is not on the refused popup")
+        }
+        assertFalse(lanes.contains("value=\"Design\""), "the column that was refused is offered back as an answer")
+        assertFalse(control(html, "lane").contains("disabled"), "the refused field was shut on a board that has columns")
+        assertTrue(lanes.contains(NOT_A_COLUMN_OF_THIS_PROJECT), "the picker did not say why the posted name is missing")
+        val message = html.indexOf("Choose which part of this project the card is on.")
+        assertTrue(message > html.indexOf("name=\"lane\""), "the column's message printed before its field")
+        assertEquals(1, occurrences(html, "field-err"), "a refusal came back with a second message")
+    }
+
+    @Test
+    fun `a project page's create keeps the board the page already names`() {
+        val onProject = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
+        // The page is a project, so there is nothing to choose and nothing to follow: one board, already named,
+        // opened on its first column. Stage 111 changes no part of this popup — including its copy.
+        assertFalse(onProject.contains("data-lane-fill"), "the page's own board was put up for choosing")
+        assertFalse(onProject.contains("data-lanes"), "a fixed board shipped a list to swap it for")
+        assertFalse(onProject.contains(CHOOSE_A_PROJECT), "a project page asked which project")
+        assertTrue(selectedOption(onProject, project.name), "the create opened on no project")
+        assertTrue(selectedOption(onProject, DEFAULT_PROJECT_BUCKETS.first()), "the create opened on no column")
+        assertFalse(control(onProject, "lane").contains("disabled"), "this project's columns were greyed")
+        assertTrue(onProject.contains("New tasks land on ${project.name}"), "the page stopped naming the board")
+        assertTrue(onProject.contains("A new card lands under ${DEFAULT_PROJECT_BUCKETS.first()}"))
+    }
+
+    @Test
+    fun `a backlog create is not asked which project it is on`() {
+        BucketRepository.insert("Site works")
+        val html = render {
+            taskFormModal(
+                backlogFormOf(canManage = true, viewerEmpNo = "EMP0001", columns = TaskService.bucketRows()),
+                BACK_OTHER,
+            )
+        }
+        // Its question is which *column* of the Other tasks board, and the project half is the one the reader
+        // switches to — so the picker that would need a per-project column list is not on show here at all.
+        assertFalse(html.contains("data-lane-fill"), "a backlog create was handed the project's column refill")
+        assertFalse(html.contains(CHOOSE_A_PROJECT), "a backlog card was asked which project it is on")
+        assertFalse(html.contains(CHOOSE_A_PROJECT_FIRST), "the backlog's column picker was told to wait for a project")
+        assertTrue(control(html, "column").isNotEmpty(), "the backlog create lost its own column picker")
+        assertFalse(html.contains("name=\"lane\""), "a backlog create grew a project's sub-category field")
     }
 
     @Test
@@ -1768,7 +1996,7 @@ class TaskBoardRenderTest {
             assertFalse(html.contains("Save task"), "a stranger was handed a save")
         }
         // And a card being created has nothing yet to destroy.
-        val fresh = render { taskFormModal(newFormOf(), BACK_ASSIGNED) }
+        val fresh = generalCreate()
         assertFalse(fresh.contains("/app/tasks/archive"))
         assertFalse(fresh.contains("/app/assigned-tasks/delete"))
     }

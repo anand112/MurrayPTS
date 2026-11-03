@@ -502,6 +502,20 @@ object TaskService {
     fun lanesOf(projectId: Int): List<ProjectBucket> = ProjectBucketRepository.ofProject(projectId)
 
     /**
+     * Every board's columns by **project name**, in each board's own order — the general board's create popup
+     * needs one list per project because the project itself is picked inside the popup.
+     *
+     * Keyed by name, not id, for the same reason the form posts a lane by name (Stage 48): a popup on the
+     * general board is not told this project's lane ids, and the project picker's values are names. A project
+     * that has no columns appears with an empty list rather than being absent — "this board has no column yet"
+     * is an answer the popup has to be able to give, and a name that is on no board is what [resolve] refuses.
+     */
+    fun lanesByProjectName(): Map<String, List<String>> {
+        val byId = ProjectBucketRepository.allByProject()
+        return ProjectRepository.idByName().mapValues { (_, id) -> byId[id]?.map { it.name } ?: emptyList() }
+    }
+
+    /**
      * How many cards are filed in each of this project's buckets, keyed by bucket id — the figure a picker
      * needs before it can offer to take one off (Stage 73). A bucket with nothing in it is absent rather than
      * zero, so `counts[id].orEmpty() > 0` and `id in counts` answer the same question.
