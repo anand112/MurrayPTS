@@ -46,6 +46,7 @@ import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.request.path
+import io.ktor.server.request.httpMethod
 import io.ktor.server.plugins.origin
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondRedirect
