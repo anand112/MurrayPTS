@@ -27,15 +27,35 @@ import mn.murray.pts.security.Authorization
  *    a sheet a reader acts on has to answer the question the app itself asks before every write.
  *  * **Nothing here re-decides an old rule.** The popup's save is a call into [UserService], whose
  *    rules are the ones the app has always applied: only an administrator sets a position, a
- *    role or a password; a new account added without that right starts as the catalogue's default role with
- *    its employee number as password and has to change it; `EMP0000` cannot be deleted and nobody can delete
- *    themselves.
+ *    role or a password; the Owner/Administrator pair alone sets a department (Stage 117); a new account
+ *    added without that right starts as the catalogue's default role with its employee number as password
+ *    and has to change it; `EMP0000` cannot be deleted and nobody can delete themselves.
  *
  * Rights are decided here and re-checked at every route, exactly as [LessonService] does: a button the
  * page did not print is not a permission the server granted, and a button it did print is not one
  * either.
  */
 object EmployeeService {
+
+    /**
+     * The nine departments a person can be filed under (Stage 117), in the list the request gave.
+     *
+     * Until this stage a department was free text on the roster — "Projects", "Operations", "Workshop" — and
+     * those words are still readable. What the popup writes from now on is one of these, and only the roles
+     * holding every chip (*Owner* and *Administrator*) may choose it: a department decides who a person is
+     * grouped with on the Team page, so it is an assignment, not a label the reader of the moment invents.
+     */
+    val DEPARTMENTS: List<String> = listOf(
+        "Management",
+        "Finance",
+        "Human Resource",
+        "HSE",
+        "Production",
+        "Engineering",
+        "Sales",
+        "Project",
+        "Procurement",
+    )
 
     /**
      * Every row on the sheet, for this reader, before any filter or order is applied.
@@ -165,6 +185,27 @@ object EmployeeService {
     /** The choices the popup's Position picker lists, with the automatic one left to the view. */
     fun positionNames(): List<String> = PositionRepository.findAll().map { it.name }.sortedBy { it.lowercase() }
 
+    /** The choices the popup's Department picker lists, in the order the business named them (Stage 117). */
+    fun departments(): List<String> = DEPARTMENTS
+
+    /**
+     * File one person's roster row under a department — the Department select on Access control's People
+     * sheet (Stage 118).
+     *
+     * This is the same assignment the popup makes, narrowed to the one field: only a role holding **every**
+     * chip may ask (the route's guard), the word has to be one of the nine, and the number has to be on the
+     * roster already. Anything else writes nothing and answers false — a blank is not a way to clear a
+     * department, because the old free-text words are replaced by choosing one, never by erasing them.
+     */
+    fun setDepartment(employeeNumber: String, department: String): Boolean {
+        val emp = employeeNumber.trim().uppercase()
+        val wanted = department.trim()
+        if (emp.isEmpty() || wanted !in DEPARTMENTS) return false
+        val member = TeamRepository.findByEmpNo(emp) ?: return false
+        if (member.department != wanted) TeamRepository.upsert(member.copy(department = wanted))
+        return true
+    }
+
     /**
      * One account by number, for the popup behind `?edit=<employee number>`.
      *
@@ -195,6 +236,7 @@ object EmployeeService {
         canManage: Boolean,
         canAdmin: Boolean,
         canSetRoles: Boolean = canAdmin,
+        canSetDepartment: Boolean = false,
     ): EmployeeResult {
         val editing = draft.edit.trim().uppercase()
         val target = (editing.ifEmpty { draft.employeeNumber }).trim().uppercase()
@@ -247,6 +289,19 @@ object EmployeeService {
                 errors += EmployeeField.PASSWORD to "A password is $MIN_PASSWORD_LENGTH characters or more."
             }
         }
+        // Stage 117: the department is the Owner/Administrator pair's, independently of the two people chips.
+        // Somebody who may only manage employees adds the person with no department rather than choosing one,
+        // and a hand-posted value is refused on the form's own line for the reason the picker is not printed.
+        // A create must name one; an edit may leave the picker alone, which is how an old free-text department
+        // survives an address change instead of being silently cleared.
+        val department = draft.department.trim()
+        if (department.isNotEmpty() && !canSetDepartment) {
+            errors += EmployeeField.PERMISSION to NOT_YOURS_DEPARTMENT
+        } else if (department.isNotEmpty() && department !in DEPARTMENTS) {
+            errors += EmployeeField.DEPARTMENT to UNKNOWN_DEPARTMENT
+        } else if (department.isEmpty() && canSetDepartment && editing.isEmpty()) {
+            errors += EmployeeField.DEPARTMENT to DEPARTMENT_REQUIRED
+        }
         if (errors.isNotEmpty()) return EmployeeResult.refused(draft, errors)
 
         if (existing == null) {
@@ -260,6 +315,8 @@ object EmployeeService {
                     newPassword = password,
                     canSetRoles = canSetRoles,
                     canSetProfile = canAdmin,
+                    requestedDepartment = department,
+                    canSetDepartment = canSetDepartment,
                 )
             ) {
                 PasswordStatus.USER_ADDED -> EmployeeResult(values = draft)
@@ -273,7 +330,9 @@ object EmployeeService {
         // projects and cards name their people in words, so renaming here would leave them pointing at a
         // name that no longer exists.
         UserService.updateEmail(target, draft.email)
-        UserService.updateUserProfile(employeeNumber = target, positionName = position, roleName = role)
+        UserService.updateUserProfile(
+            employeeNumber = target, positionName = position, roleName = role, departmentName = department,
+        )
         if (password.isNotEmpty()) {
             val status = UserService.setPasswordByAdmin(target, password)
             if (status != PasswordStatus.CHANGED) {
@@ -288,12 +347,15 @@ object EmployeeService {
     private const val NOT_YOURS_ADD = "Only somebody who manages employees can add an account."
     private const val NOT_YOURS_ROLE = "Only somebody who manages roles can set a role."
     private const val NOT_YOURS_PROFILE = "Only somebody who manages employees can set a position or a password."
+    private const val NOT_YOURS_DEPARTMENT = "Only an Owner or Administrator can set a department."
     private const val BLANK_EMP = "Every account is signed in by its employee number."
     private const val EMP_TAKEN = "There is already an account with that number."
     private const val EMP_SHAPE = "An employee number is letters and digits, like EMP0023."
     private const val BLANK_NAME = "Write the name the sheet should print."
     private const val UNKNOWN_ROLE = "Choose one of the roles on the list."
     private const val UNKNOWN_POSITION = "That position is no longer in the catalog."
+    private const val UNKNOWN_DEPARTMENT = "Choose one of the departments on the list."
+    private const val DEPARTMENT_REQUIRED = "Choose a department from the list."
     private const val PASSWORD_SHORT = "That password is too short."
     private const val ONLY_MANAGEMENT_DELETE = "Only somebody who manages employees can delete an account."
     private const val NO_ACCOUNT_YET = "This person has no account to delete yet — the pencil creates one."
@@ -495,11 +557,14 @@ data class EmployeeDraft(
     val position: String = "",
     val role: String = "",
     val password: String = "",
+    /** One of [EmployeeService.DEPARTMENTS], or blank to leave the roster's department alone. */
+    val department: String = "",
 ) {
     val isEdit: Boolean get() = edit.isNotBlank()
 
     companion object {
-        private val KEYS = listOf("edit", "employeeNumber", "name", "email", "position", "role", "password")
+        private val KEYS =
+            listOf("edit", "employeeNumber", "name", "email", "position", "role", "password", "department")
 
         fun of(form: Map<String, String?>): EmployeeDraft = EmployeeDraft(
             edit = form["edit"].orEmpty().trim(),
@@ -509,6 +574,7 @@ data class EmployeeDraft(
             position = form["position"].orEmpty(),
             role = form["role"].orEmpty(),
             password = form["password"].orEmpty(),
+            department = form["department"].orEmpty(),
         )
 
         /** The keys a route reads off the form, so the reader and this shape cannot drift apart. */
@@ -517,7 +583,7 @@ data class EmployeeDraft(
 }
 
 /** Which control a refusal belongs under. The message prints there, not at the top of the page. */
-enum class EmployeeField { EMP_NO, NAME, EMAIL, POSITION, ROLE, PASSWORD, ROW, PERMISSION }
+enum class EmployeeField { EMP_NO, NAME, EMAIL, POSITION, ROLE, DEPARTMENT, PASSWORD, ROW, PERMISSION }
 
 /** `saved` on success; field-keyed `errors` and the typed values when the popup has to stay up. */
 data class EmployeeResult(

@@ -65,4 +65,15 @@ object Authorization {
 
     /** *Manage employees* or *Manage roles & permissions* — the people-facing pair. */
     fun canAdmin(employeeNumber: String): Boolean = canAny(employeeNumber, ADMINISTRATION)
+
+    /**
+     * The roles that hold **every** chip (Stage 117) — the two the catalogue seeds as Owner and Administrator.
+     *
+     * The department dropdown on the People sheet is theirs alone, and the test is the powers rather than the
+     * word: a renamed Owner keeps the right, and a custom role granted all thirteen chips has exactly the
+     * authority those two seeds have. Reading the name instead would make a rename quietly take the control
+     * away, which is the same mistake the old `access` column made.
+     */
+    fun isOwnerOrAdministrator(employeeNumber: String): Boolean =
+        roleOf(employeeNumber).permissions.containsAll(Permission.entries)
 }

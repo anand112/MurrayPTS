@@ -1,5 +1,6 @@
 package mn.murray.pts
 import mn.murray.pts.domain.*
+import mn.murray.pts.service.EmployeeService
 import mn.murray.pts.service.RoleService
 
 import io.ktor.http.Parameters
@@ -27,15 +28,42 @@ import kotlinx.html.th
 import kotlinx.html.thead
 import kotlinx.html.tr
 
-/** One row of the access table: full team roster first, then accounts without a roster entry. */
-private data class UserRow(val employeeNumber: String, val name: String, val teamPosition: String, val account: AccessRow?)
+/**
+ * One row of the access table: full team roster first, then accounts without a roster entry.
+ *
+ * [department] and [onRoster] travel with the row because a department is a property of the *roster*, not
+ * of a login (Stage 118): a person with no account still belongs to one, and an account with no roster row
+ * has nothing to file.
+ */
+private data class UserRow(
+    val employeeNumber: String,
+    val name: String,
+    val teamPosition: String,
+    val department: String,
+    val onRoster: Boolean,
+    val account: AccessRow?,
+)
 
 private fun userRows(): List<UserRow> {
     val teamEmps = DemoData.team.map { it.employeeNumber }.toSet()
     return DemoData.team.map { m ->
-        UserRow(m.employeeNumber, m.name, m.position, DemoData.access.firstOrNull { it.employeeNumber == m.employeeNumber })
+        UserRow(
+            employeeNumber = m.employeeNumber,
+            name = m.name,
+            teamPosition = m.position,
+            department = m.department,
+            onRoster = true,
+            account = DemoData.access.firstOrNull { it.employeeNumber == m.employeeNumber },
+        )
     } + DemoData.access.filter { it.employeeNumber !in teamEmps }.map { a ->
-        UserRow(a.employeeNumber, a.name, a.position, a)
+        UserRow(
+            employeeNumber = a.employeeNumber,
+            name = a.name,
+            teamPosition = a.position,
+            department = "",
+            onRoster = false,
+            account = a,
+        )
     }
 }
 
@@ -140,10 +168,17 @@ internal fun TR.positionRow(pos: Position, canEdit: Boolean) {
  * role is what decides access now; the position beside it is a job title and nothing more. [canPeople] is
  * *Manage employees* — the position, password, delete and add-user controls — while the role written in a
  * row is **Manage roles & permissions** and posts to its own route.
+ *
+ * **Department** (Stage 118) is the roster's own column, printed here between Position and Role. [canDepartments]
+ * is the Owner/Administrator pair (a role holding every chip): they get a picker per row that posts to its own
+ * route and swaps only that cell; everybody else reads the word. A person without a login still has a
+ * department to file, so the picker does not follow [canPeople]; an account with no roster row has nothing to
+ * write and keeps the dash.
  */
 fun DIV.accessContent(
     canPeople: Boolean,
     canRoles: Boolean,
+    canDepartments: Boolean,
     currentEmployeeNumber: String,
     roleForm: RoleForm = RoleForm(),
     passwordStatus: PasswordStatus? = null,
@@ -162,6 +197,7 @@ fun DIV.accessContent(
                     th { +"Employee" }
                     th { +"Name" }
                     th { +"Position" }
+                    th { +"Department" }
                     th { +"Role" }
                     if (canPeople) th { +"Password" }
                     if (canPeople) th { +"Delete" }
@@ -193,6 +229,44 @@ fun DIV.accessContent(
                                 }
                             } else {
                                 +(account?.position ?: row.teamPosition)
+                            }
+                        }
+                        td {
+                            id = "department-cell-${row.employeeNumber}"
+                            if (canDepartments && row.onRoster) {
+                                // Only this cell moves on a save, so the rest of the sheet — and the page under
+                                // the reader — stays exactly where it was.
+                                form(
+                                    action = "/app/access-control/department",
+                                    method = FormMethod.post,
+                                    classes = "cell-edit",
+                                ) {
+                                    attributes["data-live-target"] = "#department-cell-${row.employeeNumber}"
+                                    input(type = InputType.hidden, name = "employeeNumber") { value = row.employeeNumber }
+                                    select {
+                                        name = "department"
+                                        id = "department-pick-${row.employeeNumber}"
+                                        attributes["data-autosubmit"] = ""
+                                        // An old free-text word is shown as itself, unselectable: choosing one of the
+                                        // nine replaces it, and pressing nothing else on the row cannot erase it.
+                                        if (row.department !in EmployeeService.DEPARTMENTS) {
+                                            option {
+                                                value = ""
+                                                selected = true
+                                                attributes["disabled"] = ""
+                                                +if (row.department.isBlank()) "— No department —" else "— ${row.department} —"
+                                            }
+                                        }
+                                        EmployeeService.DEPARTMENTS.forEach { department ->
+                                            option {
+                                                selected = department == row.department
+                                                +department
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                +(row.department.ifBlank { "—" })
                             }
                         }
                         td {
@@ -257,7 +331,7 @@ fun DIV.accessContent(
             }
         }
         if (!canPeople) p("panel-caption") {
-            +"Manage employees is what adds, removes and re-passes accounts. The role beside each name is set by whoever manages roles & permissions."
+            +"Manage employees is what adds, removes and re-passes accounts. The role beside each name is set by whoever manages roles & permissions, and the department by an Owner or Administrator."
         }
     }
     if (canPeople) {

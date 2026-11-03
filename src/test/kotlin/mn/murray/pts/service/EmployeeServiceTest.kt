@@ -50,6 +50,11 @@ import java.io.File
  *    password, only *Manage employees* sets a position or a password, and only *Manage roles & permissions*
  *    decides which role a person signs in under. The refusals below check that nothing was written at all,
  *    not just that the answer was "no".
+ *  * **A department is an assignment, and only the Owner/Administrator pair makes it** (Stage 117): adding
+ *    somebody through those roles requires one of the nine, anybody else adds the person unassigned, and an
+ *    edit left blank keeps the roster's word — the free-text ones this list replaced included. Since Stage 118
+ *    the same pair, and the same nine-word check, is behind the per-row picker on Access control's People sheet;
+ *    it moves only the roster's department and never the job title beside it ([EmployeeService.setDepartment]).
  *
  * The rest is the sheet's own arithmetic: which rows the three controls leave, where a valueless row
  * sorts to, and what the two numbers on the count line count.
@@ -506,10 +511,12 @@ class EmployeeServiceTest {
         role: String = "",
         password: String = "",
         edit: String = "",
+        department: String = "",
+        canSetDepartment: Boolean = false,
     ) = EmployeeService.save(
         EmployeeDraft(edit = edit, employeeNumber = employeeNumber, name = name, email = email,
-            position = position, role = role, password = password),
-        who, canManage, canAdmin,
+            position = position, role = role, password = password, department = department),
+        who, canManage, canAdmin, canSetDepartment = canSetDepartment,
     )
 
     @Test
@@ -616,6 +623,112 @@ class EmployeeServiceTest {
         assertTrue(PasswordHasher.verify(positioned, account.passwordHash), "an edit replaced a password nobody typed")
     }
 
+    // --- the department (Stage 117) ------------------------------------------------------------------
+
+    @Test
+    fun `an owner or administrator files a new person under a chosen department`() {
+        val result = create("EMP0000", canManage = true, canAdmin = true,
+            department = "Engineering", canSetDepartment = true)
+        assertTrue(result.saved, "the create was refused: ${result.errors}")
+        assertEquals("Engineering", TeamRepository.findByEmpNo("EMP0023")?.department,
+            "the roster row the sheet reads was not given the department")
+        assertEquals(
+            "Engineering",
+            row(EmployeeService.sheet(EmployeeFilter(), "EMP0000", true, true), "EMP0023").department,
+            "the sheet did not print the department the popup wrote",
+        )
+    }
+
+    @Test
+    fun `a department is required on a create and has to be one of the nine`() {
+        val blank = create("EMP0000", true, true, canSetDepartment = true)
+        assertFalse(blank.saved, "a create with no department was accepted")
+        assertEquals(EmployeeField.DEPARTMENT, blank.errors.keys.singleOrNull(), "${blank.errors}")
+        assertEquals("Choose a department from the list.", blank.error(EmployeeField.DEPARTMENT))
+        assertNull(UserRepository.findByEmpNo("EMP0023"), "a create with no department wrote the account")
+
+        // The roster's old free-text words are not on the list; only one of the nine is a department now.
+        val offList = create("EMP0000", true, true, department = "Projects", canSetDepartment = true)
+        assertFalse(offList.saved, "a department the list does not hold was accepted")
+        assertEquals(EmployeeField.DEPARTMENT, offList.errors.keys.singleOrNull(), "${offList.errors}")
+        assertEquals("Choose one of the departments on the list.", offList.error(EmployeeField.DEPARTMENT))
+        assertNull(UserRepository.findByEmpNo("EMP0023"), "a refused department wrote the account")
+
+        // An edit may leave the picker alone: blank means keep, and that is how a free-text department
+        // from before this list survives an address change instead of being silently cleared.
+        assertEquals("Operations", TeamRepository.findByEmpNo(positioned)?.department)
+        val kept = create("EMP0000", true, true, edit = positioned, name = "Ganbold Erdene",
+            email = "g@g.mn", canSetDepartment = true)
+        assertTrue(kept.saved, "an edit with the department left alone was refused: ${kept.errors}")
+        assertEquals("Operations", TeamRepository.findByEmpNo(positioned)?.department, "a blank picker erased the department")
+    }
+
+    @Test
+    fun `a reader who is not an owner or administrator adds no department, and a hand-posted one is refused`() {
+        // The Manager holds *Manage employees* but not the whole chip set, so the account is made and the
+        // person is Unassigned — no department invented on their behalf.
+        val allowed = create(manager, canManage = true, canAdmin = false)
+        assertTrue(allowed.saved, "a manager's create was refused: ${allowed.errors}")
+        assertEquals("", TeamRepository.findByEmpNo("EMP0023")?.department, "a manager's create invented a department")
+
+        // The picker is not printed to them, so a value posted by hand has nowhere field-level to print
+        // its reason — it lands on the form's own line and writes nothing.
+        val refused = create(manager, true, false, employeeNumber = "EMP0024", department = "Engineering")
+        assertFalse(refused.saved, "a manager set a department")
+        assertEquals(EmployeeField.PERMISSION, refused.errors.keys.singleOrNull(), "${refused.errors}")
+        assertEquals("Only an Owner or Administrator can set a department.", refused.error(EmployeeField.PERMISSION))
+        assertNull(UserRepository.findByEmpNo("EMP0024"), "the refused create was written anyway")
+        assertNull(TeamRepository.findByEmpNo("EMP0024"), "the refused create rostered the person anyway")
+
+        // The same hand-post on an edit is refused too, and the old department stays where it was. This
+        // reader may edit (they manage employees), so the refusal is the department's and nothing else.
+        val editRefused = create(worker, canManage = true, canAdmin = true, edit = positioned,
+            name = "Ganbold Erdene", email = "g@g.mn", department = "Finance")
+        assertFalse(editRefused.saved, "a reader without the pair set a department on an edit")
+        assertEquals("Only an Owner or Administrator can set a department.", editRefused.error(EmployeeField.PERMISSION))
+        assertEquals("Operations", TeamRepository.findByEmpNo(positioned)?.department, "a refused edit wrote the department")
+    }
+
+    @Test
+    fun `an edit moves a department, and a create for somebody already rostered writes onto their row`() {
+        // A person already on the roster with no login: the pencil creates the account, and the department
+        // chosen there has to land on the row the Team page already groups them under.
+        val result = create("EMP0000", true, true, employeeNumber = noAccount, name = "Nyambaapurev",
+            department = "Production", canSetDepartment = true)
+        assertTrue(result.saved, "the create was refused: ${result.errors}")
+        assertEquals("Production", TeamRepository.findByEmpNo(noAccount)?.department, "the roster row kept its free-text word")
+
+        // An edit moves it, and the sheet prints the new one.
+        val moved = create("EMP0000", true, true, edit = worker, name = "Bat-Erdene Tudev",
+            email = "bat@murray.mn", department = "Finance", canSetDepartment = true)
+        assertTrue(moved.saved, "the edit was refused: ${moved.errors}")
+        assertEquals("Finance", TeamRepository.findByEmpNo(worker)?.department)
+        assertEquals("Finance", row(EmployeeService.sheet(EmployeeFilter(), "EMP0000", true, true), worker).department)
+    }
+
+    @Test
+    fun `one picker on Access control's People sheet moves a roster row between the nine`() {
+        // The route hands the service the posted number and word; the number is trimmed and upper-cased so a
+        // hand-posted `emp0002` still finds its person, and only the department moves — the job title beside
+        // it on the Team page is a different column and stays where it was.
+        assertTrue(EmployeeService.setDepartment(worker.lowercase(), " Finance "), "the move was refused")
+        assertEquals("Finance", TeamRepository.findByEmpNo(worker)?.department)
+        assertEquals("Engineer", TeamRepository.findByEmpNo(worker)?.position, "a department move changed the job title")
+        assertEquals("Finance", row(asAdmin(), worker).department, "the sheet did not print the department the picker wrote")
+
+        // Anything that is not one of the nine is refused and writes nothing — the roster's old free-text words
+        // included, so a hand-built post cannot restore them — and so are a blank word and a stranger's number.
+        listOf("Projects", "", "  ", "finance").forEach { word ->
+            assertFalse(EmployeeService.setDepartment(worker, word), "\"$word\" was accepted as a department")
+            assertEquals("Finance", TeamRepository.findByEmpNo(worker)?.department, "\"$word\" wrote the roster row")
+        }
+        assertFalse(EmployeeService.setDepartment("EMP9999", "Finance"), "a stranger was given a department")
+        assertNull(TeamRepository.findByEmpNo("EMP9999"), "a refused move rostered a stranger")
+
+        // Someone already on the list is a move, not a write: the same word is a no-op that still answers true.
+        assertTrue(EmployeeService.setDepartment(worker, "Finance"), "re-picking the current department was refused")
+    }
+
     @Test
     fun `an edit that sets a password replaces it, and a short one changes nothing`() {
         val set = create(worker, true, true, edit = positioned, name = "Ganbold Erdene", email = "g@g.mn", password = "newpass1")
@@ -697,7 +810,7 @@ class EmployeeServiceTest {
     }
 
     @Test
-    fun `the two pickers offer the catalog and the role list`() {
+    fun `the three pickers offer the catalog, the role list and the nine departments`() {
         assertEquals(listOf("Engineer", "Project Manager", "Site Supervisor"), EmployeeService.positionNames().take(3),
             "the position picker is not the catalog in a stable order")
         // The role picker is the catalogue in its own order — the same four rows the Access control table prints
@@ -708,5 +821,13 @@ class EmployeeServiceTest {
             EmployeeService.roles(), "the role picker is not the catalogue in its own order",
         )
         assertEquals("Employee", EmployeeService.defaultRoleName(), "the popup's default is not the catalogue's default")
+        // Stage 117: the department picker is a fixed list in the business's order, not the roster's words.
+        assertEquals(
+            listOf(
+                "Management", "Finance", "Human Resource", "HSE", "Production",
+                "Engineering", "Sales", "Project", "Procurement",
+            ),
+            EmployeeService.departments(), "the department picker is not the nine departments, in their order",
+        )
     }
 }

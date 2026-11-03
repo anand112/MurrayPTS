@@ -1547,6 +1547,16 @@ what it can do — the position beside it is a job title and decides nothing, wh
 described until then (the position's permission level, or the account's own access word when it had no position). An account with
 no role at all is not an account with no rights: `RoleRepository.roleOf` falls back to the catalogue's default (Employee),
 the same row a null `role_id` is counted under in that table's EMPLOYEES column.
+
+**Department** is the picker **Stage 117** put between Position and Password in that popup: nine words — Management,
+Finance, Human Resource, HSE, Production, Engineering, Sales, Project, Procurement — and only an **Owner or
+Administrator** may set or change it, tested as a role that holds **every** chip rather than by its name. On a create
+it is required (*"Choose a department from the list."*); on an edit it opens on *— Keep <the stored word> —* when the
+person's row carries one of the older free-text values (*General*, *Operations*, *IT / Systems*), so saving the popup
+does not clear a row nobody meant to change. A reader with *Manage employees* and not the full set adds accounts
+without the picker, and a department posted by hand is refused (*"Only an Owner or Administrator can set a
+department."*).
+
 **Open tasks** counts a person's
 unfinished cards: management sees everybody's, and anybody else sees their own with a `—` on the rows they cannot
 read, so `0` and `—` are different answers and both sort to the bottom. A blank department, a missing role and that
@@ -1699,6 +1709,8 @@ press, and `+ New role`, the **Edit** buttons and the pickers are simply not on 
 aloud, but a reader who may not write is not offered the control either. Below that, **Manage positions** is the job-title
 catalogue, still reached by *Manage employees*, and it has lost its **permission level** field — nothing on this page
 asks what a position is worth any more, because a position is what a person is called and a role is what they may do.
+
+The sheet's **Department** column (Stage 118) works the same way for the other pair: an **Owner or Administrator** — again, a role holding every chip — gets a picker on every roster row, posting to `/app/access-control/department` and swapping only that cell; everybody else reads the stored word as text. It is drawn for people with no login too, since a department belongs to the person and not the account, and the older free-text values open as a selected *— &lt;word&gt; —* that cannot be posted back. The words are the nine **Stage 117** put in the Settings popup, and `EmployeeService.setDepartment` refuses anything else and writes nothing.
 
 Two halves, two chips, one page: a role holding *Manage employees* but not *Manage roles* gets the People sheet with its
 password and delete columns and the roles table read-only, and a role holding only *Manage roles* gets the roles table and
@@ -2240,7 +2252,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (666 tests in 44 classes), on schema v20.
+2. `./gradlew test installDist` is green (704 tests in 47 classes), on schema v21.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2655,7 +2667,9 @@ configuration, and it is the one to settle first: it decides what you can safely
    *Project Manager* and reload: `/app/forecasts` answers 200 and the drawer has grown the link, with no sign-out in the
    middle of it — that is the whole promise of the page, one role read by everybody who holds it. Finally check the
    **Manage positions** card below the people table: it asks a name and a description and nothing else, because since this
-   stage a position is a job title and grants nothing.
+   stage a position is a job title and grants nothing. **Stage 118** puts the **Department** column beside the role: as
+   the Owner move a colleague to *Finance* and the one cell changes without a reload, then sign in as a role holding
+   only *Manage employees* and the same column prints words with no picker, its hand-posted department refused.
    Then read the **Team** page's workload row (Stage 67). Give one colleague a card on a project *and* a card on
    **Other tasks**, and give another colleague a project to manage with no card assigned to them. The first row's
    **IN PROGRESS / ON HOLD / NOT STARTED / BLOCKED / COMPLETED** and **Total** should count both of those cards — the
@@ -2764,9 +2778,10 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-697 tests in 47 classes — 31 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+704 tests in 47 classes — 38 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
-one render test (**Stage 112**), the tab's title case (**Stage 115**) and the assignment notice's two status-blind cases (**Stage 116**).
+one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
+(**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2775,15 +2790,15 @@ granting nothing and costing nothing; a role taken off the catalogue handing its
 catalogue's order and `byId`'s nulls, all three refusals in the popup's exact words with no row written, a new role
 appended last rather than default and holding exactly its ticks (an empty set landing with zero is a legitimate role), and
 a save rewriting its own row, keeping its place, and moving everybody who holds it — seen through `roleOf`, because the
-set is read from the role, not copied onto the account. `AccessControlRenderTest` (7) is the picture: the four rows with
+set is read from the role, not copied onto the account. `AccessControlRenderTest` (8) is the picture: the four rows with
 their chip counts, the read-only reading (no `+ New role`, no **Edit**, a tinted chip where the picker would be),
 `roleFormOf`'s gating of both openers and of an id that has gone, the popup's markup on create and on edit, a refusal
 keeping its sentence under the box with the words still typed, and the People sheet's **Role** column and per-account
-picker. `security/SecurityTest.kt` was rewritten around the chips rather than the ranks: `PermissionTest` (2 — thirteen
+picker, and its **Department** column and all-chip picker. `security/SecurityTest.kt` was rewritten around the chips rather than the ranks: `PermissionTest` (2 — thirteen
 keys and labels in the picture's order, tolerant parsing) and `AuthorizationTest` (9 — the role decides and neither the
 old `access` word nor the position's level does; widening a role moves everybody on the next request; a null `role_id`
 falls back; a custom role holds exactly its ticks; the EMPLOYEES count includes roleless accounts). Settings' sheet and
-the sidebar follow — `SettingsRenderTest` is 45 with its role-column and picker cases, `EmployeeServiceTest` 27 (a
+the sidebar follow — `SettingsRenderTest` is 46 with its role-column and picker cases, `EmployeeServiceTest` 32 (a
 reader without *Manage roles* is offered no role field, and a hand-built `role=` on their POST is **refused** under
 *"Only somebody who manages roles can set a role."* rather than trimmed and written), `SidebarTaskCountTest` 7 (the pill
 is the reader's own cards for **every** role). **Stage 109** adds nine. `ProjectCurrencyMigrationTest` (three, on temp databases built to
@@ -2799,6 +2814,18 @@ opens on Tugrik, carries each option's sign for the script, and opens on the cur
 (placeholder included). `ForecastsRenderTest` gains one — two currencies on one panel, each row signed its own way, and
 no `Revenue, MNT` / `Invoiced amount, MNT` heading — and three existing cases moved with the stage: the two heading
 assertions above, and `ProjectServiceTest`'s refusal now pins *"Enter revenue as a number, like 1,250,000."*
+
+**Stage 117** adds five. Four in `EmployeeServiceTest`: an owner or administrator files a new person under a chosen
+department (the roster row and the sheet's cell both read it back); the create's blank and off-list refusals land under
+`DEPARTMENT` with no account written, while an edit's blank picker keeps an old off-list word; a reader who is not an
+owner or administrator adds a person without one and a hand-posted `department=` is refused under `PERMISSION` on a
+create and an edit alike; and an edit moves a stored word while a pencil-create for somebody already rostered writes
+onto their existing row. The fifth is `SettingsRenderTest`'s picker case: exactly the nine options after the blank,
+`required` on a create and absent on an edit, the `— Keep … —` line selected for an off-list value and the stored one
+selected after it changes, and no `department` anywhere in a manager's popup.
+
+**Stage 118** adds two. `AccessControlRenderTest`'s department case: the heading between Position and Role, a picker on every roster row (the row with no login included), the stored off-list word selected and disabled with the nine after it, the form's live target, hidden number and autosubmit, the picker following the all-chip pair rather than *Manage employees*, no picker for a people-only reader who still reads the words, and a row already on the list opening on its own word with no placeholder. `EmployeeServiceTest`'s `setDepartment` case: the move writes the roster row and leaves the job title, *Projects*, blank, a lowercase word and a stranger's number all answer false and write nothing, and re-picking the current word is a no-op that answers true.
+
 **Stage 108** adds one, `ProjectsPageRenderTest`'s *revenue is written and shown in tugrik on
 every surface that carries it*: the header box holds `₮ 12,500,000` and still asks for a numeric keypad, the Viewer's
 read-only line carries the same figure, the board's column prints it as `<span class="money">₮ 12,500,000</span>` while a

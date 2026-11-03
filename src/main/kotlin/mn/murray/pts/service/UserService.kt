@@ -80,6 +80,8 @@ object UserService {
      * new account be filed under a role other than the default. [canSetProfile] is *Manage employees*: only
      * then may its position (a job title) and first password be chosen here; otherwise the account starts as
      * the default role with its employee number as password, as one added by a colleague always has.
+     * [canSetDepartment] is the Owner/Administrator pair's (Stage 117): only then is [requestedDepartment]
+     * written onto the roster row, and an account created for somebody already rostered takes it too.
      */
     fun addUser(
         employeeNumber: String,
@@ -90,6 +92,8 @@ object UserService {
         newPassword: String,
         canSetRoles: Boolean,
         canSetProfile: Boolean = canSetRoles,
+        requestedDepartment: String? = null,
+        canSetDepartment: Boolean = false,
     ): PasswordStatus {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty() || name.isBlank()) return PasswordStatus.EMPTY
@@ -110,8 +114,16 @@ object UserService {
         val initialPlain = newPassword.ifEmpty { empNo }
         val mustChange = newPassword.isEmpty()
 
-        if (TeamRepository.findByEmpNo(empNo) == null) {
-            TeamRepository.upsert(Member(employeeNumber = empNo, name = name, department = "General", position = positionName))
+        val department = (if (canSetDepartment) requestedDepartment?.trim() else null).orEmpty()
+        val roster = TeamRepository.findByEmpNo(empNo)
+        if (roster == null) {
+            // A department is written only by the Owner/Administrator pair; anyone else's new person is
+            // filed without one and shows as "Unassigned" until somebody with the right assigns them.
+            TeamRepository.upsert(Member(employeeNumber = empNo, name = name, department = department, position = positionName))
+        } else if (department.isNotEmpty() && department != roster.department) {
+            // The person was already on the roster without a login (the pencil on their row creates one),
+            // so the chosen department lands on that row rather than being dropped with the create.
+            TeamRepository.upsert(roster.copy(department = department))
         }
         UserRepository.insert(
             employeeNumber = empNo,
@@ -161,16 +173,35 @@ object UserService {
         return PasswordStatus.CHANGED
     }
 
-    /** Update a user's position (a job title, by name) and/or the role they are filed under. */
-    fun updateUserProfile(employeeNumber: String, positionName: String, roleName: String) {
+    /**
+     * Update a user's position (a job title, by name) and/or the role they are filed under, and — for the
+     * Owner/Administrator pair — the department on the roster row (Stage 117).
+     *
+     * Blank position and blank department mean "leave it": the popup's Position picker follows the roster
+     * when it is not touched, and an edit that did not open the department picker must not erase an old
+     * free-text word the roster already prints.
+     */
+    fun updateUserProfile(
+        employeeNumber: String,
+        positionName: String,
+        roleName: String,
+        departmentName: String = "",
+    ) {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty()) return
         if (positionName.isNotEmpty()) {
             val positionId = PositionRepository.findByName(positionName)?.id
             UserRepository.updatePosition(empNo, positionId)
-            // Keep the roster's free-text position in sync for display.
+        }
+        if (positionName.isNotEmpty() || departmentName.isNotEmpty()) {
+            // Keep the roster's free-text job and department in sync for display.
             TeamRepository.findByEmpNo(empNo)?.let { m ->
-                TeamRepository.upsert(m.copy(position = positionName))
+                TeamRepository.upsert(
+                    m.copy(
+                        position = positionName.ifEmpty { m.position },
+                        department = departmentName.ifEmpty { m.department },
+                    ),
+                )
             }
         }
         RoleRepository.findByName(roleName)?.let { role ->

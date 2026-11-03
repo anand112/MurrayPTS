@@ -816,6 +816,9 @@ fun main() {
                 }
                 val row = if (canPeople) EmployeeService.row(query["edit"].orEmpty(), session.employeeNumber, canPeople, canRoles) else null
                 val account = row?.let { EmployeeService.account(it.employeeNumber) }
+                // Stage 117: the department picker is the Owner/Administrator pair's, so the form is told
+                // whether to draw it from the reader's role rather than from the row's.
+                val canDepartments = Authorization.isOwnerOrAdministrator(session.employeeNumber)
                 call.respondSettings(
                     session,
                     employeeFilterOf(query),
@@ -827,6 +830,7 @@ fun main() {
                         mayAdd = canPeople,
                         mayEdit = canPeople || canRoles,
                         maySetRoles = canRoles,
+                        maySetDepartment = canDepartments,
                     ),
                     note = PasswordStatus.fromCode(query["note"]),
                     mailStatus = PasswordStatus.fromCode(query["mail"]),
@@ -905,6 +909,8 @@ fun main() {
                 val session = call.requireSession() ?: return@post
                 val canPeople = session.may(Permission.MANAGE_EMPLOYEES)
                 val canRoles = session.may(Permission.MANAGE_ROLES)
+                // Stage 117: the owner/administrator pair alone writes a department; the service re-checks it.
+                val canDepartments = Authorization.isOwnerOrAdministrator(session.employeeNumber)
                 val form = call.receiveParameters()
                 val filter = employeeFilterOfForm(form)
                 val result = EmployeeService.save(
@@ -913,6 +919,7 @@ fun main() {
                     canManage = canPeople,
                     canAdmin = canPeople,
                     canSetRoles = canRoles,
+                    canSetDepartment = canDepartments,
                 )
                 if (result.saved) {
                     val note = if (result.isEdit) PasswordStatus.USER_UPDATED else PasswordStatus.USER_ADDED
@@ -923,7 +930,7 @@ fun main() {
                     filter,
                     employeeFormOf(
                         result, mayAdd = canPeople, maySetRoles = canRoles, filter = filter,
-                        maySetProfile = canPeople,
+                        maySetProfile = canPeople, maySetDepartment = canDepartments,
                     ),
                 )
             }
@@ -2093,6 +2100,28 @@ fun main() {
                 call.respondRedirect("/app/access-control")
             }
             /**
+             * File one person under a department — the Department select on a People row (Stage 118).
+             *
+             * The narrowest right on this page, and the same one the Settings popup's Department box asks for:
+             * a role holding **every** chip (*Owner* or *Administrator*). The word must be one of the nine and
+             * the person must already be on the roster — [EmployeeService.setDepartment] answers false otherwise
+             * and writes nothing, so a hand-built POST can neither invent a department nor clear one. A save is
+             * the ordinary redirect; the form names `#department-cell-<emp>` as the one block to re-render, so
+             * `app.js` swaps that cell and leaves the rest of the sheet where it was.
+             */
+            post("/app/access-control/department") {
+                val session = call.requireSession() ?: return@post
+                if (!Authorization.isOwnerOrAdministrator(session.employeeNumber)) {
+                    return@post call.respondRedirect("/app/access-control")
+                }
+                val form = call.receiveParameters()
+                EmployeeService.setDepartment(
+                    employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty(),
+                    department = form["department"]?.trim().orEmpty(),
+                )
+                call.respondRedirect("/app/access-control")
+            }
+            /**
              * Save one role — its name and the set of chips it holds (Stage 110).
              *
              * The whole page's rights hang on the rows this writes, so it is *Manage roles & permissions*'s alone
@@ -2574,6 +2603,7 @@ private suspend fun ApplicationCall.respondAccess(
         accessContent(
             canPeople = session.may(Permission.MANAGE_EMPLOYEES),
             canRoles = session.may(Permission.MANAGE_ROLES),
+            canDepartments = Authorization.isOwnerOrAdministrator(session.employeeNumber),
             currentEmployeeNumber = session.employeeNumber,
             roleForm = roleForm,
             passwordStatus = status,

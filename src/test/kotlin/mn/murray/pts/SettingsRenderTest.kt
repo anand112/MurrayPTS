@@ -218,8 +218,15 @@ class SettingsRenderTest {
     }
 
     /** The popup as `?new=1` draws it for this reader — the route's own call, with the route's own rights. */
-    private fun createForm(who: String = manager, canManage: Boolean = true, canAdmin: Boolean = false): EmployeeForm =
-        employeeFormOf(query("new" to "1"), null, null, "", canManage, canAdmin)
+    private fun createForm(
+        who: String = manager,
+        canManage: Boolean = true,
+        canAdmin: Boolean = false,
+        maySetDepartment: Boolean = false,
+    ): EmployeeForm =
+        employeeFormOf(
+            query("new" to "1"), null, null, "", canManage, canAdmin, maySetDepartment = maySetDepartment,
+        )
 
     /** The popup as `?edit=<employee number>` draws it, carrying [view] so the sheet behind it is the same one. */
     private fun editForm(
@@ -228,6 +235,7 @@ class SettingsRenderTest {
         who: String = superAdmin,
         canManage: Boolean = true,
         canAdmin: Boolean = true,
+        maySetDepartment: Boolean = false,
     ): EmployeeForm {
         val row = EmployeeService.row(employeeNumber, who, canManage, canAdmin)
         val account = row?.let { EmployeeService.account(it.employeeNumber) }
@@ -244,6 +252,7 @@ class SettingsRenderTest {
             positionName = account?.let { EmployeeService.positionOf(it) }.orEmpty(),
             mayAdd = canManage,
             mayEdit = canAdmin,
+            maySetDepartment = maySetDepartment,
         )
     }
 
@@ -852,6 +861,60 @@ class SettingsRenderTest {
             "the manager's create does not say what it makes",
         )
         assertTrue(tag(asManager, "employeeModal").contains("style=\"display:block\""), "management's add button opened nothing")
+    }
+
+    @Test
+    fun `the department picker is the nine departments, drawn only for an owner or administrator`() {
+        // A create: the nine in the order the business named them, a placeholder nobody can send, and the
+        // browser's `required` behind the service's own refusal.
+        val asAdmin = adminPage(form = createForm(canAdmin = true, maySetDepartment = true))
+        val picker = selectNamed(modal(asAdmin), "department")
+        assertEquals(
+            listOf(
+                "", "Management", "Finance", "Human Resource", "HSE", "Production",
+                "Engineering", "Sales", "Project", "Procurement",
+            ),
+            options(picker),
+            "the department picker is not the nine departments, in their order",
+        )
+        assertTrue(
+            picker.contains("<option value=\"\" selected=\"selected\">— Choose a department —</option>"),
+            "the create opened on a department nobody chose",
+        )
+        assertTrue(tag(asAdmin, "employeeDepartment").contains("required"), "a create can be sent with no department")
+
+        // An edit opens on the roster's own word. "Projects" is not one of the nine — the free text this
+        // stage replaced — so the first line is the keep answer and it is the selected one: an address
+        // change must not silently clear what the Team page still groups the person under.
+        val legacy = adminPage(form = editForm(worker, maySetDepartment = true))
+        assertFalse(tag(legacy, "employeeDepartment").contains("required"), "an edit forced a choice it may keep")
+        assertTrue(
+            selectNamed(modal(legacy), "department")
+                .contains("<option value=\"\" selected=\"selected\">— Keep Projects —</option>"),
+            "an edit did not offer to keep the department the roster already has",
+        )
+        val blankLegacy = adminPage(form = editForm(noDepartment, maySetDepartment = true))
+        assertTrue(
+            selectNamed(modal(blankLegacy), "department")
+                .contains("<option value=\"\" selected=\"selected\">— No department yet —</option>"),
+            "a person with no department was offered an invented one",
+        )
+
+        // A department already on the list is selected rather than left to the keep line.
+        TeamRepository.upsert(Member(worker, "Bat-Erdene Tudev", "Engineering", "Engineer"))
+        val picked = adminPage(form = editForm(worker, maySetDepartment = true))
+        assertTrue(
+            selectNamed(modal(picked), "department")
+                .contains("<option value=\"Engineering\" selected=\"selected\">Engineering</option>"),
+            "the picker did not open on the department the roster holds",
+        )
+
+        // A manager's popup prints no department field: the right does not come with *Manage employees*,
+        // and the route would refuse a value posted through the form's back.
+        assertFalse(
+            modal(page(form = createForm())).contains("name=\"department\""),
+            "a manager was offered a department picker the route would refuse",
+        )
     }
 
     @Test

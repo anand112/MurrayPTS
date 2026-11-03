@@ -14,6 +14,7 @@ import mn.murray.pts.repository.PositionRepository
 import mn.murray.pts.repository.RoleRepository
 import mn.murray.pts.repository.TeamRepository
 import mn.murray.pts.repository.UserRepository
+import mn.murray.pts.service.EmployeeService
 import mn.murray.pts.service.RoleService
 import org.jetbrains.exposed.sql.Database
 import org.junit.jupiter.api.AfterEach
@@ -154,11 +155,13 @@ class AccessControlRenderTest {
         who: String = owner,
         canPeople: Boolean = true,
         canRoles: Boolean = true,
+        canDepartments: Boolean = false,
         roleForm: RoleForm = RoleForm(),
     ): String = render {
         accessContent(
             canPeople = canPeople,
             canRoles = canRoles,
+            canDepartments = canDepartments,
             currentEmployeeNumber = who,
             roleForm = roleForm,
         )
@@ -532,7 +535,7 @@ class AccessControlRenderTest {
     fun `the sheet's headings and the add-user card follow the two chips, not one rank`() {
         // Both chips: the People columns in full, a role picker in the card, and the sheet's own script.
         val full = peopleSheet(page())
-        listOf("Employee", "Name", "Position", "Role", "Password", "Delete").forEach {
+        listOf("Employee", "Name", "Position", "Department", "Role", "Password", "Delete").forEach {
             assertTrue(full.contains("<th>$it</th>"), "the sheet lost its $it column")
         }
         val card = addCard(page())
@@ -573,5 +576,79 @@ class AccessControlRenderTest {
         // The page's own script is the popup's way out, and it loads for both readings.
         assertEquals(1, occurrences(page(), "access-control.js"), "the page's script is not loaded once")
         assertEquals(1, occurrences(peopleOnly, "access-control.js"), "the read-only page lost its script")
+    }
+
+    // --- the People sheet's own department column (Stage 118) --------------------------------------
+
+    @Test
+    fun `the department column prints for everybody, and the pair holding every chip alone may change it`() {
+        val html = page(canDepartments = true)
+        val sheet = peopleSheet(html)
+
+        // The column sits between Position and Role, and it follows the *roster*: the row with no login
+        // has a department too, because a department is the person's, not their account's.
+        assertTrue(sheet.contains("<th>Department</th>"), "the sheet lost the Department column")
+        assertTrue(
+            sheet.indexOf("<th>Position</th>") < sheet.indexOf("<th>Department</th>") &&
+                sheet.indexOf("<th>Department</th>") < sheet.indexOf("<th>Role</th>"),
+            "the department did not print between Position and Role",
+        )
+
+        // Each picker offers the nine in the request's order after the stored word. None of this fixture's
+        // roster words is on the list, so every row proves the placeholder: selected, and disabled so the
+        // old free-text word can never be posted back as a department.
+        listOf(
+            owner to "IT / Systems", manager to "Projects", worker to "Projects", positioned to "Operations",
+            noAccount to "Workshop", adminWord to "Projects", roleless to "Workshop",
+        ).forEach { (emp, stored) ->
+            assertEquals(
+                listOf("— $stored —") + EmployeeService.DEPARTMENTS,
+                options(html, "department-pick-$emp"),
+                "$emp's picker is not the stored word and the nine",
+            )
+            assertEquals("— $stored —", selectedOption(html, "department-pick-$emp"), "$emp did not open on its stored word")
+            val chosen = Regex("<option[^>]*selected[^>]*>")
+                .find(sheet.substringAfter("id=\"department-pick-$emp\"").substringBefore("</select>"))!!.value
+            assertTrue(chosen.contains("disabled"), "$emp's stored word can be posted back")
+        }
+
+        // The form names the one cell it replaces, says whose department it sets, and submits itself.
+        val form = sheet.substringAfter("action=\"/app/access-control/department\"").substringBefore("</form>")
+        assertTrue(form.contains("data-live-target=\"#department-cell-$owner\""), "the picker would navigate")
+        assertTrue(
+            form.contains("name=\"employeeNumber\" value=\"$owner\""),
+            "the picker does not say whose department it sets",
+        )
+        assertTrue(form.contains("data-autosubmit"), "the picker has to be submitted by hand")
+        assertEquals(
+            7, occurrences(sheet, "action=\"/app/access-control/department\""),
+            "a roster row lost its department picker",
+        )
+
+        // The picker follows the all-chip pair rather than *Manage employees*: an account with every chip
+        // but that one still files people, and one holding *Manage employees* alone reads words instead.
+        assertEquals(
+            7,
+            occurrences(
+                peopleSheet(page(owner, canPeople = false, canRoles = true, canDepartments = true)),
+                "action=\"/app/access-control/department\"",
+            ),
+            "the department picker followed the people chip",
+        )
+        val readOnly = peopleSheet(page())
+        assertFalse(readOnly.contains("/app/access-control/department"), "a reader without the pair was offered the picker")
+        assertFalse(readOnly.contains("department-pick-"), "a reader without the pair was offered the picker")
+        assertTrue(readOnly.contains("<th>Department</th>"), "the department column left with the picker it did not have")
+        assertEquals(
+            "IT / Systems",
+            readOnly.substringAfter("id=\"department-cell-$owner\">").substringBefore("</td>"),
+            "the department stopped printing as words",
+        )
+
+        // A person already filed under one of the nine opens on that word and needs no placeholder.
+        TeamRepository.upsert(Member(worker, "Bat-Erdene Tudev", "Finance", "Engineer"))
+        val moved = peopleSheet(page(canDepartments = true))
+        assertEquals(EmployeeService.DEPARTMENTS, options(moved, "department-pick-$worker"), "the nine grew a placeholder")
+        assertEquals("Finance", selectedOption(moved, "department-pick-$worker"))
     }
 }

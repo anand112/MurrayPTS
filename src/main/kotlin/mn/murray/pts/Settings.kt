@@ -944,9 +944,11 @@ private fun DIV.bucketDefaultsPanel(
  * a write that landed comes back as a sheet with the row on it and a closed form, and one that was
  * refused comes back with the form still up, the words still in it and the reason under its field.
  *
- * [EmployeeForm.maySetRoles] is the admin half of the form. A manager's popup asks for a number, a name
- * and an address and nothing else, because a position, a role and a password are not theirs to give —
- * and printing three fields that the route would refuse is a promise the page has no right to make.
+ * [EmployeeForm.maySetRoles] and [EmployeeForm.maySetDepartment] are the two rights the admin half of the
+ * form is drawn from. A manager's popup asks for a number, a name and an address and nothing else, because
+ * a position, a role, a password and a department are not theirs to give — and printing fields that the
+ * route would refuse is a promise the page has no right to make. The department is the narrower of the
+ * two (Stage 117): only the roles holding every chip — *Owner* and *Administrator* — are offered it.
  */
 private fun DIV.employeeModal(form: EmployeeForm) {
     div("modal") {
@@ -1035,6 +1037,36 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                             }
                             form.error(EmployeeField.POSITION)?.let { p("field-err") { +it } }
                         }
+                    }
+                    if (form.maySetDepartment) {
+                        div("field") {
+                            label { +"Department" }
+                            select {
+                                name = "department"
+                                id = "employeeDepartment"
+                                // A create has to name one — the route refuses a blank — so the browser
+                                // blocks it here too. An edit may keep whatever the roster says, including
+                                // the free-text words this list replaced, and blank is that "keep".
+                                if (!form.isEdit) required = true
+                                if (form.isEdit) {
+                                    option {
+                                        value = ""
+                                        selected = form.department !in form.departments
+                                        +if (form.department.isBlank()) {
+                                            "— No department yet —"
+                                        } else {
+                                            "— Keep ${form.department} —"
+                                        }
+                                    }
+                                } else {
+                                    tsOption("", "— Choose a department —", form.department)
+                                }
+                                form.departments.forEach { tsOption(it, it, form.department) }
+                            }
+                            form.error(EmployeeField.DEPARTMENT)?.let { p("field-err") { +it } }
+                        }
+                    }
+                    if (form.maySetProfile) {
                         div("field") {
                             label { +"Password" }
                             input(type = InputType.password, name = "password") {
@@ -1072,10 +1104,11 @@ private fun DIV.employeeModal(form: EmployeeForm) {
  * opened from a roster row that has no account yet, which is filled with that person's name and number
  * but writes a new account rather than looking for one that is not there.
  *
- * [mayAdd] and [maySetRoles] are this reader's two rights, carried in so the page can print the controls
- * that match them: management's popup opens, and only an administrator's asks for a position, a role and
- * a password. [positions] and [filter] ride along for the same reason — the picker's choices and the sheet
- * the popup has to answer when it closes.
+ * [mayAdd], [maySetRoles], [maySetProfile] and [maySetDepartment] are this reader's rights, carried in so
+ * the page can print the controls that match them: management's popup opens; an administrator's asks for a
+ * role; *Manage employees* draws the position and password boxes; and only the Owner/Administrator pair is
+ * offered a department (Stage 117). [positions], [departments] and [filter] ride along for the same reason
+ * — the pickers' choices and the sheet the popup has to answer when it closes.
  */
 data class EmployeeForm(
     val edit: String = "",
@@ -1084,15 +1117,21 @@ data class EmployeeForm(
     val email: String = "",
     val position: String = "",
     val role: String = "",
+    /** The department the picker holds (Stage 117); blank on an edit means "keep the roster's word". */
+    val department: String = "",
     val open: Boolean = false,
     val mayAdd: Boolean = false,
     /** *Manage roles & permissions*: the Role picker. */
     val maySetRoles: Boolean = false,
     /** *Manage employees*: the position picker and the password box. */
     val maySetProfile: Boolean = maySetRoles,
+    /** The Owner/Administrator pair alone: the Department picker (Stage 117). */
+    val maySetDepartment: Boolean = false,
     val errors: Map<EmployeeField, String> = emptyMap(),
     val filter: EmployeeFilter = EmployeeFilter(),
     val positions: List<String> = emptyList(),
+    /** The nine departments, in the order the business named them (Stage 117). */
+    val departments: List<String> = emptyList(),
     /** The role catalogue, in its own order (V21), and the role a new account starts in. */
     val roles: List<String> = emptyList(),
     val defaultRole: String = "",
@@ -1137,6 +1176,7 @@ fun employeeFormOf(
     mayAdd: Boolean,
     mayEdit: Boolean,
     maySetRoles: Boolean = mayEdit,
+    maySetDepartment: Boolean = false,
 ): EmployeeForm {
     val roles = EmployeeService.roles()
     val fallback = EmployeeService.defaultRoleName()
@@ -1150,12 +1190,17 @@ fun employeeFormOf(
             email = account?.email.orEmpty(),
             position = positionName,
             role = account?.let { Authorization.roleOf(it).name }.orEmpty(),
+            // The account has no department of its own: the roster does, and the picker opens on that
+            // word — including a free-text one this stage retired, which the "keep" line preserves.
+            department = row.department,
             open = true,
             mayAdd = mayAdd,
             maySetRoles = maySetRoles,
             maySetProfile = mayEdit,
+            maySetDepartment = maySetDepartment,
             filter = employeeFilterOf(query),
             positions = EmployeeService.positionNames(),
+            departments = EmployeeService.departments(),
             roles = roles,
             defaultRole = fallback,
         )
@@ -1165,9 +1210,12 @@ fun employeeFormOf(
         mayAdd = mayAdd,
         maySetRoles = maySetRoles,
         maySetProfile = mayEdit,
+        maySetDepartment = maySetDepartment,
         role = fallback,
+        department = row?.department.orEmpty(),
         filter = employeeFilterOf(query),
         positions = EmployeeService.positionNames(),
+        departments = EmployeeService.departments(),
         roles = roles,
         defaultRole = fallback,
     )
@@ -1180,6 +1228,7 @@ fun employeeFormOf(
     maySetRoles: Boolean,
     filter: EmployeeFilter,
     maySetProfile: Boolean = maySetRoles,
+    maySetDepartment: Boolean = false,
 ): EmployeeForm {
     val draft = result.values
     return EmployeeForm(
@@ -1189,13 +1238,16 @@ fun employeeFormOf(
         email = draft.email,
         position = draft.position,
         role = draft.role,
+        department = draft.department,
         open = true,
         mayAdd = mayAdd,
         maySetRoles = maySetRoles,
         maySetProfile = maySetProfile,
+        maySetDepartment = maySetDepartment,
         errors = result.errors,
         filter = filter,
         positions = EmployeeService.positionNames(),
+        departments = EmployeeService.departments(),
         roles = EmployeeService.roles(),
         defaultRole = EmployeeService.defaultRoleName(),
     )
