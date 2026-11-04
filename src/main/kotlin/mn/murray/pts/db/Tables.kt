@@ -184,6 +184,17 @@ object Tasks : Table("tasks") {
     val priority = varchar("priority", 16).default("Medium")
     val assigneeEmpNo = varchar("assignee_emp_no", 32)
         .references(TeamMembers.employeeNumber, onDelete = ReferenceOption.SET_NULL).nullable()
+    /**
+     * The **second** person on a project card (V22, Stage 122), or null for the one owner a card has always
+     * had. The user asked that a project task be assignable to two people; this is the whole of the storage for
+     * it — a second nullable name on the row rather than a join table, because two is the number asked for and
+     * every rule below still turns on *a holder of this card* rather than on the card having a list.
+     *
+     * Project cards only. A card of the Other tasks board is one person's work by design, and the service
+     * clears this column when a card crosses onto that board, so a backlog row never carries a second name.
+     */
+    val assignee2EmpNo = varchar("assignee2_emp_no", 32)
+        .references(TeamMembers.employeeNumber, onDelete = ReferenceOption.SET_NULL).nullable()
     val status = varchar("status", 32).default("Not started")
     val bucketId = integer("bucket_id")
         .references(Buckets.id, onDelete = ReferenceOption.SET_NULL).nullable()

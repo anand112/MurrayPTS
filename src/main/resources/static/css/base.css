@@ -116,3 +116,21 @@ button.submit:hover, a.submit:hover { background: var(--btn-bg-hover); }
     font-size: 13px;
 }
 .note { margin-top: 22px; font-size: 11.5px; line-height: 1.6; color: var(--note); }
+
+/* The password box and its show/hide button share the one line (Stage 121). The button sits inside the
+   field so it can pin itself to the input's right edge, and the input reserves room for it so a long
+   password never types under the word. It is hidden until login.js marks the document `html.js`: with
+   scripting off a password box is all there is, and a button that could not reveal anything would be
+   a control that lies. */
+.password-wrap { position: relative; }
+.password-wrap input { padding-right: 74px; }
+.password-toggle {
+    display: none;
+    position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+    padding: 7px 9px; border: 0; border-radius: 6px; background: transparent;
+    color: var(--label); font-family: inherit; font-size: 11px; font-weight: 700;
+    letter-spacing: .07em; text-transform: uppercase; cursor: pointer;
+}
+html.js .password-toggle { display: block; }
+.password-toggle:hover { color: var(--title); background: var(--toggle-bg); }
+.password-toggle:focus-visible { outline: 2px solid #6b9c1e; outline-offset: 1px; }

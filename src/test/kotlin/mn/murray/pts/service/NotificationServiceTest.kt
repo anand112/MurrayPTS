@@ -98,12 +98,15 @@ class NotificationServiceTest {
         assignee: String,
         caller: String = manager,
         status: String = "Not started",
+        /** The second person on a project card (Stage 122); blank is the ordinary one-owner card. */
+        assignee2: String = "",
     ): Int {
         val id = TaskService.create(
             TaskDraft(
                 title = title,
                 projectName = projectName,
                 assigneeEmpNo = assignee,
+                assignee2EmpNo = assignee2,
                 due = "2026-11-12",
                 projectLane = DEFAULT_PROJECT_BUCKETS.first(),
                 status = status,
@@ -221,6 +224,23 @@ class NotificationServiceTest {
         assertTrue(body.startsWith("A manager"), body)
     }
 
+    @Test
+    fun `a card with two people tells both of them, and nobody hears about their own act`() {
+        createTask("Rig the bench", worker, caller = manager, assignee2 = technician)
+        assertEquals(1, NotificationService.inbox(worker).size, "the first holder was not told")
+        assertEquals(1, NotificationService.inbox(technician).size, "the second holder was not told")
+        assertEquals(0, NotificationService.unreadCount(manager), "the manager is told about their own act")
+        // Both rows point at the same card and name the same person, so neither reads as a different event.
+        val theirs = NotificationService.inbox(technician).single()
+        assertEquals(NotificationService.KIND_TASK_ASSIGNED, theirs.kind)
+        assertEquals("/app/projects/$projectId", theirs.link)
+        assertTrue(theirs.title.contains("Rig the bench"), theirs.title)
+        // A card whose second person is the person pressing the button is management on their own card, so it
+        // is not an assignment to them: only the first holder hears.
+        createTask("Pour the pad", worker, caller = technician, assignee2 = technician)
+        assertEquals(1, NotificationService.inbox(technician).size, "a self-assignment was announced")
+    }
+
     // --- re-assignment ----------------------------------------------------------
 
     @Test
@@ -243,6 +263,36 @@ class NotificationServiceTest {
         )
         assertEquals(1, NotificationService.inbox(technician).size)
         assertEquals(1, NotificationService.inbox(worker).size, "losing a card is not a notification")
+    }
+
+    @Test
+    fun `an edit that adds a second person tells only the new one`() {
+        val id = createTask("Rig the bench", worker)
+        assertEquals(1, NotificationService.inbox(worker).size)
+        // The same card, now shared with the technician. The person already on it keeps their one row.
+        TaskService.updateAssigned(
+            id,
+            TaskDraft(
+                title = "Rig the bench", projectName = projectName,
+                assigneeEmpNo = worker, assignee2EmpNo = technician,
+            ),
+            callerEmpNo = manager,
+            canManage = true,
+        )
+        assertEquals(1, NotificationService.inbox(technician).size, "the person added was not told")
+        assertEquals(1, NotificationService.inbox(worker).size, "the person already on the card was told again")
+        // A later edit that keeps both names announces nothing to either.
+        TaskService.updateAssigned(
+            id,
+            TaskDraft(
+                title = "Rig and level the bench", projectName = projectName,
+                assigneeEmpNo = worker, assignee2EmpNo = technician,
+            ),
+            callerEmpNo = manager,
+            canManage = true,
+        )
+        assertEquals(1, NotificationService.inbox(worker).size)
+        assertEquals(1, NotificationService.inbox(technician).size)
     }
 
     // --- project manager ---------------------------------------------------------

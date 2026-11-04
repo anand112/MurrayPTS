@@ -25,6 +25,7 @@ import kotlinx.html.unsafe
 // Front-end assets are served as external static files (see src/main/resources/static):
 //   - /static/css/base.css  — login card + shared design tokens
 //   - /static/js/theme.js   — persisted theme/accent toggle
+//   - /static/js/login.js   — the password box's show/hide button (Stage 121)
 // The old inline PAGE_CSS/THEME_JS constants were removed in Stage 7; the login page
 // now references these files via <link>/<script src> so no inline CSS/JS is emitted.
 
@@ -70,10 +71,19 @@ fun HTML.loginPage(error: String?) {
                         htmlFor = "password"
                         +"Password"
                     }
-                    input(type = InputType.password, name = "password") {
-                        id = "password"
-                        placeholder = "Password"
-                        attributes["autocomplete"] = "current-password"
+                    div("password-wrap") {
+                        input(type = InputType.password, name = "password") {
+                            id = "password"
+                            placeholder = "Password"
+                            attributes["autocomplete"] = "current-password"
+                        }
+                        button(type = ButtonType.button, classes = "password-toggle") {
+                            id = "passwordToggle"
+                            attributes["aria-controls"] = "password"
+                            attributes["aria-pressed"] = "false"
+                            attributes["aria-label"] = "Show password"
+                            +"Show"
+                        }
                     }
                 }
                 button(type = ButtonType.submit, classes = "submit") { +"Log in" }
@@ -86,6 +96,7 @@ fun HTML.loginPage(error: String?) {
             }
         }
         themeScript()
+        script(src = "/static/js/login.js") {}
     }
 }
 

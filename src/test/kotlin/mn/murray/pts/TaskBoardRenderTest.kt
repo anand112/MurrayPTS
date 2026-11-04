@@ -336,6 +336,56 @@ class TaskBoardRenderTest {
     }
 
     @Test
+    fun `a project popup offers a second person and a backlog popup does not`() {
+        // Stage 122: the picker sits under the first one, on the same form, and starts on nobody.
+        val projectForm = render { taskFormModal(TaskForm(), BACK_PROJECT, project) }
+        assertTrue(projectForm.contains("name=\"assignee2\""), "the project popup has no second picker")
+        assertTrue(projectForm.contains("Also assign to"))
+        val second = projectForm.substringAfter("id=\"taskAssignee2\"").substringBefore("</select>")
+        assertTrue(second.contains("— Nobody else —"), "the second picker has no way to say nobody")
+        assertTrue(
+            Regex("value=\"\"[^>]*selected").containsMatchIn(second),
+            "a blank second person is not the one picked",
+        )
+        assertTrue(projectForm.contains("the card's plan, its log and its dates"))
+        // The Other tasks board's card is one person's work, so its create never asks for a second.
+        val backlogForm = render {
+            taskFormModal(backlogFormOf(true, "EMP0001", BucketRepository.findAll()), BACK_OTHER)
+        }
+        assertFalse(backlogForm.contains("name=\"assignee2\""), "a backlog popup asks for a second holder")
+        assertFalse(backlogForm.contains("Also assign to"))
+    }
+
+    @Test
+    fun `both holders open the editor filled and a lane card paints both avatars`() {
+        val id = card().id
+        assertTrue(
+            TaskService.updateAssigned(
+                id,
+                TaskDraft(
+                    title = "Spread base course", projectName = project.name,
+                    assigneeEmpNo = "EMP0002", assignee2EmpNo = "EMP0001",
+                    started = "2026-11-01", due = "2026-11-12", priority = "High",
+                    status = "Not started", projectLane = DEFAULT_PROJECT_BUCKETS.first(),
+                ),
+                "EMP0001", canManage = true,
+            ).taskId == id,
+            "the card could not be given a second person",
+        )
+        // The editor picks the second name and offers the rest of the roster beside it.
+        val html = edit(canManage = true)
+        val second = html.substringAfter("id=\"taskAssignee2\"").substringBefore("</select>")
+        assertTrue(selectedOption(second, "EMP0001"), "the second name on the card is not the one picked")
+        assertTrue(second.contains("— Nobody else —"), "the picker cannot take management's second name off")
+        // The lane board's foot prints one avatar per holder, in the order the card lists them.
+        val board = laneBoard()
+        val foot = board.substringAfter("<div class=\"kmeta kfoot\">").substringBefore("</div>")
+        assertEquals(2, occurrences(foot, "avatar xs"), "the card did not paint both holders")
+        assertTrue(foot.contains("title=\"Munkhtsetseg\""), "the second holder has no avatar")
+        assertTrue(foot.contains("title=\"Bat-Erdene\""), "the first holder has no avatar")
+    }
+
+    @Test
     fun `a rejected popup comes back open, with the message under its own field`() {
         val draft = TaskDraft(
             title = "", projectName = "Haul road widening", assigneeEmpNo = "EMP0002",

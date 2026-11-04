@@ -45,7 +45,8 @@ data class TaskDueRow(
     val status: String,
     val priority: String,
     val due: String,
-    val assigneeEmpNo: String,
+    /** Both people on the card (Stage 122), in the card's own order; empty on a card nobody holds. */
+    val assigneeEmpNos: List<String>,
     val projectId: Int?,
     val projectCode: String,
     val projectName: String,
@@ -114,7 +115,7 @@ object AlertRepository {
                     status = r[Tasks.status],
                     priority = r[Tasks.priority],
                     due = r[Tasks.due],
-                    assigneeEmpNo = r[Tasks.assigneeEmpNo].orEmpty(),
+                    assigneeEmpNos = listOfNotNull(r[Tasks.assigneeEmpNo], r[Tasks.assignee2EmpNo]),
                     projectId = pid,
                     projectCode = project?.first.orEmpty(),
                     projectName = project?.second.orEmpty(),

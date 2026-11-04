@@ -68,7 +68,7 @@ object TaskService {
      * view somebody forgot to filter.
      */
     fun assignedFor(employeeNumber: String, canManage: Boolean): List<TaskItem> =
-        if (canManage) assigned() else assigned().filter { it.assignee == employeeNumber }
+        if (canManage) assigned() else assigned().filter { it.assignedTo(employeeNumber) }
 
     /**
      * The **Other-task** (backlog) cards assigned to one reader — the personal slice of the board [other] returns
@@ -82,7 +82,7 @@ object TaskService {
      * both lists and always match what that page then shows.
      */
     fun assignedOtherFor(employeeNumber: String): List<TaskItem> =
-        other().filter { it.assignee == employeeNumber }
+        other().filter { it.assignedTo(employeeNumber) }
 
     /**
      * The percentage a set of [cards] measures together: the average of the cards that carry a plan, each
@@ -163,7 +163,7 @@ object TaskService {
      */
     fun createBacklog(draft: TaskDraft, callerEmpNo: String, canManage: Boolean): TaskSaveResult {
         val written = (if (canManage) draft else draft.copy(assigneeEmpNo = callerEmpNo, status = "Not started"))
-            .copy(projectName = "", projectLane = null)
+            .copy(projectName = "", projectLane = null, assignee2EmpNo = "")
         val resolved = resolve(written, requireAssignee = false, inBacklog = true, creating = true)
         if (resolved.errors.isNotEmpty()) return TaskSaveResult(null, resolved.errors, written)
         val id = TaskRepository.insert(
@@ -196,7 +196,7 @@ object TaskService {
     fun updateStatus(id: Int, status: String, callerEmpNo: String, canManage: Boolean): Boolean {
         if (status !in TASK_STATUSES) return false
         val task = TaskRepository.findById(id) ?: return false
-        if (!canManage && task.assignee != callerEmpNo) return false
+        if (!canManage && !task.assignedTo(callerEmpNo)) return false
         TaskRepository.updateStatus(id, status)
         syncPlanWithStatus(id, task.status, status)
         return true
@@ -283,8 +283,9 @@ object TaskService {
             bucketId = null,
             started = resolved.started,
             projectBucketId = resolved.projectBucketId,
+            assignee2EmpNo = resolved.assignee2EmpNo,
         )
-        // The assignee hears about it — unless they assigned themselves, which [NotificationService]
+        // Both assignees hear about it — unless they assigned themselves, which [NotificationService]
         // skips, because that person just pressed the button.
         NotificationService.taskAssigned(id, callerEmpNo)
         return TaskSaveResult(id, emptyMap(), written)
@@ -319,7 +320,7 @@ object TaskService {
         if (canManage) return task
         // Stage 86: a project card is on a board the whole team reads. A backlog card is only ever on a
         // non-manager's board when it is theirs ([mn.murray.pts.otherColumns]).
-        if (task.isBacklog && task.assignee != callerEmpNo) return null
+        if (task.isBacklog && !task.assignedTo(callerEmpNo)) return null
         return task
     }
 
@@ -360,7 +361,7 @@ object TaskService {
                 draft,
             )
         }
-        if (!canManage && existing.assignee != callerEmpNo) {
+        if (!canManage && !existing.assignedTo(callerEmpNo)) {
             return TaskSaveResult(
                 null,
                 mapOf(TaskField.PERMISSION to "Only management or the person this task is assigned to can change it."),
@@ -381,11 +382,18 @@ object TaskService {
         val moving = goesBacklog != inBacklog
         // A backlog card has no project and no lane, whatever a form posts into those fields, so they are read
         // back from the row for every role — the same way every field a caller may not write is read back below.
-        val posted = if (goesBacklog) draft.copy(projectName = "", projectLane = null) else draft
+        // A backlog card is one person's work (Stage 122), so a crossing onto that board drops the second name
+        // in the same breath that it drops the project and the lane. The card keeps the person who held it.
+        val posted = if (goesBacklog) {
+            draft.copy(projectName = "", projectLane = null, assignee2EmpNo = "")
+        } else draft
         val allowed = if (canManage) posted else TaskDraft(
             title = existing.title,
             projectName = existing.project,
             assigneeEmpNo = existing.assignee,
+            // Both names are management's to set, like the title above them: the second person on a card is
+            // part of *whose work this is*, not a date the holder books on it.
+            assignee2EmpNo = existing.assignee2,
             started = posted.started,
             due = posted.due,
             priority = posted.priority,
@@ -453,6 +461,7 @@ object TaskService {
             assigneeEmpNo = resolved.assigneeEmpNo,
             status = resolved.status,
             started = resolved.started,
+            assignee2EmpNo = resolved.assignee2EmpNo,
         )
         // The popup's **Status** picker is one of the two ways a card changes status, the drag being the other
         // since Stage 103 retired the arrows, so the plan follows it by the same call and the same rule — finished
@@ -474,12 +483,15 @@ object TaskService {
         // The board itself moves last, and only on a real crossing: `kind` is the one column that says which
         // page prints this card, and a save that changed none of the above must not rewrite it.
         if (moving) TaskRepository.setKind(id, if (goesBacklog) KIND_OTHER else KIND_ASSIGNED)
-        // Only a *move* tells somebody: renaming a card or shifting its due date must not mail
-        // the person who is already working on it. The new assignee hears; the one who lost the
-        // card does not, which is what the agreed scope says.
-        if (resolved.assigneeEmpNo != null && resolved.assigneeEmpNo != existing.assignee) {
-            NotificationService.taskAssigned(id, callerEmpNo)
-        }
+        // Only a *move* tells somebody: renaming a card or shifting its due date must not mail the people who
+        // are already working on it. The people newly put on the card hear; anyone already there does not, and
+        // the one who lost it is not told, which is what the agreed scope says. With two names this is a set
+        // difference rather than one comparison: adding a second person must mail that person alone, not the
+        // first one all over again.
+        val wasAssigned = setOfNotNull(existing.assignee.takeIf { it.isNotBlank() }, existing.assignee2.takeIf { it.isNotBlank() })
+        val nowAssigned = setOfNotNull(resolved.assigneeEmpNo, resolved.assignee2EmpNo)
+        val added = nowAssigned - wasAssigned
+        if (added.isNotEmpty()) NotificationService.taskAssigned(id, callerEmpNo, added)
         return TaskSaveResult(id, emptyMap(), draft)
     }
 
@@ -1025,7 +1037,7 @@ object TaskService {
      */
     fun addChecklistItem(taskId: Int, label: String, callerEmpNo: String, canManage: Boolean): Int? {
         val task = TaskRepository.findById(taskId) ?: return null
-        if (!canManage && task.assignee != callerEmpNo) return null
+        if (!canManage && !task.assignedTo(callerEmpNo)) return null
         val text = label.trim()
         if (text.isEmpty() || text.length > CHECKLIST_LABEL_MAX) return null
         return ChecklistRepository.insert(taskId, text)
@@ -1059,7 +1071,7 @@ object TaskService {
         val taskId = ChecklistRepository.taskOf(itemId) ?: return false
         val task = TaskRepository.findById(taskId) ?: return false
         if (task.status == STATUS_COMPLETED) return false
-        if (!canManage && task.assignee != callerEmpNo) return false
+        if (!canManage && !task.assignedTo(callerEmpNo)) return false
         val current = ChecklistRepository.find(itemId) ?: return false
         return ChecklistRepository.setDone(itemId, !current.done)
     }
@@ -1081,7 +1093,7 @@ object TaskService {
      */
     fun addNote(taskId: Int, body: String, callerEmpNo: String, canManage: Boolean): Int? {
         val task = TaskRepository.findById(taskId) ?: return null
-        if (!canManage && task.assignee != callerEmpNo) return null
+        if (!canManage && !task.assignedTo(callerEmpNo)) return null
         val text = body.trim()
         if (text.isEmpty() || text.length > NOTE_MAX) return null
         return NoteRepository.insert(
@@ -1181,6 +1193,26 @@ object TaskService {
             assignee
         }
 
+        // The second person on a **project** card (Stage 122). Optional — an empty field is the one owner every
+        // card has always had — but a name typed into it is held to the same two facts as the first: it has to
+        // be on the roster, and it has to be somebody *else*. The popup prints this sentence under the second
+        // picker, so a reader who picked the same person twice is told which of the two fields to change.
+        // A backlog card is one person's work, so a crossing onto that board drops the name rather than
+        // refusing the save: the card itself is what the reader is moving, not a second owner it cannot have.
+        val second = draft.assignee2EmpNo.trim()
+        val assignee2EmpNo = when {
+            inBacklog || second.isEmpty() -> null
+            second == assignee -> {
+                errors += TaskField.ASSIGNEE2 to "Choose somebody different from the first assignee."
+                null
+            }
+            TeamRepository.findByEmpNo(second) == null -> {
+                errors += TaskField.ASSIGNEE2 to "That employee is not on the team roster."
+                null
+            }
+            else -> second
+        }
+
         val due = draft.due.trim()
         if (due.isNotEmpty() && !isIsoDate(due)) errors += TaskField.DUE to "Use the date picker (yyyy-mm-dd)."
         val started = draft.started.trim()
@@ -1267,7 +1299,8 @@ object TaskService {
         }
         return ResolvedTask(
             errors = errors, title = title, projectId = projectId, due = due,
-            priority = priority, assigneeEmpNo = assigneeEmpNo, status = status, started = started,
+            priority = priority, assigneeEmpNo = assigneeEmpNo, assignee2EmpNo = assignee2EmpNo,
+            status = status, started = started,
             projectBucketId = projectBucketId, bucketId = bucketId,
         )
     }
@@ -1358,13 +1391,19 @@ object TaskService {
  * Which input a task message belongs under. `PERMISSION` has no field of its own — it is
  * printed once at the bottom of the popup, because nothing the user typed is wrong.
  */
-enum class TaskField { TITLE, PROJECT, ASSIGNEE, START, DUE, PRIORITY, STATUS, LANE, COLUMN, PERMISSION }
+enum class TaskField { TITLE, PROJECT, ASSIGNEE, ASSIGNEE2, START, DUE, PRIORITY, STATUS, LANE, COLUMN, PERMISSION }
 
 /** The raw task popup, exactly as submitted so it can be re-rendered with what was typed. */
 data class TaskDraft(
     val title: String = "",
     val projectName: String = "",
     val assigneeEmpNo: String = "",
+    /**
+     * The second person on a project card (Stage 122), or blank for the one owner every card has by default.
+     * A backlog form never prints the field, so its own blank is not an answer about anything; the service
+     * clears it on a crossing onto that board.
+     */
+    val assignee2EmpNo: String = "",
     val started: String = "",
     val due: String = "",
     val priority: String = "Medium",
@@ -1515,6 +1554,8 @@ private data class ResolvedTask(
     val due: String,
     val priority: String,
     val assigneeEmpNo: String?,
+    /** The optional second person on a project card (Stage 122); null on a backlog card and on a one-owner row. */
+    val assignee2EmpNo: String? = null,
     val status: String,
     val started: String,
     val projectBucketId: Int?,

@@ -498,8 +498,9 @@ private fun projectContext(project: String): String {
 
 /** All of a member's tasks (project tasks plus personal ones), open first then by due date. */
 private fun memberTaskRows(emp: String): List<Pair<TaskItem, Boolean>> =
-    (DemoData.assignedTasks.filter { it.assignee == emp }.map { it to false } +
-        DemoData.otherTasks.filter { it.assignee == emp }.map { it to true })
+    // A card with two people appears under each of them (Stage 122).
+    (DemoData.assignedTasks.filter { it.assignedTo(emp) }.map { it to false } +
+        DemoData.otherTasks.filter { it.assignedTo(emp) }.map { it to true })
         .sortedWith(
             compareBy(
                 { (t, _) -> !t.isOpen },
@@ -604,12 +605,12 @@ private fun buildMemberDetails(canManage: Boolean, viewerEmpNo: String): Map<Str
     val measured = TaskService.progressByProject()
     return DemoData.team.associate { member ->
         val seesTasks = canManage || member.employeeNumber == viewerEmpNo
-        val assigned = if (seesTasks) DemoData.assignedTasks.filter { it.assignee == member.employeeNumber } else emptyList()
-        val other = if (seesTasks) DemoData.otherTasks.filter { it.assignee == member.employeeNumber } else emptyList()
+        val assigned = if (seesTasks) DemoData.assignedTasks.filter { it.assignedTo(member.employeeNumber) } else emptyList()
+        val other = if (seesTasks) DemoData.otherTasks.filter { it.assignedTo(member.employeeNumber) } else emptyList()
         // The projects they are on, for every reader and from the one helper the row uses. Only the *names*
         // travel here; the cards behind them are still the gated half, which is why this reads the member's
         // own project cards off the repository rather than reusing the gated [assigned] above.
-        val theirCards = DemoData.assignedTasks.filter { it.assignee == member.employeeNumber }
+        val theirCards = DemoData.assignedTasks.filter { it.assignedTo(member.employeeNumber) }
         val projectInfos = memberProjects(member.name, theirCards)
             .map {
                 val role = if (it.manager == member.name) "Manager" else "Tasks"

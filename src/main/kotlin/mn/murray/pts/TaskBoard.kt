@@ -114,7 +114,7 @@ data class TaskForm(
      * something a post can claim. It is the one non-management right over a card: the work itself — the reader's
      * own day on it, its steps and its log.
      */
-    val ownsCard: Boolean = task != null && task.assignee.isNotBlank() && task.assignee == viewerEmpNo
+    val ownsCard: Boolean = task != null && task.assignedTo(viewerEmpNo)
 
     /**
      * Whether the three fields that describe the reader's own day on a card — **start date, due date, priority** —
@@ -512,6 +512,9 @@ fun taskDraftOf(form: Parameters): TaskDraft = TaskDraft(
     title = form["title"].orEmpty().trim(),
     projectName = form["project"].orEmpty().trim(),
     assigneeEmpNo = form["assignee"].orEmpty().trim(),
+    // The second person on a project card (Stage 122). A backlog form never prints this picker and posts
+    // nothing, which is the blank the service reads as *one owner* on the board that has one by design.
+    assignee2EmpNo = form["assignee2"].orEmpty().trim(),
     started = form["started"].orEmpty().trim(),
     due = form["due"].orEmpty().trim(),
     priority = form["priority"].orEmpty().trim().ifBlank { "Medium" },
@@ -1008,7 +1011,9 @@ private fun DIV.taskCard(
     laneBoard: Boolean,
     mayDrag: Boolean? = null,
 ) {
-    val mine = task.assignee == session.employeeNumber
+    // Either person on the card is its holder (Stage 122): the two names share the plan, the log, the day and
+    // the one ✓ Done button exactly as they share the card.
+    val mine = task.assignedTo(session.employeeNumber)
     // The move affordances — the drag on a status board and the ✓ Done button under a lane board's card — belong
     // to the pair that writes the card: management and its holder. Since Stage 86 opening is everybody's, so the
     // window this flag no longer gates is the *reading* of it; see [TaskForm.viewOnly] for what a stranger's
@@ -1073,7 +1078,9 @@ private fun DIV.taskCard(
         // It stops short of the whole `.kcard` on purpose: that node is the drag source `kanban.js` binds
         // `dragstart` to, and replacing it would leave the card undraggable until the next reload. The
         // move buttons sit outside for the same reason — they carry their own bound listeners.
-        val holder = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
+        // One avatar per person on the card — two on a shared project card (Stage 122) — each keeping the
+        // hover label the one holder has always had.
+        val holders = task.assignees.mapNotNull { emp -> DemoData.team.firstOrNull { it.employeeNumber == emp } }
         div("kbody") {
             id = cardBodyRegion(task.id)
             div("kmeta") {
@@ -1085,7 +1092,7 @@ private fun DIV.taskCard(
                 task.progressPercent?.let { span("kpct") { +"$it%" } }
                 // On a status board the holder rides on this line, where they have always stood. On a lane
                 // board they drop to the foot line below, beside the stage word the picture pairs them with.
-                if (!laneBoard && holder != null) {
+                if (!laneBoard) holders.forEach { holder ->
                     span("avatar xs") { attributes["title"] = holder.name; +initials(holder.name) }
                 }
             }
@@ -1099,7 +1106,9 @@ private fun DIV.taskCard(
         if (laneBoard) {
             div("kmeta kfoot") {
                 span("kstat ${statusSlug(task.status)}") { +task.status }
-                if (holder != null) span("avatar xs") { attributes["title"] = holder.name; +initials(holder.name) }
+                holders.forEach { holder ->
+                    span("avatar xs") { attributes["title"] = holder.name; +initials(holder.name) }
+                }
             }
         }
         // **Stage 103 retired the prev/next arrows.** On a status board a column is changed by dragging the card
@@ -1334,8 +1343,9 @@ fun DIV.taskFormModal(
                 // the plan and the log, to read — so the popup does not look like an empty refusal.
                 p("modal-scope") {
                     +(
-                        "This task belongs to ${memberName(v.assigneeEmpNo)}. You can read its plan and its log; " +
-                            "its fields belong to management and to the person it is assigned to."
+                        "This task belongs to ${memberNames(v.assigneeEmpNo, v.assignee2EmpNo)}. You can read " +
+                            "its plan and its log; its fields belong to management and to the people it is " +
+                            "assigned to."
                         )
                 }
             } else if (readOnly) {
@@ -1344,12 +1354,12 @@ fun DIV.taskFormModal(
                         // The column is management's here as well since Stage 49, so this reads the same as an
                         // assigned card's except for the field that names its board: an owner sets their own day
                         // on a card, not where the card sits. See [TaskForm.maySetColumn].
-                        "The dates and the priority are yours to set. The title, the column, the person it is " +
+                        "The dates and the priority are yours to set. The title, the column, the people it is " +
                             "assigned to and the status belong to management."
                     } else {
                         // Stage 87 took the project and the sub-category off this popup, so the line names only
                         // what is still printed above it.
-                        "The dates and the priority are yours to set. The title, the person it is assigned " +
+                        "The dates and the priority are yours to set. The title, the people it is assigned " +
                             "to and the status belong to management."
                     }
                 }
@@ -1572,6 +1582,38 @@ fun DIV.taskFormModal(
                             }
                         }
                         state.error(TaskField.ASSIGNEE)?.let { p("field-err") { +it } }
+                    }
+                    // The **second** person on a project card (Stage 122), the user's *assign to 2 people*.
+                    // Optional, and printed on a project popup only: a card of the Other tasks board is one
+                    // person's work by design, and the service drops a second name on a crossing to that board.
+                    // It is management's field like the one above it, so an owner's popup prints the person
+                    // the card carries rather than the roster.
+                    if (!state.isBacklog) {
+                        div("field full") {
+                            label { +"Also assign to" }
+                            select {
+                                name = "assignee2"
+                                id = "taskAssignee2"
+                                disabled = readOnly || state.selfPinned
+                                if (readOnly || state.selfPinned) {
+                                    onlyOption(
+                                        v.assignee2EmpNo,
+                                        if (v.assignee2EmpNo.isBlank()) "Nobody else" else memberLabel(v.assignee2EmpNo),
+                                    )
+                                } else {
+                                    option {
+                                        value = ""
+                                        selected = v.assignee2EmpNo.isBlank()
+                                        +"— Nobody else —"
+                                    }
+                                    optGroupPerMember(v.assignee2EmpNo)
+                                }
+                            }
+                            span("field-hint") {
+                                +"Optional. Both people share the card's plan, its log and its dates."
+                            }
+                            state.error(TaskField.ASSIGNEE2)?.let { p("field-err") { +it } }
+                        }
                     }
                     div("field") {
                         label { +"Start date" }
@@ -2053,6 +2095,14 @@ private fun noteAuthor(employeeNumber: String): String = memberName(employeeNumb
 private fun memberName(employeeNumber: String): String =
     DemoData.team.firstOrNull { it.employeeNumber == employeeNumber }?.name ?: employeeNumber
 
+/**
+ * Two employee numbers as the sentence that names them: *Bat-Erdene* for one owner, *Bat-Erdene and
+ * Sarnai* for a card with a second person (Stage 122). Blanks drop out, so the same call speaks for
+ * every card.
+ */
+private fun memberNames(vararg employeeNumbers: String): String =
+    employeeNumbers.filter { it.isNotBlank() }.map(::memberName).joinToString(" and ")
+
 /** The roster line a picker shows for one person, in the same shape [optGroupPerMember] uses. */
 private fun memberLabel(employeeNumber: String): String {
     val member = DemoData.team.firstOrNull { it.employeeNumber == employeeNumber }
@@ -2136,6 +2186,7 @@ fun editFormOf(
         title = task.title,
         projectName = task.project,
         assigneeEmpNo = task.assignee,
+        assignee2EmpNo = task.assignee2,
         started = task.started,
         due = task.due,
         priority = task.priority,

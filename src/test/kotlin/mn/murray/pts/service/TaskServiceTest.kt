@@ -94,13 +94,15 @@ class TaskServiceTest {
         title: String = "Spread base course",
         project: String = haulRoad,
         assignee: String = "EMP0002",
+        /** The second person on the card (Stage 122); blank is the ordinary one-owner card. */
+        assignee2: String = "",
         started: String = "2026-11-01",
         due: String = "2026-11-12",
         priority: String = "High",
         status: String = "Not started",
         lane: String? = "Production",
     ) = TaskDraft(
-        title = title, projectName = project, assigneeEmpNo = assignee,
+        title = title, projectName = project, assigneeEmpNo = assignee, assignee2EmpNo = assignee2,
         started = started, due = due, priority = priority, status = status,
         projectLane = lane,
     )
@@ -2216,5 +2218,108 @@ class TaskServiceTest {
         val card = TaskRepository.findById(legacy)!!
         assertTrue(card.isBacklog, "the crossing did not rewrite the board")
         assertEquals("Site works", card.bucket)
+    }
+
+    // --- a second person on a project card (Stage 122) -----------------------------------------
+
+    @Test
+    fun `a project card may name a second person, and both names come back in order`() {
+        val id = TaskService.create(draft(assignee2 = "EMP0001"), "EMP0001", canManage = true).taskId!!
+        val card = TaskRepository.findById(id)!!
+        assertEquals("EMP0002", card.assignee)
+        assertEquals("EMP0001", card.assignee2)
+        // [TaskItem.assignees] is what every board, filter and count reads: the primary first, the second
+        // after it, and a blank second not printed at all.
+        assertEquals(listOf("EMP0002", "EMP0001"), card.assignees)
+        assertTrue(card.assignedTo("EMP0002"))
+        assertTrue(card.assignedTo("EMP0001"))
+        assertFalse(card.assignedTo("EMP9999"))
+        assertEquals("", TaskRepository.findById(TaskService.create(draft(), "EMP0001", true).taskId!!)!!.assignee2)
+    }
+
+    @Test
+    fun `the second name is a different person on the roster, or it is refused in its own field`() {
+        val same = TaskService.create(draft(assignee2 = "EMP0002"), "EMP0001", true)
+        assertNull(same.taskId, "the card named the same person twice")
+        assertEquals("Choose somebody different from the first assignee.", same.error(TaskField.ASSIGNEE2))
+
+        val unknown = TaskService.create(draft(assignee2 = "EMP9999"), "EMP0001", true)
+        assertNull(unknown.taskId)
+        assertEquals("That employee is not on the team roster.", unknown.error(TaskField.ASSIGNEE2))
+        assertTrue(TaskService.assigned().isEmpty(), "a refused create wrote a row anyway")
+    }
+
+    @Test
+    fun `the second person is a full holder of the card`() {
+        val id = TaskService.create(
+            draft(assignee = "EMP0002", assignee2 = "EMP0001"), "EMP0001", canManage = true,
+        ).taskId!!
+        // They see it on their own board and nowhere else.
+        assertTrue(TaskService.assignedFor("EMP0001", canManage = false).any { it.id == id })
+        assertTrue(TaskService.assignedFor("EMP0002", canManage = false).any { it.id == id })
+        // …their own dates, priority and plan are theirs to write, exactly like the first owner's.
+        val saved = TaskService.updateAssigned(
+            id,
+            draft(assignee = "EMP0002", started = "2026-11-03", due = "2026-11-28", priority = "Low"),
+            "EMP0001", canManage = false,
+        )
+        assertEquals(id, saved.taskId, "the second person was refused their own edit: ${saved.errors}")
+        val card = TaskRepository.findById(id)!!
+        assertEquals("2026-11-03", card.started)
+        assertEquals("2026-11-28", card.due)
+        assertEquals("Low", card.priority)
+        assertNotNull(TaskService.addChecklistItem(id, "Their own step", "EMP0001", false))
+        val step = ChecklistRepository.itemsOf(id).first().id
+        assertTrue(TaskService.toggleChecklistItem(step, "EMP0001", false))
+        assertNotNull(TaskService.addNote(id, "Culvert pegged.", "EMP0001", false))
+        assertTrue(TaskService.updateStatus(id, "In progress", "EMP0001", false))
+        assertEquals("In progress", TaskRepository.findById(id)!!.status)
+    }
+
+    @Test
+    fun `neither holder may rewrite either name, which stays management's`() {
+        val id = TaskService.create(
+            draft(assignee = "EMP0002", assignee2 = "EMP0001"), "EMP0001", canManage = true,
+        ).taskId!!
+        // A hand-built POST from the second holder naming a different second person changes neither field.
+        val theirs = TaskService.updateAssigned(
+            id, draft(assignee = "EMP0002", assignee2 = "EMP9999", due = "2026-12-02"),
+            "EMP0001", canManage = false,
+        )
+        assertEquals(id, theirs.taskId, "their own fields were refused: ${theirs.errors}")
+        val card = TaskRepository.findById(id)!!
+        assertEquals("EMP0002", card.assignee)
+        assertEquals("EMP0001", card.assignee2, "a holder changed the second name")
+        // Management rewrites it like the title, and the edit lands.
+        val managed = TaskService.updateAssigned(
+            id, draft(assignee = "EMP0002", assignee2 = ""), "EMP0001", canManage = true,
+        )
+        assertEquals(id, managed.taskId)
+        assertEquals("", TaskRepository.findById(id)!!.assignee2, "management could not take the second name off")
+    }
+
+    @Test
+    fun `a card crossing to the backlog leaves its second person behind with its project`() {
+        val site = backlog("Site works")
+        val id = TaskService.create(
+            draft(assignee2 = "EMP0001", status = "In progress"), "EMP0001", canManage = true,
+        ).taskId!!
+        val moved = TaskService.updateAssigned(
+            id, draft(assignee2 = "EMP0001", status = "In progress")
+                .copy(board = BOARD_OTHER, columnId = site),
+            "EMP0001", canManage = true,
+        )
+        assertEquals(id, moved.taskId, "the crossing was refused: ${moved.errors}")
+        val card = TaskRepository.findById(id)!!
+        assertTrue(card.isBacklog)
+        assertEquals("EMP0002", card.assignee, "the crossing took the card off its first owner")
+        assertEquals("", card.assignee2, "a backlog card kept the second person its project had")
+        assertEquals(listOf("EMP0002"), card.assignees)
+        // And the backlog's own create never writes one, whatever a hand-built POST carries.
+        val written = TaskService.createBacklog(
+            backlogDraft(column = site, assignee = "EMP0002").copy(assignee2EmpNo = "EMP0001"),
+            "EMP0001", canManage = true,
+        ).taskId!!
+        assertEquals("", TaskRepository.findById(written)!!.assignee2)
     }
 }

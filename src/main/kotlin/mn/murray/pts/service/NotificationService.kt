@@ -58,27 +58,37 @@ object NotificationService {
     /**
      * Tell [taskId]'s assignee the card is theirs. Reads the row it just wrote, so a create and a
      * re-assignment produce the same message from the same source of truth.
+     *
+     * **Since Stage 122 a card can have two people on it**, and both hear when the card is written. [only] is
+     * the narrower case an edit needs: the people an edit has just *added* to the card, so putting a second
+     * person on work that already had an owner mails that second person alone rather than mailing the first one
+     * again. A create leaves it null and the card's whole [TaskItem.assignees] list is told. Each recipient is
+     * delivered separately, which is what keeps the inbox's per-person dedupe meaningful.
      */
-    fun taskAssigned(taskId: Int, actorEmpNo: String) = guard("task $taskId") {
+    fun taskAssigned(taskId: Int, actorEmpNo: String, only: Collection<String>? = null) = guard("task $taskId") {
         val task = TaskRepository.findById(taskId) ?: return@guard
-        if (task.assignee.isBlank()) return@guard
+        val recipients = (only ?: task.assignees).filter { it.isNotBlank() }.distinct()
+        if (recipients.isEmpty()) return@guard
         val project = projectOf(task)
         val where = project?.let { "on ${it.code} - ${it.name}" } ?: "with no project"
         val due = if (task.due.isNotBlank()) " Due ${task.due}." else ""
-        deliver(
-            recipient = task.assignee, kind = KIND_TASK_ASSIGNED, itemKind = ITEM_TASK, itemId = task.id,
-            title = "${taskCode(task.id)} ${task.title.take(60)}".trim(),
-            body = "${actorName(actorEmpNo)} assigned this task to you $where.$due",
-            link = taskLink(task, project), actor = actorEmpNo,
-            email = "${taskCode(task.id)} - ${task.title}" to
-                "You were assigned a task in PTS.\n\n" +
-                    "  Task    : ${taskCode(task.id)} ${task.title}\n" +
-                    "  Project : ${project?.let { "${it.code} - ${it.name}" } ?: "-"}\n" +
-                    "  Due     : ${task.due.ifBlank { "-" }}\n" +
-                    "  Status  : ${task.status}\n\n" +
-                    "${actorName(actorEmpNo)} assigned this task to you $where.$due\n\n" +
-                    "Open PTS to update it. -- MURRAY PTS (automated; replies are not read)",
-        )
+        val title = "${taskCode(task.id)} ${task.title.take(60)}".trim()
+        val body = "${actorName(actorEmpNo)} assigned this task to you $where.$due"
+        val email = "${taskCode(task.id)} - ${task.title}" to
+            "You were assigned a task in PTS.\n\n" +
+                "  Task    : ${taskCode(task.id)} ${task.title}\n" +
+                "  Project : ${project?.let { "${it.code} - ${it.name}" } ?: "-"}\n" +
+                "  Due     : ${task.due.ifBlank { "-" }}\n" +
+                "  Status  : ${task.status}\n\n" +
+                "$body\n\n" +
+                "Open PTS to update it. -- MURRAY PTS (automated; replies are not read)"
+        recipients.forEach { recipient ->
+            deliver(
+                recipient = recipient, kind = KIND_TASK_ASSIGNED, itemKind = ITEM_TASK, itemId = task.id,
+                title = title, body = body, link = taskLink(task, project), actor = actorEmpNo,
+                email = email,
+            )
+        }
     }
 
     /** Tell the project's new manager it is theirs. Silently does nothing when none is set. */

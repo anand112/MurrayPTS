@@ -618,7 +618,7 @@ private fun DIV.otherCard(
     canManage: Boolean,
     showBucketId: Int = 0,
 ) {
-    val mine = task.assignee == session.employeeNumber
+    val mine = task.assignedTo(session.employeeNumber)
     // Every card wears its stage's tint, on every board (**Stage 95** for this one). A backlog card sits under a
     // column head that *is* its status, so the word is not repeated on the card (Stage 57) — but the colour is a
     // picture, not a sentence, and the reader who looks at the assigned board and then at this one was seeing the

@@ -35,6 +35,10 @@ import java.io.File
  * the mirror image: `app.js` puts the `js` class on the document (so a scripting-off reader gets the
  * stacked sidebar instead of an unopenable drawer), and it owns the toggle, Escape, the backdrop and
  * the resize that closes a drawer the desktop no longer shows.
+ *
+ * Stage 120's answer to the same shrink is measured here as well: the dense fixed-layout sheets
+ * (projects, Team, the two forecast ledgers, Lesson learnt) keep a minimum width and their panels
+ * scroll sideways, so a narrow window no longer prints "S 0 1" and "C O D E" one letter a line.
  */
 class ShellRenderTest {
 
@@ -119,6 +123,33 @@ class ShellRenderTest {
             "a scripting-off reader gets an unopenable drawer",
         )
         assertTrue(css.contains("translateX(-100%)"), "the drawer does not slide in from the left")
+    }
+
+    @Test
+    fun `dense sheets keep a readable width instead of breaking every word to letters`() {
+        val css = appCss()
+        // The table still fills a wide panel through its percentages; the floor only stops it shrinking
+        // past legibility, and the panel scrolls when the window is narrower than the floor.
+        assertTrue(
+            css.contains(".card-panel:has(table.grid), .board-results:has(table.grid) { overflow-x: auto; }"),
+            "a dense sheet has no sideways scroll to reach the columns that do not fit",
+        )
+        listOf(
+            "table.projects-table { min-width: 1040px; }",
+            "table.team-sheet { min-width: 1000px; }",
+            "table.fc-table { min-width: 1280px; }",
+            "table.fc-done-table { min-width: 1100px; }",
+            "table.lessons-table { min-width: 1000px; }",
+        ).forEach { rule ->
+            assertTrue(css.contains(rule), "a dense sheet lost its readable floor: $rule")
+        }
+        // `associate` keeps the override's width, because the Stage 120 block comes after the base rules.
+        val projects = Regex("table\\.projects-table col\\.(\\S+) \\{ width: (\\d+)%; \\}")
+            .findAll(css).associate { it.groupValues[1] to it.groupValues[2].toInt() }
+        assertEquals(10, projects.size, "the projects board lost a column")
+        assertEquals(100, projects.values.sum(), "the projects board's columns no longer add up to the whole")
+        assertEquals(6, projects["c-code"], "the code column cannot fit S-01 at the floor")
+        assertEquals(11, projects["c-manager"], "a name breaks inside itself at the floor")
     }
 
     @Test

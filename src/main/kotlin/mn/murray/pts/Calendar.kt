@@ -193,7 +193,11 @@ fun DIV.calendarContent(session: UserSession, month: String = currentMonthKey())
                                                     val isFirstDay = date == span.first || date == firstDayOfMonth
                                                     val isLastDay = date == span.second || date == lastDayOfMonth
 
-                                                    val assignee = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
+                                                    // Every person on the card (Stage 122), so a shared project card
+                                                    // prints both names and both initials the way the board does.
+                                                    val assignees = task.assignees.mapNotNull { emp ->
+                                                        DemoData.team.firstOrNull { it.employeeNumber == emp }
+                                                    }
                                                     // The hue says *which work this bar belongs to*, and it is the same
                                                     // for every day of that card, so a project reads as one long object
                                                     // rather than as a string of unrelated cells. Priority is the dot.
@@ -208,7 +212,8 @@ fun DIV.calendarContent(session: UserSession, month: String = currentMonthKey())
                                                         attributes["data-task-id"] = "${task.id}"
                                                         attributes["data-task-title"] = task.title
                                                         attributes["data-task-project"] = modalProject(task)
-                                                        attributes["data-task-assignee"] = (assignee?.name ?: "Unassigned")
+                                                        attributes["data-task-assignee"] =
+                                                            assignees.joinToString(", ") { it.name }.ifEmpty { "Unassigned" }
                                                         attributes["data-task-started"] = task.started
                                                         attributes["data-task-due"] = task.due
                                                         attributes["data-task-priority"] = task.priority
@@ -226,7 +231,7 @@ fun DIV.calendarContent(session: UserSession, month: String = currentMonthKey())
                                                                 +task.title.take(25)
                                                                 if (task.title.length > 25) +"..."
                                                             }
-                                                            if (assignee != null) {
+                                                            assignees.forEach { assignee ->
                                                                 span("calendar-bar-assignee") {
                                                                     attributes["title"] = assignee.name
                                                                     +initials(assignee.name)
@@ -344,8 +349,11 @@ fun DIV.calendarContent(session: UserSession, month: String = currentMonthKey())
                                 }
                             }
                             td {
-                                val assignee = DemoData.team.firstOrNull { it.employeeNumber == task.assignee }
-                                if (assignee != null) +assignee.name else span("assignee none") { +"Unassigned" }
+                                val names = task.assignees.mapNotNull { emp ->
+                                    DemoData.team.firstOrNull { it.employeeNumber == emp }?.name
+                                }
+                                if (names.isNotEmpty()) +names.joinToString(", ")
+                                else span("assignee none") { +"Unassigned" }
                             }
                             td { +task.started.ifEmpty { "—" } }
                             td { +task.due.ifEmpty { "—" } }

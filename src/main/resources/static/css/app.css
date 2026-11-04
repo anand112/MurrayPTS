@@ -73,8 +73,9 @@ table.grid tr:last-child td { border-bottom: none; }
    every one of those tables agree. They are percentages summing to exactly 100, never pixels: the
    table has no breakpoint of its own — Stage 119's one @media rule moves the drawer and the card
    boards' column count, never this table — so a percentage column that gets too narrow wraps its
-   cell (see
-   overflow-wrap below) instead of pushing the table out of the card. Project gets the widest share
+   cell (see overflow-wrap below). That worked until Stage 120, which found that below a certain
+   width a cell stops wrapping words and starts breaking them into letters: the sheet now keeps a
+   1040px floor and its panel scrolls instead (see the Stage 120 block below). Project gets the widest share
    because the description is the one free-text column; Progress needs 14% because the bar is a fixed
    110px inline-block with the percentage label beside it; and the two date columns each get 9% because
    a yyyy-MM-dd string is a fixed width that must not break in half, which is what leaves the free-text
@@ -381,8 +382,9 @@ a.tcode:focus-visible { outline: 2px solid var(--accent-strong); outline-offset:
 
    Column widths are percentages summing to exactly 100 on a `table-layout: fixed` grid, the same
    contract the projects board keeps (see the note above it): nothing in app.css's breakpoint
-   (Stage 119) restyles this sheet, so a column that is too narrow has to wrap its cell rather
-   than push the sheet sideways.
+   (Stage 119) restyles this sheet. Stage 120 gave the running half a 1280px floor and the
+   completed half 1100px, and lets the panel scroll below that, because a column squeezed far
+   enough breaks its words into letters instead of wrapping them.
    Description gets the biggest share because it is the widest free text; the four figures get
    equal shares because they are the four columns a reader compares; the two typed columns are
    wider than a bare number because a box needs the padding a span does not. */
@@ -1411,14 +1413,49 @@ label.perm-pick {
 }
 .perm-pick input[type="checkbox"] { width: 16px; height: 16px; flex: 0 0 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 
+/* ---- Dense sheets keep a readable width (Stage 120) --------------------------------------
+   `table-layout: fixed` plus percentage columns was the projects board's only responsive
+   mechanism, and below a certain width it stops wrapping words and starts breaking them: at
+   520px the code cell prints "S 0 1" and its heading "C O D E". The same squeeze hits the Team
+   sheet, the forecast ledgers and Lesson learnt, because they also carry eight to eleven columns
+   of short values. A fixed narrow column has no honest way to show "S-01", so these sheets keep
+   a floor on their width; the same percentages still stretch them on a wide window, and the
+   panel around them scrolls sideways when the window is narrower than the floor. The floor is
+   per sheet — a ten-column projects board needs more room than an eight-column Team sheet — and
+   the three- and four-column People and permission sheets are not listed because they fit.
+   `:has` keeps the scroll on panels that actually hold a table, so a panel that holds only a
+   caption or a form is not turned into a scroll container. */
+.card-panel:has(table.grid), .board-results:has(table.grid) { overflow-x: auto; }
+table.projects-table { min-width: 1040px; }
+table.team-sheet { min-width: 1000px; }
+table.fc-table { min-width: 1280px; }
+table.fc-done-table { min-width: 1100px; }
+table.lessons-table { min-width: 1000px; }
+/* A one-word heading over a one-letter chip needs a share that actually fits the word once the
+   sheet is at its floor. Each pair here trades width with the free-text column beside it, so the
+   percentages still add up to the whole. */
+table.projects-table col.c-code { width: 6%; }
+table.projects-table col.c-name { width: 16%; }
+table.projects-table col.c-manager { width: 11%; }
+table.projects-table col.c-pin { width: 7%; }
+table.team-sheet col.t-department { width: 11%; }
+table.team-sheet col.t-email { width: 17%; }
+table.fc-table col.f-type { width: 4%; }
+table.fc-table col.f-code { width: 6%; }
+table.fc-table col.f-desc { width: 14%; }
+table.fc-table col.f-prev { width: 8%; }
+table.fc-done-table col.d-type { width: 5%; }
+table.fc-done-table col.d-desc { width: 23%; }
+
 /* ---- Small screens (Stage 119) ------------------------------------------------------------
    The first `@media` rule in this stylesheet. Everything above is laid out for a desktop window:
    a 240px drawer beside the page, five status columns across, tables measured in percentages so
-   they wrap rather than scroll. At 900px there is no longer room for the drawer *beside* the page,
+   they wrapped rather than scrolled (Stage 120 has since given the dense sheets a floor and a
+   sideways-scrolling panel, outside this breakpoint). At 900px there is no longer room for the drawer *beside* the page,
    so the shell gives the width back: the sidebar becomes an off-canvas panel that the page head's
    hamburger slides in from the left, the panel is as wide as the screen while it is open, and a
    card board keeps two columns a row instead of five. Tables keep their percentage columns — the
-   breakpoint does not restyle them, which is why the notes above about wrapping still hold.
+   breakpoint does not restyle them, and Stage 120's floors apply at every width rather than here.
 
    The off-canvas half is scoped to `html.js`, the class `app.js` puts on the document before the
    page paints. With JavaScript off there is no hamburger that could open a hidden drawer, so the

@@ -42,6 +42,9 @@ First run against an empty database creates the schema and a super admin account
   (`emp0009`); it also turns off auto-capitalization and spellcheck on that box, so a phone or a
   remembering keyboard cannot quietly break the typed name. Passwords remain **case-sensitive**; a
   default employee-number password uses capitals.
+- The password box carries a **Show / Hide** button (**Stage 121**): it swaps the field between dots
+  and readable text without leaving the form, keeping the caret where it was. With JavaScript off the
+  button is hidden, so the plain password box is the fallback.
 - A default password is recorded by the `must_change_password` flag, but since **Stage 99** there is
   no forced-change gate. An administrator sets or resets passwords from the Team sheet's popup.
 
@@ -292,9 +295,15 @@ includeSubDomains`, so only enable it once the certificate is valid and HTTP red
 
 `app.css` has one breakpoint, `@media (max-width: 900px)`. Below it the sidebar becomes a full-width
 off-canvas drawer opened by the hamburger beside the page title; the page's card boards — the five status
-columns and a project's lane board — fold to two fluid columns a row; tables keep their percentage columns
-and wrap rather than scroll sideways. Above 900px nothing changes: the hamburger and its backdrop are
-`display: none`.
+columns and a project's lane board — fold to two fluid columns a row. Above 900px nothing changes: the
+hamburger and its backdrop are `display: none`.
+
+The dense sheets bend the window's width at every size, not just below the breakpoint: projects, Team, the two
+forecast ledgers and Lesson learnt keep a minimum width (1040px, 1000px, 1280px, 1100px, 1000px), and the panel
+around them scrolls sideways when the window is narrower than that floor. Their columns still use percentage
+shares, so a wide window stretches them and every category panel still lines up; the floor is what stops a
+narrow one from printing "S 0 1" over three lines. The shorter People and permission sheets still wrap rather
+than scroll (**Stage 120**).
 
 The open drawer is one class, `body.nav-open`, plus `html.js`, which `app.js` puts on the document before
 the first paint. Press the hamburger to slide the sidebar in from the left; press the dimmed backdrop,
@@ -303,8 +312,8 @@ drawer and closing returns it to the button, whose `aria-expanded` and `aria-lab
 JavaScript off there is no hamburger to press, so the sidebar stays in the flow above the page — a smaller
 shell, but a usable one.
 
-Both static files changed in **Stage 119**, so an open tab needs **Ctrl+F5** before the breakpoint or the drawer
-will look absent.
+The static files changed in **Stage 119** (the shell) and **Stage 120** (the sheet floors), so an open tab needs
+**Ctrl+F5** before the breakpoint, the drawer or the floors will look absent.
 
 ## Projects and categories
 
@@ -439,7 +448,7 @@ change; **Stage 75 put the buckets back**, so on a project page a drag is once a
 in place by `kanban.js` through `POST /app/tasks/bucket`, while the five statuses live on the Assigned board, where
 a card's owner drags it along them. What stays open to everybody is the rest of their own work: **dragging** a card they are
 assigned to along the statuses — the arrows that were the second path to that same write went in **Stage 103** — ticking the steps on it, and their own To-do lists. Moving is no longer on that list,
-on either board — the assignee who is not also a mover prints no `draggable` and cannot put a card in a lane or a
+on either board — a holder who is not also a mover prints no `draggable` and cannot put a card in a lane or a
 column it was not already in; on a project page that owner's one standing control is the **✓ Done** / **↺ Reopen**
 button under the card. The **Other tasks** page is now management's whole function (Stage 51): its `+ Add task`
 line, its head `+ Add bucket` button, its `⋮` and its **Bucket** dropdown, and the sidebar links to it and to **Access control**
@@ -461,7 +470,7 @@ standing on a project the question is *what does this project hold and who is do
 slice cannot answer. That widening was the **list only, never the rights** until **Stage 86**, when the read half
 followed: a `Viewer` now clicks any card on that page and gets a **read-only** popup — its fields, its plan and its
 log, with no Save, no tick box and no note box — while the drag handle and the lane board's **✓ Done / ↺ Reopen**
-stay with management and the card's holder. Their **own** cards on that same board still open and walk for them.
+stay with management and the card's holders. Their **own** cards on that same board still open and walk for them.
 Every other task
 view — the general Assigned board (personal, Stage 53), the sidebar count, the Calendar (personal for every role since
 **Stage 64**), the Team drill-down — stays scoped to the reader.
@@ -477,9 +486,10 @@ way to reach the editor, and a column is a field of that editor rather than a th
 Every card a reader can see carries a click target since **Stage 86**: a colleague's card opens the same popup
 **read-only** — heading *Task T-000NN* rather than *Edit task*, every field greyed, the plan drawn stopped and only
 the log to read, no Save and a **Close** button instead of *Cancel*. Management edits any card and every field on
-it; the person a card is assigned
-to opens the same popup and may change its start date, due date and priority, while the title, the assignee and the
-status print greyed and are taken from the stored row rather than from the form, so a hand-built POST cannot
+it; the people a card is assigned
+to open the same popup and may change its start date, due date and priority, while the title, the
+assignees and the status print greyed and are taken from the stored row rather than from the form, so a
+hand-built POST cannot
 reassign a card through it. (The project and the lane no longer print at all on an edit of a card that is already
 on a project — **Stage 87** — because where it sits is a fact of the row: the save carries the project in a hidden
 field and `updateAssigned` keeps the stored lane when none is posted.) Anybody else who can see the card opens it to read,
@@ -500,9 +510,10 @@ edit popup carries a **Where it lives** field above the project and the column �
 and moving it brings the matching fields up while the other half stays on the page but hidden: a card crossing onto
 a project has to name the project **and** the sub-category it lands in, and one crossing onto the backlog has to
 name the column, because a card with no column is a card on no board. Everything else rides along — the steps, the
-log, the status, the dates and the person it belongs to — because the crossing moves the card, not the work. The
-field is management's, like the title: the assignee of a card is not offered it, and a hand-built POST naming the
-other board changes nothing. A card that arrived before this rule and sits on **no** project at all is the one
+log, the status, the dates and the person it belongs to — because the crossing moves the card, not the work. A
+project card's **second** person (Stage 122) is the one thing that stays behind on such a crossing, because a
+backlog card is one person's work. The field is management's, like the title: neither holder of a card is
+offered it, and a hand-built POST naming the other board changes nothing. A card that arrived before this rule and sits on **no** project at all is the one
 state the popup shows without offering as an answer: its project picker prints *— No project yet —*, and the save
 refuses, telling its owner to ask management to choose a world for it.
 
@@ -792,8 +803,9 @@ redirects to `/app/projects` and changes no board.
 
 A card on this board says the **stage it has reached** on its own bottom line (**Stage 78**): a coloured dot and the word
 beside it — *Not started* grey, *In progress* amber, *On hold* orange, *Blocked* red, *Completed* green — the board's own
-five hues, the ones its column dots and card edges already use, so no new colour enters the app. Its holder's avatar
-stands at the far right of that same line, so the card's last line answers *how far* and *who* together. It is here
+five hues, the ones its column dots and card edges already use, so no new colour enters the app. Its holders' avatars
+stand at the far right of that same line, beside one another, so the card's last line answers *how far* and *who*
+together. It is here
 because this page's columns name a **phase**, not a stage: since Stage 75 a project board is its buckets, so a card that
 said nothing about how far it had got left the page silent on the one thing its own columns cannot show. Above that line
 are the title and the priority-and-due line, and above those there is nothing — a project card prints **no code chip**
@@ -862,7 +874,7 @@ where the reader is allowed to write one.
 
 Since **Stage 56** the bar and the board underneath it read the **same set**: every card filed under this project.
 The bar averages all of them — the same figure the Projects board printed for this row, whoever opens the page — and
-the board now shows all of them to every reader, each card carrying its holder's avatar so the page answers "what does
+the board now shows all of them to every reader, each card carrying its holders' avatars so the page answers "what does
 this project have and who is doing it". This is the **list only**: the reader's *role* still decides what they may do
 with a card on that board, so a `Viewer` sees the whole project and — since **Stage 86** — opens any card on it to
 read, but drags or edits only their own. (Until
@@ -931,11 +943,24 @@ board.
 
 ## Assigned tasks and checklists
 
-A task card is a piece of work one person owns, and only two people have a claim on it: the assignee and
-management. That split decides what each of them can see and do, and it is the rule on the shared boards — the cards
-on the **Other tasks** page and the per-person drill-down on the Team page. A
+A task card is a piece of work somebody holds, and only two parties have a claim on it: the people it is
+assigned to and management. A project card may name **two** holders since **Stage 122**; a card on the
+**Other tasks** board is one person's work, by that board's design. That split decides what each of them can
+see and do, and it is the rule on the shared boards — the cards on the **Other tasks** page and the
+per-person drill-down on the Team page. A
 `Manager` or `Admin` sees the whole board there, because seeing everyone's work is what that role is for. A
 `Viewer` sees only the cards assigned to them. There is no setting for this.
+
+**Stage 122 lets a project card carry a second person.** The editor's **Also assign to** picker (`assignee2`)
+is optional — *— Nobody else —* is the ordinary one-owner card — and prints on every popup that files a
+project card: a project page's editor and the Assigned page's `+ New task`, which draw the same form. Both names are
+holders in every sense: each is in `TaskItem.assignees`, so each sees the card on their own Assigned board,
+sidebar count and Calendar, opens its editor, sets its start date, due date and priority, ticks its steps,
+writes its log and closes it with **✓ Done**; the card prints both avatars, and the Team drill-down lists it
+under both people. Both names are management's to set: either holder's save rebuilds the pair from the row, and a
+second name that repeats the first or is not on the roster is refused under its own field. The second name is
+**project-only** — the Other tasks popup has no picker for it, a backlog create ignores one a form posts, and a
+card moved to that board leaves the second person behind with its project and its lane.
 
 Three places, though, are deliberately personal for **every** reader regardless of role: the
 **Assigned tasks** board, the number beside it in the sidebar, and the **Calendar** (**Stage 64**). Since **Stage 53**
@@ -954,7 +979,7 @@ page, where the card is actionable rather than a bar. **The project page is the 
 personal scoping (Stage 56)**: clicking a project shows *every* card filed under it to *every* reader — management, the
 project's own manager, and a plain `Viewer` alike — cut into the **project's own buckets** (Stage 75: the columns are
 Engineering, Procurement, Production and whatever else that board carries, not the five statuses the Assigned board
-uses), each card carrying its holder's avatar so the page answers "what does this project have and who is doing it".
+uses), each card carrying its holders' avatars so the page answers "what does this project have and who is doing it".
 That widening was the **list only, never the rights** until **Stage 86**, when the read half followed: a `Viewer` now
 opens a colleague's card **read-only** — its fields, plan and log, with no Save, no tick and no note box — while
 acting on it (dragging, ticking, noting, retitling — the arrowing that used to be on that list went in **Stage 103**)
@@ -1150,9 +1175,9 @@ lives where the card's other details live: clicking the card opens the popup, an
 their boxes, the `n of m done` count and the line that adds a step. One card therefore looks the same to
 whoever is looking at it, and the boxes a reader earns by owning the card arrive on the click they already make
 to do anything else with it. Ticking follows the rule it always followed — `TaskService.toggleChecklistItem`
-accepts the assignee and management — and the popup now asks the server who is looking rather than guessing:
+accepts a card's holders and management — and the popup now asks the server who is looking rather than guessing:
 `TaskForm.viewerEmpNo` is set from the session by the route that loaded the card, and `TaskForm.mayTick` is
-`toggleChecklistItem`'s own set — management and the card's holder — so anybody who may tick a box is shown one and
+`toggleChecklistItem`'s own set — management and the card's holders — so anybody who may tick a box is shown one and
 nobody who cannot is invited to click a refusal. *(Since **Stage 86** that set is narrower than the readers the card
 now opens for: a colleague reads the same plan with every box stopped (`class="chk-box locked"`, the reason on its
 `title`), and `TaskService.openableBy` — the renamed read gate — is what hands them the card.)* Moving a card between columns keeps the shape it always had —
@@ -1329,7 +1354,7 @@ change a status, and the popup every reader can open shows **Status** greyed to 
 one loss worth knowing about — a keyboard-only owner asks management. A project's lane board keeps its single
 **✓ Done / ↺ Reopen** button, because there is no Completed column to drag into there and finishing work is not the same
 act as moving a card. That drag is the list, not the rights: `draggable` is printed for exactly the accounts
-`TaskService.updateStatus` accepts — management (any card) or the assignee (their own) — so a card a reader cannot move
+`TaskService.updateStatus` accepts — management (any card) or a holder (their own) — so a card a reader cannot move
 does not look grabbable, and a `Viewer`'s scoped board shows their own card draggable and a colleague's not at all.
 The drag works on a **narrowed** board too (**Stage 94**): the Bucket dropdown answers by replacing the board in
 place, and a replaced board is brand-new markup with nothing attached to it, so `kanban.js` now answers status drops
@@ -2105,7 +2130,7 @@ What counts as "not finished, and coming":
 | Item | Alerted when | Who receives it |
 | --- | --- | --- |
 | Project | status is not `Completed` **and** progress < 100 **and** the due date is within `PTS_ALERT_LEAD_DAYS` (7) — or already past | the project's assigned manager plus every assignee |
-| Task | status is not `Completed` and the due date is within the same window | the task's assignee plus the manager of its project |
+| Task | status is not `Completed` and the due date is within the same window | both of the task's assignees (one on a backlog card) plus the manager of its project |
 
 Here `progress` is the figure stored on the project row, not the average of its cards' checklists that the
 pages print — mail keeps its own rule on purpose, so a project can read 100% on the board and still be
@@ -2208,7 +2233,7 @@ their inbox or in the dropdown — usually both:
 
 | Event | Raised by | Who hears it |
 | --- | --- | --- |
-| A task is assigned to you | a manager creating the card, or a save from the editor that **moves** it to you (the assignee's own save cannot; that field is theirs to read) | the assignee |
+| A task is assigned to you | a manager creating the card, or a save from the editor that **moves** it to you (a holder's own save cannot; those fields are theirs to read) | each person on the card — both people on a project card with a second name (Stage 122) |
 | A project becomes yours | a project created with you as manager, or a header-strip save (`POST /app/projects/{id}`, Stage 60) that moves the **Project manager** field to you — it notifies only when the manager actually changes hands. `POST /app/projects/{id}/manager` still exists and is management-only, but no page posts to it now | the new manager |
 | A due-date reminder goes out | the sweep, on the interval above | the same recipients the email goes to |
 
@@ -2223,9 +2248,10 @@ shouting:
   claimed *before* the mail is sent, so a retry cannot mail twice either.
 
 Renaming a card, dragging it between columns, and changing a due date notify nobody. Losing an
-assignment notifies the person who lost it not at all — only the new holder hears.
+assignment notifies the person who lost it not at all — only the new holder hears. Adding a second
+person to a project card tells that person alone, never the owner already on it.
 
-The notice depends on **who holds the card, never on its status**. Work is often under way — or already finished — by the time somebody writes it down, so a card entered as *In progress* or *Completed* tells its assignee exactly like one saved as *Not started*, bell row and mail attempt alike, and moving a card that is already under way still tells the person it moved to. Only the status changes; the notice does not.
+The notice depends on **who holds the card, never on its status**. Work is often under way — or already finished — by the time somebody writes it down, so a card entered as *In progress* or *Completed* tells each person on it exactly like one saved as *Not started*, bell row and mail attempt alike, and moving a card that is already under way still tells the people it moved to. Only the status changes; the notice does not.
 
 `read_at = ''` means unread; that single column is the badge count, the dot on each row, and what
 "Mark all read" flips. Opening a row is `GET /app/notifications/{id}/open`, which marks it read and
@@ -2270,7 +2296,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (707 tests in 48 classes), on schema v21.
+2. `./gradlew test installDist` is green (719 tests in 48 classes), on schema v22.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2301,13 +2327,13 @@ configuration, and it is the one to settle first: it decides what you can safely
    in the board's own column heads, and since **Stage 75** those columns are the project's **buckets** — a new project
    opens with **Engineering**, **Procurement**, **Production** and nothing else, whatever its category, and its manager
    can rename or take off any of them. Status is neither a column nor a word on a card here: management set it in the
-   editor the card opens, and the person it belongs to gets a single **✓ Done / ↺ Reopen** button on the card instead
+   editor the card opens, and whoever holds it gets a single **✓ Done / ↺ Reopen** button on the card instead
    (Stage 75 — on a bucket board two arrows would be offering a walk between columns that do not exist; since **Stage
    103** the arrows the *status* boards did print are gone too, so this Done/Reopen button is the only move button
    anywhere in the app). The five
    **status** columns belong to `/app/assigned-tasks` and to **Other tasks**. Since
    **Stage 56** the `Viewer` sees the **whole** project board here — every card filed under the project, each with its
-   holder's avatar. Since **Stage 86** every one of those cards carries a click target: a colleague's opens a
+   holders' avatars. Since **Stage 86** every one of those cards carries a click target: a colleague's opens a
    **read-only** popup (fields greyed, plan stopped, log to read, no Save and no note box) while still printing no
    `draggable` and no move button, and only their own cards open in the full editor. The project page is the one place a `Viewer`'s card *list*
    widens past their own; the Calendar, `/app/assigned-tasks` and the Team drill-down stay personal. Then sign in as
@@ -2537,7 +2563,7 @@ configuration, and it is the one to settle first: it decides what you can safely
    Then read **the cards themselves** (**Stage 78**, with **Ctrl+F5** — the card's lines are drawn in Kotlin and the dot
    that colours the stage word is new `app.css`, and both ship inside the jar). On a project's lane board a card is three
    lines: its title, then priority · due · its own percentage, then a last line carrying a **coloured dot and the stage
-   word** at the left and its holder's avatar at the right — and **no `T-00001` chip anywhere on that page**, because the
+   word** at the left and its holders' avatars at the right — and **no `T-00001` chip anywhere on that page**, because the
    card is already sitting on the page that names its project. The card wears that stage's colour too: *In progress* amber,
    *On hold* orange, *Blocked* red, *Completed* green, and *Not started* a bare grey edge, so the stage is readable from
    across the room before any word is. Move a card by dragging it into another column or by changing Status in the popup
@@ -2589,8 +2615,8 @@ configuration, and it is the one to settle first: it decides what you can safely
    itself printed once and greyed. Write one card for a colleague and confirm it stays on that page. Then
    open a project that account does not manage: no empty-board block, no `+ New task` anywhere, and
    `?new=1` on either the general board or somebody else's project comes back with no popup. On that same page
-   (**Stage 56**) the whole project board is shown to this `Viewer` — every colleague's card with its holder's
-   avatar, cut into the project's own bucket columns — and since **Stage 86** every card opens: a colleague's as a
+   (**Stage 56**) the whole project board is shown to this `Viewer` — every colleague's card with its holders'
+   avatars, cut into the project's own bucket columns — and since **Stage 86** every card opens: a colleague's as a
    read-only popup with no Save, no tick and no note box, a card assigned to them as the full owner's editor. The
    drag stays management's on this page and the holder's **✓ Done / ↺ Reopen** stays theirs; there are no move arrows to
    look for on any board, since **Stage 103** took them off both status boards — and that stage shipped a stylesheet and
@@ -2734,9 +2760,12 @@ configuration, and it is the one to settle first: it decides what you can safely
    responsive mode). The sidebar should disappear and a hamburger appear beside the page title; press it and
    the menu should slide in from the left, full width, with the page dimmed behind it. Press the dimmed area,
    press Escape, and follow a link — each should close it, and Escape should put focus back on the hamburger.
-   The five status columns and a project's lane board should now read as two columns a row, with no sideways
-   scrolling; grow the window back past 900px and the desktop sidebar should return with the hamburger gone,
-   and tables should still fit their panels. Use **Ctrl+F5** first if the tab predates the deploy.
+   The five status columns and a project's lane board should now read as two columns a row. At the same narrow
+   width, open a dense sheet — the projects board, Team, a forecast ledger, Lesson learnt: no word should be
+   broken into letters, and the panel should scroll sideways to reach the columns that do not fit. Grow the
+   window back past 900px and the desktop sidebar should return with the hamburger gone; a window still
+   narrower than a sheet's floor (a 1000px window is) should scroll that sheet rather than crush it.
+   Use **Ctrl+F5** first if the tab predates the deploy.
 8. `PTS_SEED_DEMO` is `false` and `data/pts-data.json` is either imported or absent — no demo
    accounts in the live system.
 9. Backup job exists and you have restored from it once (`logs/` and `data/` both covered). Take one
@@ -2803,10 +2832,11 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-707 tests in 48 classes — 41 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+719 tests in 48 classes — 53 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
-(**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**).
+(**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**) and the dense sheets' readable-width case (**Stage 120**), the login password toggle's case (**Stage 121**) and
+the second person on a project card's ten cases (**Stage 122**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2852,6 +2882,12 @@ selected after it changes, and no `department` anywhere in a manager's popup.
 **Stage 118** adds two. `AccessControlRenderTest`'s department case: the heading between Position and Role, a picker on every roster row (the row with no login included), the stored off-list word selected and disabled with the nine after it, the form's live target, hidden number and autosubmit, the picker following the all-chip pair rather than *Manage employees*, no picker for a people-only reader who still reads the words, and a row already on the list opening on its own word with no placeholder. `EmployeeServiceTest`'s `setDepartment` case: the move writes the roster row and leaves the job title, *Projects*, blank, a lowercase word and a stranger's number all answer false and write nothing, and re-picking the current word is a no-op that answers true.
 
 **Stage 119** adds three, all in `ShellRenderTest` (a temp database, the whole shell rendered through `appPage`): the page head's opener (aside `#appSidebar`, a `button#navToggle` with its `aria-controls` / `aria-expanded` / `aria-label` and three bars, the title wrapper holding it and the `<h1>`, and the `#navBackdrop` with `aria-hidden`), the single 900px `@media` block (each named rule, the hidden-by-default pair, and no unscoped sidebar translation above it), and the script's `html.js` class, ids, `nav-open` toggle, aria label swap, Escape and 901px query.
+
+**Stage 120** adds one to the same class: the `:has` sideways-scroll rule, a minimum width for each of the five dense sheets, and the projects board's ten column shares parsed back out of the CSS — still summing to 100, with the code column at 6% and the manager column at 11%, the two that broke at the floor.
+
+**Stage 121** adds one to `LoginPageRenderTest`: the password box's `button#passwordToggle` — `type="button"` so it cannot submit, `aria-controls="password"`, `aria-pressed="false"` and `aria-label="Show password"` — the `.password-wrap` that pins it inside the field, the `login.js` script tag, the sheet's hidden-until-`html.js` rule and its 74px reservation, and a read of `login.js` for the `js` class, the two ids, the type swap, the Show/Hide labels, `aria-pressed` and the focus return.
+
+**Stage 122** adds ten. `TaskServiceTest` gains five (112 → 117): a project card may name a second person and both names come back in order, with `assignees` / `assignedTo`; a duplicate or unknown second is refused under `TaskField.ASSIGNEE2` while a backlog create ignores one a form posts; the second person is a full holder (their own visibility, dates and priority, checklist add and tick, note and status move); neither holder may rewrite either name, which stays management's; and a card crossing to the backlog leaves its second person behind. `TaskBoardRenderTest` gains two (77 → 79): the project popup's **Also assign to** picker — its *— Nobody else —* option, its hint and the backlog popup's lack of any `assignee2` — and both holders' editors opening filled, with a lane card printing two avatars on its foot line. `NotificationServiceTest` gains two (17 → 19): a card with two people tells both and not the actor, and an edit that adds a second tells only the new person. `DueDateAlertServiceTest` gains one (14 → 15): two holders alert both, and a holder who is also the project's manager hears once, with the combined role.
 
 **Stage 108** adds one, `ProjectsPageRenderTest`'s *revenue is written and shown in tugrik on
 every surface that carries it*: the header box holds `₮ 12,500,000` and still asks for a numeric keypad, the Viewer's

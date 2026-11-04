@@ -88,7 +88,11 @@ class DueDateAlertServiceTest {
         status: String = "In progress",
         assignee: String? = "EMP0002",
         projectId: Int? = null,
-    ): Int = TaskRepository.insert("ASSIGNED", title, projectId, due, "Medium", assignee, status, null, "")
+        /** The second holder on a project card (Stage 122), or null for the ordinary one-owner card. */
+        assignee2: String? = null,
+    ): Int = TaskRepository.insert(
+        "ASSIGNED", title, projectId, due, "Medium", assignee, status, null, "", assignee2EmpNo = assignee2,
+    )
 
     private fun ledger() = AlertRepository.forDay(day)
 
@@ -163,6 +167,40 @@ class DueDateAlertServiceTest {
         assertTrue(rows.all { it.kind == DueDateAlertService.KIND_TASK })
         assertTrue(rows.first { it.recipientEmpNo == "EMP0002" }.body.contains("the task assignee"))
         assertTrue(rows.first { it.recipientEmpNo == "EMP0001" }.body.contains("manager of the project"))
+    }
+
+    @Test
+    fun `a card with two holders alerts both of them, and a holder who is also the manager once`() {
+        val projectId = project("SIT-16", due = today.plusDays(20).toString(), manager = "EMP0001")
+        task(
+            "Replace hydraulic hose", due = today.plusDays(2).toString(),
+            assignee = "EMP0002", projectId = projectId, assignee2 = "EMP0003",
+        )
+
+        val summary = DueDateAlertService.runSweep(today)
+
+        // Both holders and the project's manager, each once.
+        assertEquals(3, summary.alertsAttempted, summary.render())
+        assertEquals(setOf("EMP0001", "EMP0002", "EMP0003"), ledger().map { it.recipientEmpNo }.toSet())
+        listOf("EMP0002", "EMP0003").forEach { holder ->
+            assertTrue(
+                ledger().first { it.recipientEmpNo == holder }.body.contains("the task assignee"),
+                "$holder is not told why they are hearing about the card",
+            )
+        }
+        // The manager is a holder on the next card: one row, and it spells out both roles.
+        val managerOnIt = task(
+            "Pour the second pad", due = today.plusDays(3).toString(),
+            assignee = "EMP0001", projectId = projectId, assignee2 = "EMP0002",
+        )
+        DueDateAlertService.runSweep(today)
+        val theirs = ledger().first { it.itemId == managerOnIt && it.recipientEmpNo == "EMP0001" }
+        assertTrue(theirs.body.contains("the task assignee and this project's manager"), theirs.body)
+        assertEquals(
+            1,
+            ledger().count { it.itemId == managerOnIt && it.recipientEmpNo == "EMP0001" },
+            "the manager was told twice about one card",
+        )
     }
 
     @Test

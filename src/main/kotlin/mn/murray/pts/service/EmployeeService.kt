@@ -70,7 +70,11 @@ object EmployeeService {
         val positionsById = PositionRepository.findAll().associateBy { it.id }
         val teamByEmp = TeamRepository.findAll().associateBy { it.employeeNumber }
         val accountsByEmp = UserRepository.findAll().associateBy { it.employeeNumber }
-        val openByEmp = TaskService.assigned().filter { it.isOpen }.groupingBy { it.assignee }.eachCount()
+        // A card with two people counts for each of them: the column asks how much open work a person holds,
+        // and a shared card is held by both (Stage 122).
+        val openByEmp = TaskService.assigned().filter { it.isOpen }
+            .flatMap { it.assignees }
+            .groupingBy { it }.eachCount()
 
         // The roster's own order first, then the accounts with no roster row. The sheet is sorted by the
         // column header, so this only decides which people exist at all.

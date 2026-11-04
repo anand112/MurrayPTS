@@ -106,6 +106,12 @@ data class TaskItem(
     // [mn.murray.pts.DemoData] are built positionally, and a new field mid-list would shift every argument that
     // follows it. Blank on a card with no project, which is every backlog card.
     val projectCode: String = "",
+    // The **second** person a project card is assigned to (V22, Stage 122), or blank when it has one owner as
+    // every card did before. It sits at the end for the same reason [projectId] and [projectCode] do: the demo
+    // cards are built positionally, and a field in the middle would shift every argument after it. It is blank
+    // on a backlog card whatever the row once said — the service clears it on a crossing — and read through
+    // [assignees] rather than directly by anything that means *who holds this card*.
+    val assignee2: String = "",
 ) {
     /**
      * Whether the card still counts as work in progress.
@@ -130,6 +136,21 @@ data class TaskItem(
      * still be an assigned card.
      */
     val isBacklog: Boolean get() = kind == "OTHER"
+
+    /**
+     * The people this card belongs to, in the order the card prints them: [assignee] first, then [assignee2]
+     * when a project card has one. Blanks are left out, so a card nobody has picked up answers with an empty
+     * list rather than two empty strings.
+     *
+     * This is the one shape every rule that means *the person the card is assigned to* reads — the dates and
+     * the priority, the ✓ Done button, the checklist, the log, "assigned to me" and the sidebar count — so a
+     * second name is a second holder of the same card everywhere at once, rather than a display-only line.
+     */
+    val assignees: List<String> get() = listOf(assignee, assignee2).filter { it.isNotBlank() }
+
+    /** Whether [employeeNumber] is one of this card's people. A blank viewer is nobody's name, not everybody's. */
+    fun assignedTo(employeeNumber: String): Boolean =
+        employeeNumber.isNotBlank() && assignees.contains(employeeNumber)
 
     /**
      * How far down this card's own plan it has got, as a whole percentage — or null when the card has no

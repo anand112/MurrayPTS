@@ -187,7 +187,8 @@ object DueDateAlertService {
         tasks.forEach { t ->
             val due = parseDue(t.due) ?: return@forEach
             if (due.isAfter(horizon)) return@forEach
-            val recipients = (listOf(t.assigneeEmpNo, t.projectManagerEmpNo).filter { it.isNotBlank() }).distinct()
+            // Both people on the card hear, and so does the project's manager (Stage 122).
+            val recipients = (t.assigneeEmpNos + t.projectManagerEmpNo).filter { it.isNotBlank() }.distinct()
             if (recipients.isEmpty()) return@forEach            // nobody owns it: nothing to alert
             items++
             recipients.forEach { emp ->
@@ -372,8 +373,9 @@ object DueDateAlertService {
     private fun taskBody(t: TaskDueRow, recipient: String, recipientName: String?, due: LocalDate, today: LocalDate): String {
         val timing = labelTiming(t.label(), due, today).second
         val role = when {
-            recipient == t.assigneeEmpNo && recipient == t.projectManagerEmpNo -> "the task assignee and this project's manager"
-            recipient == t.assigneeEmpNo -> "the task assignee"
+            recipient in t.assigneeEmpNos && recipient == t.projectManagerEmpNo ->
+                "the task assignee and this project's manager"
+            recipient in t.assigneeEmpNos -> "the task assignee"
             else -> "the manager of the project this task belongs to"
         }
         return buildString {

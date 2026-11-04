@@ -618,6 +618,7 @@ object TaskRepository {
             archivedLane = r[Tasks.archivedLane] ?: "",
             archivedOn = r[Tasks.archivedOn] ?: "",
             projectCode = label?.code ?: "",
+            assignee2 = r[Tasks.assignee2EmpNo] ?: "",
         )
     }
 
@@ -735,6 +736,8 @@ object TaskRepository {
         kind: String, title: String, projectId: Int?, due: String, priority: String,
         assigneeEmpNo: String?, status: String, bucketId: Int?, started: String,
         projectBucketId: Int? = null,
+        /** The second person on a project card (Stage 122); null on a backlog card and on every one-owner row. */
+        assignee2EmpNo: String? = null,
     ): Int = transaction {
         Tasks.insert {
             it[Tasks.kind] = kind
@@ -743,6 +746,7 @@ object TaskRepository {
             it[Tasks.due] = due
             it[Tasks.priority] = priority
             it[Tasks.assigneeEmpNo] = assigneeEmpNo
+            it[Tasks.assignee2EmpNo] = assignee2EmpNo
             it[Tasks.status] = status
             it[Tasks.bucketId] = bucketId
             it[Tasks.projectBucketId] = projectBucketId
@@ -773,6 +777,8 @@ object TaskRepository {
     fun update(
         id: Int, title: String, projectId: Int?, due: String, priority: String,
         assigneeEmpNo: String?, status: String, started: String,
+        /** The second person on a project card (Stage 122), written in the same statement as the first. */
+        assignee2EmpNo: String? = null,
     ) = transaction {
         Tasks.update({ Tasks.id eq id }) {
             it[Tasks.title] = title
@@ -780,6 +786,7 @@ object TaskRepository {
             it[Tasks.due] = due
             it[Tasks.priority] = priority
             it[Tasks.assigneeEmpNo] = assigneeEmpNo
+            it[Tasks.assignee2EmpNo] = assignee2EmpNo
             it[Tasks.status] = status
             it[Tasks.started] = started
         }

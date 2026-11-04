@@ -105,6 +105,7 @@ src/main/kotlin/mn/murray/pts/
 │   ├── css/base.css               ← extracted from PAGE_CSS (login page + shared design tokens)
 │   ├── css/app.css                ← extracted from APP_CSS (app shell + page components)
 │   ├── js/theme.js                ← persisted theme/accent (now a real IIFE — see Stage 7 progress)
+│   ├── js/login.js                ← the login password box's Show/Hide button (Stage 121; login page only)
 │   ├── js/app.js                  ← delegated [data-autosubmit] / [data-confirm] handlers
 │   ├── js/kanban.js               ← Assigned Tasks board drag-drop (move buttons are an
 │   │                                 assignee-only affordance now — see Stage 14)
@@ -140,7 +141,7 @@ Real foreign keys replace the current string-name joins. **This is a semantic ch
 words (`Not started / In progress / On hold / Blocked / Completed`, one vocabulary since **Stage 96**) are enforced at
 the form, which is why V19 could rename a status with one `UPDATE`. See Stage 12. |
 | `project_assignees` | `project_id` FK, `employee_number` FK, PK(`project_id`,`employee_number`) | Replaces `List<String>`. |
-| `tasks` | `id` PK, `title`, `project_id` FK NULL, `due`, `priority`, `assignee_emp_no` FK NULL, `status`, `bucket`, `project_bucket_id` FK NULL (V7), `started`, `kind` (`ASSIGNED`/`OTHER`), `display_code` | Merges assignedTasks + otherTasks (they're the same shape). |
+| `tasks` | `id` PK, `title`, `project_id` FK NULL, `due`, `priority`, `assignee_emp_no` FK NULL, `assignee2_emp_no` FK NULL (V22, Stage 122), `status`, `bucket`, `project_bucket_id` FK NULL (V7), `started`, `kind` (`ASSIGNED`/`OTHER`), `display_code` | Merges assignedTasks + otherTasks (they're the same shape). `assignee2_emp_no` is the **second** person on a project card — nullable, `ON DELETE SET NULL`, blank on a backlog card, and read through `TaskItem.assignees` so both people are holders everywhere; see Stage 122. |
 | `buckets` | `id` PK, `name`, `position` INT | Kanban columns for other-tasks — the backlog's buckets. **Never seeded**: V1 creates it empty, `V10` seeds only `project_buckets`, `V12` creates `type_default_buckets` empty and `V16` touches only a project's phases, so a fresh database opens **Other tasks** with no columns; every bucket is named by management through `POST /app/other-buckets`. There are therefore **no default buckets** for project-unrelated task work, and nothing on Settings' **Project bucket settings** card reads or writes this table — the two sets are separate on purpose. Naming a column is management's, confirmed by the user on 2026-10-26 (Stage 51's gate). |
 | `project_buckets` | `id` PK, `project_id` FK cascade, `name`, `position` INT | V7, Stage 30: one **project's** lanes — the phases its own cards are filed under. Separate from `buckets` on purpose (see Stage 30). `tasks.project_bucket_id` is `ON DELETE SET NULL`, so removing a lane un-files its cards rather than deleting them. Since **Stage 111** this table is also what a create popup reads *across* projects: `ProjectBucketRepository.allByProject()` groups it by project, `TaskService.lanesByProjectName()` keys that by project **name** (the value the picker posts), and the general board's `+ New task` puts each board into its own option as `data-lanes` — so a project with no rows here is listed with an empty list rather than dropped. |
 | `forecasts` | `id` PK, `project_id` FK, `period`, `hours`, `note` | V1's legacy row set: hours per project per period, kept for the importer. Since Stage 43 **nothing reads it** — the Forecasts page is `project_forecasts` now, and the sidebar pill counts projects instead of these rows. |
@@ -248,7 +249,7 @@ but is not covered by a committed test.
 ## Stage history
 
 One section per stage, in order, in [STAGE-HISTORY.md](STAGE-HISTORY.md) — from the first
-route/service migration to the latest stage, 2026-11-03's small-screen shell and its 900px breakpoint. The middle column is that section's own
+route/service migration to the latest stage, 2026-11-04's second person on a project card. The middle column is that section's own
 heading text; the right column is its heading's parenthesised tail: the date it landed, whether
 it is live, which migration it carries, which layers it touched. A stage with no date predates
 the convention.
@@ -368,6 +369,9 @@ the convention.
 | [117](STAGE-HISTORY.md#stage-117) | A new employee's popup files them under a department, and only an owner or administrator may choose it | 2026-11-03, live, no migration, Kotlin + test |
 | [118](STAGE-HISTORY.md#stage-118) | Access control's People sheet files a person under a department, and only the all-chip pair may move it | 2026-11-03, live, no migration, Kotlin + test |
 | [119](STAGE-HISTORY.md#stage-119) | The shell folds to a drawer below 900px, and a card board keeps two columns | 2026-11-03, live, no migration, Kotlin + CSS + JS + test |
+| [120](STAGE-HISTORY.md#stage-120) | A dense sheet keeps a readable width and scrolls instead of breaking words into letters | 2026-11-03, live, no migration, CSS + test |
+| [121](STAGE-HISTORY.md#stage-121) | The login password box gets a Show/Hide button | 2026-11-03, live, no migration, Kotlin + CSS + JS + test |
+| [122](STAGE-HISTORY.md#stage-122) | A project card can be assigned to two people | 2026-11-04, live, migration V22, Kotlin + test |
 
 **Read the newest few before changing anything they touch.** A section is never trimmed when a
 later stage supersedes it — the superseding stage says so in its own heading and explains what no
