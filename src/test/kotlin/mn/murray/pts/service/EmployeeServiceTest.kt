@@ -513,10 +513,12 @@ class EmployeeServiceTest {
         edit: String = "",
         department: String = "",
         canSetDepartment: Boolean = false,
+        /** Stage 123: another person's password is `EMP0000`'s alone — the route reads it off the account. */
+        canSetPassword: Boolean = who == "EMP0000",
     ) = EmployeeService.save(
         EmployeeDraft(edit = edit, employeeNumber = employeeNumber, name = name, email = email,
             position = position, role = role, password = password, department = department),
-        who, canManage, canAdmin, canSetDepartment = canSetDepartment,
+        who, canManage, canAdmin, canSetDepartment = canSetDepartment, canSetPassword = canSetPassword,
     )
 
     @Test
@@ -731,7 +733,8 @@ class EmployeeServiceTest {
 
     @Test
     fun `an edit that sets a password replaces it, and a short one changes nothing`() {
-        val set = create(worker, true, true, edit = positioned, name = "Ganbold Erdene", email = "g@g.mn", password = "newpass1")
+        // Stage 123: the super admin alone writes another person's password.
+        val set = create("EMP0000", true, true, edit = positioned, name = "Ganbold Erdene", email = "g@g.mn", password = "newpass1")
         assertTrue(set.saved, "the password write was refused: ${set.errors}")
         val account = UserRepository.findByEmpNo(positioned)!!
         assertTrue(PasswordHasher.verify("newpass1", account.passwordHash), "the new password is not the one typed")
@@ -741,10 +744,30 @@ class EmployeeServiceTest {
 
         // The email in the same POST was valid and none of it landed: a form that says it failed has to
         // mean all of its fields, not only the ones it liked.
-        val refused = create(worker, true, true, edit = positioned, name = "Ganbold Erdene", email = "moved@murray.mn", password = "abc")
+        val refused = create("EMP0000", true, true, edit = positioned, name = "Ganbold Erdene", email = "moved@murray.mn", password = "abc")
         assertFalse(refused.saved)
         assertEquals("A password is 4 characters or more.", refused.error(EmployeeField.PASSWORD))
         assertEquals("g@g.mn", UserRepository.findByEmpNo(positioned)!!.email, "a refused edit wrote the field it liked")
+    }
+
+    @Test
+    fun `an administrator who holds every chip still cannot set another person's password`() {
+        // Stage 123: `EMP0000` alone. The worker account manages employees and roles, so the refusal names the
+        // one right they lack — and the password is not touched.
+        val refused = create(worker, canManage = true, canAdmin = true,
+            edit = positioned, name = "Ganbold Erdene", email = "g@g.mn", password = "newpass1")
+        assertFalse(refused.saved, "an administrator set somebody else's password")
+        assertEquals(EmployeeField.PERMISSION, refused.errors.keys.singleOrNull(), "${refused.errors}")
+        assertEquals("Only the super admin can set another person's password.", refused.error(EmployeeField.PERMISSION))
+        assertTrue(PasswordHasher.verify(positioned, UserRepository.findByEmpNo(positioned)!!.passwordHash),
+            "a refused write changed the password anyway")
+
+        // The same refusal on a create: the account is not written.
+        val createRefused = create(worker, canManage = true, canAdmin = true,
+            employeeNumber = "EMP0023", password = "newpass1")
+        assertFalse(createRefused.saved, "an administrator created an account with a chosen password")
+        assertEquals("Only the super admin can set another person's password.", createRefused.error(EmployeeField.PERMISSION))
+        assertNull(UserRepository.findByEmpNo("EMP0023"), "a refused create wrote the account")
     }
 
     @Test

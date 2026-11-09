@@ -46,7 +46,10 @@ First run against an empty database creates the schema and a super admin account
   and readable text without leaving the form, keeping the caret where it was. With JavaScript off the
   button is hidden, so the plain password box is the fallback.
 - A default password is recorded by the `must_change_password` flag, but since **Stage 99** there is
-  no forced-change gate. An administrator sets or resets passwords from the Team sheet's popup.
+  no forced-change gate. Since **Stage 123** every account changes its own password under
+  **Settings → Your account** (current, new, confirm), and only the **super admin** (`EMP0000`) sees or
+  sets the password control for anybody else — on the Team sheet's popup and on Access control. No page
+  can display an existing password; it is stored as a bcrypt hash.
 
 Two optional data loads, both one-shot and both refused unless the database is empty:
 
@@ -462,9 +465,15 @@ with none of the column tools. Handing work to *another* person — writing a ca
 
 An empty board says what is missing instead of showing a row of empty columns of "Nothing here.", and says it only to
 somebody who can fill it: when the cards this reader can see number zero and they may write one, the board
-prints a `.board-empty` block with the sentence about where the card will land and the same `+ New task`
-opener the page head carries — one renderer, one mechanism, no new script. A `Viewer` who manages nothing
-gets neither the block nor an opener. **A project page is the one whole-project board** (Stage 56): every card filed
+prints a `.board-empty` block. **Stage 124** changes only that empty **Assigned tasks projects-board** panel:
+*Edit any task* makes the panel visible, and a reader who also holds *Manage buckets* gets `+ New bucket` and a
+hint about work outside a project, instead of a second `+ New task`. A card-writer without *Manage buckets* keeps
+`+ New task`; the page head's `+ New task` is unchanged. The new offer opens the Other-tasks page's existing
+**Add a bucket** popup and creates a shared Other-tasks column, not a project lane or a status. Its answer refreshes
+`#assignedOther` — the lower personal picker, cards or empty line, and `+ Add task` — selecting the new bucket,
+keeping the Project filter and closing the popup; a refusal keeps the typed name, its field error and both filters.
+The POST checks *Manage buckets* again. Cancel, Escape and backdrop close preserve Assigned's Bucket and Project
+filters; `bucket-modal.js` changed, so **Ctrl+F5** once. A reader without the task-write right gets no empty-panel offer. **A project page is the one whole-project board** (Stage 56): every card filed
 under that project is shown to every reader — management, the project's manager *and* a plain `Viewer` alike — because
 standing on a project the question is *what does this project hold and who is doing each card*, which one person's
 slice cannot answer. That widening was the **list only, never the rights** until **Stage 86**, when the read half
@@ -1568,20 +1577,27 @@ the same routes and the page that comes back says the same thing.
 
 ## Settings and the Team sheet
 
-`/app/settings` is, for management, the **Team** sheet and your own account card, and below them the
-three app-settings panels — **Project types**, **Project bucket settings** and **Email notifications** (Stage 61, laid out and
-made editable in Stage 63). A password is set, and reset, from the Team sheet's own popup, where an administrator types it;
-this page has carried no password box of its own since **Stage 99**, and no account is stopped because its password is
-still the number the system gave it. Since
-Stage 51 the Team sheet is management's — the roster block, the toolbar and the employee popup print only for a
-Manager or Admin, which since **Stage 110** means a role holding *Manage employees* — so an **Employee**'s Settings is now
-a redirect back to `/app` rather than the page that used to print them their own account card, and their sidebar carried
-no Settings link from Stage 51 on. For management the sheet is the roster read down — **Name, Employee #, Position, Department, Role, Email, Open tasks** — with a search
+`/app/settings` is **every account's** page since **Stage 123**: the sidebar link prints for everyone and the route
+bounces nobody. It always carries **Your account** — employee number, display name, position, role, and a **Change
+password** form (current, new, confirm) every account uses for itself — and the rest of the page follows the reader's
+chips: the **Team** sheet for a role holding *Manage employees*, and below it the three app-settings panels —
+**Project types**, **Project bucket settings** and **Email notifications** (Stage 61, laid out and made editable in
+Stage 63). A **Project Manager** or an **Employee** holds none of those chips, so their Settings is exactly one
+section, *Your account*, and nothing of the roster or the panels. Since Stage 51 the Team sheet is management's — the
+roster block, the toolbar and the employee popup print only for a role holding *Manage employees* (Stage 110's chip) —
+and since **Stage 123** the **super admin** alone gets the password controls for somebody else's account. This page's
+own password box is the account's own; Stage 99 retired it and Stage 123 brought it back.
+
+For management the sheet is the roster read down — **Name, Employee #, Position, Department, Role, Email, Open tasks** — with a search
 box ("name, email, employee #"), a **Position** picker, a **Role** picker and "22 of 22 shown" at the right end. It
 opens by name, A→Z; every heading is also the control that sorts that column, and pressing the one already sorted
 turns it around. Above the table, management gets a card that reads "Add a new employee account…" with a green
 `+ Add employee`; each row ends in a red ✎ and a bin. Your own row wears a green `YOU` pill instead of a bin that
-would only refuse you.
+would only refuse you. That **Email** cell is `users.email`: leave the box blank and it is generated as
+`firstname.surname@murrays.mn` — the name's first and last word, middle words dropped (**Stage 125**) — and since
+**Stage 126** the accounts already on the sheet were put through the same function once at boot, so the column reads
+one way down the page rather than for the newest hire only. An address somebody types is kept (trimmed and lowercased)
+when the account is created; blanking it on an edit regenerates it.
 
 A row is a **person**, not a login: colleagues on the roster appear whether or not they have an account yet, and the
 pencil on one of those rows *creates* the sign-in rather than editing one. The **Role** column names the one row of the
@@ -1591,7 +1607,7 @@ described until then (the position's permission level, or the account's own acce
 no role at all is not an account with no rights: `RoleRepository.roleOf` falls back to the catalogue's default (Employee),
 the same row a null `role_id` is counted under in that table's EMPLOYEES column.
 
-**Department** is the picker **Stage 117** put between Position and Password in that popup: nine words — Management,
+**Department** is the picker **Stage 117** put between Position and Role in that popup: nine words — Management,
 Finance, Human Resource, HSE, Production, Engineering, Sales, Project, Procurement — and only an **Owner or
 Administrator** may set or change it, tested as a role that holds **every** chip rather than by its name. On a create
 it is required (*"Choose a department from the list."*); on an edit it opens on *— Keep <the stored word> —* when the
@@ -1606,12 +1622,12 @@ read, so `0` and `—` are different answers and both sort to the bottom. A blan
 dash all land last whichever way the column is read.
 
 Who may do what is printed and enforced twice over. Since **Stage 110** the two people chips are read apart here:
-*Manage employees* adds accounts and may set a name, an address, a position and a password, and *Manage roles &
+*Manage employees* adds accounts and may set a name, an address and a position, and *Manage roles &
 permissions* is what makes the popup's **Role** select appear at all — a reader with the first chip and not the second is
 offered a popup with no role in it, and `UserService.addUser` ignores a hand-built `role=` field rather than honouring
 it, filing the newcomer under the catalogue's default. (That is a widening of the old rule, which let only an
-**administrator** set a position or a password: those two writes now belong to the people chip and only the role stays
-with the roles chip. A position still cannot be invented from here — it has to be on the catalogue, which is filled on
+**administrator** set a position: that write now belongs to the people chip and the role stays with the roles chip.
+The password is neither — since **Stage 123** it is the super admin's alone, whatever chips a role holds. A position still cannot be invented from here — it has to be on the catalogue, which is filled on
 **Access control**.) The bin
 shows why it will not press instead of vanishing: "Only somebody who manages employees can delete an account.", "This
 person has no account to delete yet — the pencil creates one.", "The Super Admin account cannot be deleted.", "You cannot delete
@@ -1627,11 +1643,11 @@ the bin are ordinary forms to the same routes and the page that comes back says 
 Two things to know the first time you use it on a fresh database. **The Position picker will be empty**: the
 position catalog is its own table and nothing on this page fills it — you add positions on **Access control**, and
 only then can the popup file somebody under one. And **an account created without a password signs in with its
-employee number** (typed in any letter case); until an administrator types a private one from this sheet, that
-employee-number password is what the account has — nothing forces a change since **Stage 99** — so set your own
-before you build the team. The whole sheet belongs to *Manage employees* now — since
-**Stage 110** a role holding none of the four chips this page is drawn from is redirected to `/app` before any of it
-prints, where the old code let a `Viewer` in to read their own account card — and the sheet is the same set of people
+employee number** (typed in any letter case); until the **super admin** types a private one from this sheet, that
+employee-number password is what the account has — nothing forces a change since **Stage 99** — and the account can
+change it itself under **Settings → Your account** (Stage 123), so set your own before you build the team. The whole Team sheet belongs to *Manage employees* now — since **Stage 110** a role without that chip is not drawn the
+roster or its popup at all, and since **Stage 123** it is not redirected either: Settings opens to *Your account*
+alone, where the Stage 51–122 code sent a `Viewer` back to `/app` — and the sheet is the same set of people
 Access control lists, from the same two tables.
 
 Below the Team sheet, management gets three app-settings panels (**Project types**, **Project bucket settings**, **Email
@@ -1756,8 +1772,9 @@ asks what a position is worth any more, because a position is what a person is c
 The sheet's **Department** column (Stage 118) works the same way for the other pair: an **Owner or Administrator** — again, a role holding every chip — gets a picker on every roster row, posting to `/app/access-control/department` and swapping only that cell; everybody else reads the stored word as text. It is drawn for people with no login too, since a department belongs to the person and not the account, and the older free-text values open as a selected *— &lt;word&gt; —* that cannot be posted back. The words are the nine **Stage 117** put in the Settings popup, and `EmployeeService.setDepartment` refuses anything else and writes nothing.
 
 Two halves, two chips, one page: a role holding *Manage employees* but not *Manage roles* gets the People sheet with its
-password and delete columns and the roles table read-only, and a role holding only *Manage roles* gets the roles table and
-no people tools. `/app/access-control` redirects a reader holding neither.
+delete column and the roles table read-only, and a role holding only *Manage roles* gets the roles table and
+no people tools; the **Password** column and setter print only for the super admin (Stage 123).
+`/app/access-control` redirects a reader holding neither.
 
 ## Data, backups and logs
 
@@ -1904,8 +1921,8 @@ are the projects, boards, cards and money and none of the four people-facing one
 for, and the remedy is on the page: tick the right onto the role — everybody holding it changes at their next request — or
 file the person under *Administrator*. The two administrator roles hold all thirteen, so those three accounts read the same
 answer at every route as before; the eight *Employee* accounts had no write anywhere under the old `Viewer` rank either,
-and the only thing they lost is a page they could only read — `/app/settings` used to print a `Viewer` their own account
-card and now redirects a role with none of the four panel chips, by a link their drawer dropped in Stage 51.
+and the page a `Viewer` used to reach was only ever their own account card — **Stage 123** gives it back to them, with
+the change-password form, and the four panel chips still decide everything else on Settings.
 `positions.permission_level` is left in place on purpose: positions became the job title beside a
 name, the column stopped being read for authorization, and dropping it would throw away a value the operator can still see
 and edit. Unknown chip keys are tolerated the way V1 tolerated an unknown status — `Permission.of` answers null, so a
@@ -1933,10 +1950,14 @@ Logs roll at midnight and at 10 MB, keep 14 days, and cap at 200 MB
 
 ## Security model
 
-- **Passwords** — bcrypt (cost 12) in `users.password_hash`. Legacy JSON accounts with no real
-  password get the employee number, and the `must_change_password` flag records that — but since
-  **Stage 99** nothing enforces it: the box that used to clear it is gone, a password is set from the
-  Team sheet, and the flag is a note about how the password came to be.
+- **Passwords** — bcrypt (cost 12) in `users.password_hash`; a stored hash is never displayed, so no
+  page can show an existing password. Legacy JSON accounts with no real password get the employee
+  number, and the `must_change_password` flag records that — but since **Stage 99** nothing enforces
+  it, and the flag is a note about how the password came to be. Since **Stage 123** every account
+  changes its own password on Settings › *Your account* (`UserService.changeOwnPassword`; refusals
+  print under their fields, and the browser that changed it stays signed in), and setting **another**
+  account's password — Access control's Password column and add card, and the Settings employee
+  popup — is the super admin's (`EMP0000`) alone, not a permission chip.
 - **Sessions** — random UUID tokens stored in the `sessions` table with an absolute expiry
   (`PTS_SESSION_TTL_HOURS` from login, not from the last click), `HttpOnly`, `SameSite=Lax`,
   `Secure` in production. Logout revokes the current session; a password change revokes every
@@ -1981,18 +2002,19 @@ Logs roll at midnight and at 10 MB, keep 14 days, and cap at 200 MB
   *Completed*, which puts every step back where it stood. Stage 51 widened the management-only list to whole *sections*:
   **Settings** (its Team block), **Access control** and **Other tasks** are management's functions, so a `Viewer`
   loses the sidebar link to each and is bounced at the route — `navItemsFor` drops the three ids, `GET
-  /app/access-control` redirects a non-manager, `settingsContent` prints a Viewer only their own account card (no
-  password box since **Stage 99**), and the Other-tasks board a Viewer reaches is scoped to their own cards with no column tools
+  /app/access-control` redirects a non-manager, `settingsContent` prints a reader without the panel chips only their own account card, and the Other-tasks board a Viewer reaches is scoped to their own cards with no column tools
   (their own card still opens in the editor). **Stage 110** re-cut those sections on the chips and the shape of the rule
-  survived: the four gated links are `NAV_PERMISSIONS` in `DashboardCommon` — *Other tasks* on *Edit any task* or *Manage
-  buckets*, *Access control* on *Manage employees* or *Manage roles & permissions*, *Settings* on `Authorization.SETTINGS`
-  — the three panels' chips: employees, project types, email — and **Forecasts** joins them on *View Forecasts tab*, which is new:
+  survived: the three gated links are `NAV_PERMISSIONS` in `DashboardCommon` — *Other tasks* on *Edit any task* or *Manage
+  buckets*, *Access control* on *Manage employees* or *Manage roles & permissions*, and **Forecasts** on *View Forecasts tab* —
+  while *Settings* left that map in **Stage 123** and prints for every account, its Team sheet and three panels still on
+  their chips (employees, project types, email). *Forecasts* is new in Stage 110:
   the link used to print for everybody and the route did the bouncing, so an account with no money chip now simply is not
   offered a link it would be turned away from. The ids stay in `navItems` whole for the same reason as before — the
   notification bell resolves a stored section back to a path through that list. `/app/access-control` redirects a role
-  holding neither people chip and `/app/settings` one holding none of the four panels' chips; within Access control the two
-  halves are separate, so a role with *Manage employees* but not *Manage roles* gets the People sheet with its password and
-  delete columns and the **Roles & permissions** table read-only — the role printed as a tinted chip instead of a picker, and
+  holding neither people chip, and `/app/settings` turns nobody away — a role with no settings chip gets *Your account*
+  alone (Stage 123); within Access control the two
+  halves are separate, so a role with *Manage employees* but not *Manage roles* gets the People sheet with its
+  delete column (the Password column is the super admin's alone) and the **Roles & permissions** table read-only — the role printed as a tinted chip instead of a picker, and
   no **+ New role** and no **Edit** anywhere on it. Within Other tasks the whole board is management's: writing a
   card, naming a column, renaming and deleting one and the `⋮` are all management's, and `POST /app/other-buckets` and
   the save endpoint's column branch check the role again before the (still role-permissive) service is reached. A lesson splits the same way (Stage 44), but by authorship rather than by
@@ -2296,7 +2318,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (719 tests in 48 classes), on schema v22.
+2. `./gradlew test installDist` is green (738 tests in 51 classes), on schema v22.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2631,7 +2653,8 @@ configuration, and it is the one to settle first: it decides what you can safely
    Then check the reader's own backlog on this page (Stage 55): with **Ctrl+F5** (its heading and message are new CSS),
    open `/app/assigned-tasks` as a `Viewer` who owns at least one Other-tasks card. Below the project board an
    `Other tasks` heading should print their own backlog cards in the five status columns — and none of a colleague's, and
-   no shared-board chrome (`⋮`, *Add bucket*) since that still lives only on the Other tasks page. Since **Stage 88** the
+   no shared-board columns or `⋮`. **Stage 124** adds only the shared column-create popup here for *Manage buckets*;
+   its entry is `+ New bucket` in the empty projects-board panel, not shared-board chrome. Since **Stage 88** the
    column names do appear in two places — each card's chip names its bucket, and the **Bucket** picker lists every column —
    but neither is a column heading: pick one and the cards narrow to that bucket, still cut by the five statuses, and the
    URL carries `?bucket=<id>` so a save comes back to the same narrow board.
@@ -2642,6 +2665,29 @@ configuration, and it is the one to settle first: it decides what you can safely
    press **Create task** and the card lands on this page as yours. Choose a bucket first and the line writes there and
    the save returns to `?bucket=<id>`. In both cases the sidebar pill equals the cards on the page (project cards + their own
    backlog), because `visibleTaskCount` sums the same two lists the page reads.
+   **Stage 124 walkthrough — deployed 2026-11-06; Ctrl+F5 once.** As a reader with *Edit any task* and
+   *Manage buckets*, choose a project with no cards assigned to you and a lower Bucket filter. Check that the empty
+   projects panel offers `+ New bucket` while the page head still offers `+ New task`. Open it: the GET onto
+   `/app/assigned-tasks` carries `newbucket=1` and both current filter ids, with `data-live-target="#bucketModal"`;
+   the popup reads **Add a bucket**, **Bucket name**, **Add bucket**, **Cancel**. Submit a duplicate name and check
+   the **200** refusal keeps the typed name, field error and both filters. Submit a new name and check the **200**
+   answer updates `#assignedOther`, selects the new bucket in its picker, preserves the Project filter and closes
+   `#bucketModal` (`data-live-extra`): the new name is a shared Other-tasks column, not a project lane or a status.
+   Check the lower `+ Add task` now aims at it, and Cancel closes without writing. Repeat with a card-writer without
+   *Manage buckets*: the panel keeps `+ New task` and has no bucket popup; an Employee's hand-built bucket POST must
+   return Assigned without creating a row. Finally refuse a task save on the filtered page and check the new bucket
+   offer and both filters survive. Cancel, Escape and backdrop close must preserve both filters.
+   No CSS changed; `bucket-modal.js` now distinguishes Assigned's `bucket` filter from Other tasks' popup key.
+   Verified: **726 tests / 49 classes**, **25 throwaway HTTP checks** and **90 JavaScript harness checks**, all passing;
+   live root and script **200**, PID **16344**, schema **22**. Browser sign-in remains blocked: no signed-in visual sign-off.
+   **Stage 125–126 walkthrough — deployed 2026-11-09; Kotlin only, so a plain reload shows it.** Add an account with the
+   Email box empty and a three-word name: the sheet's Email cell reads `firstname.surname@murrays.mn`, the middle word gone,
+   and the same address appears on **Settings → Team** (Access control's People sheet has no Email column — that is the page
+   to check, not the one to look at). Type an address instead and it comes back trimmed and lowercased, unchanged in shape;
+   blank it again on an edit and it regenerates. Then check the half Stage 126 added: the accounts that were on the sheet
+   before the rule all read the same way now, because one boot recomputed them (`app_settings`'s `email_rule_version` says
+   it has run, so a restart changes nothing further). Outbound notices read these values, so a mail you send from Settings
+   now goes to the corrected address.
    Then open **Calendar** with **Ctrl+F5** (Stage 66 put new rules in `app.css`). A reader who holds both project cards
    and Other-tasks cards should see *both* on the month: a dated backlog card draws its bar exactly like a project card,
    an undated one takes a row in the list under the grid and no bar, and the strip's `N cards dated here` counts the
@@ -2685,19 +2731,23 @@ configuration, and it is the one to settle first: it decides what you can safely
    yet, and your own row carrying a green `YOU` instead of a bin. Type three letters and the table swaps in place —
    no reload, no lost caret — with the count reading e.g. **3 of 22 shown**; click **NAME** and the arrows turn; click
    **OPEN TASKS** and the sheet re-orders by it, `—` rows (a `Viewer` cannot read them) sitting at the end either way.
-   Press `+ Add employee` as management: the popup asks a number, a name, an address — and, since **Stage 110**, a
-   position and a first password for any reader with *Manage employees*, plus a **Role** select only for one who also holds
-   *Manage roles & permissions*. Save one with a number that already exists and the popup comes back open,
+   Press `+ Add employee` as management: the popup asks a number, a name, an address and, since **Stage 110**, a
+   position and a **Role** select for a reader with *Manage employees* that also holds *Manage roles & permissions* — and,
+   only for the **super admin**, since **Stage 123**, a first password; everybody else's account starts on its employee
+   number. Save one with a number that already exists and the popup comes back open,
    holding your words, with *"There is already an account with that number."* under the field and no row added. Open a
-   colleague's ✎: the number and the name come back read-only, a blank password means *unchanged*, and an edit that
+   colleague's ✎: the number and the name come back read-only, a blank password means *unchanged* (the box prints only
+   for the super admin), and an edit that
    leaves the roster's person alone cannot invent a second account. The bins that will not press say why in their
    tooltip ("Only somebody who manages roles can delete that account.", "This person has no account to delete yet — the pencil creates
    one."). Sign in as the `Viewer`: no add card, no pencil, no bin, and `?new=1` in the address bar comes back as the
    plain sheet with no form in it; then hand-build a `POST /app/settings/employee/save` from the `Viewer` carrying a
    position and a role and confirm it is **refused**, not trimmed and written. One trap on a genuinely fresh database:
    the Position picker is empty until you add positions on **Access control**, and an account saved without a password
-   signs in with its own employee number (any letter case) — and keeps that password until an administrator sets one,
-   since **Stage 99** retired the forced change — so set your own password first.
+   signs in with its own employee number (any letter case) — and keeps that password until the super admin sets one,
+   since **Stage 99** retired the forced change; the account itself changes it under **Settings → Your account**
+   (Stage 123), so set your own password first. The custom role's Settings is now *Your account* alone rather than a
+   bounce, while `/app/access-control` still sends them back to `/app`.
    Then read the roles table (Stage 110). `/app/access-control` opens with **Roles & permissions**: four rows, their chips
    in the app's order, a live **Employees** count, and `+ New role` at the right-hand end of the heading. Press it and the
    popup is a name plus thirteen boxes. Save a blank name for *"A role needs a name."*, save one the catalogue already has
@@ -2706,7 +2756,8 @@ configuration, and it is the one to settle first: it decides what you can safely
    those two (a role with none is a legitimate row and prints **No permissions**). File a colleague under it in the People
    sheet's **Role** picker:
    the count above moves in the same response, without a reload. Sign in as that colleague — the drawer loses every link
-   their role has no chip for, `/app/settings` and `/app/access-control` send them back to `/app`, and a hand-built
+   their role has no chip for, `/app/access-control` sends them back to `/app` (Settings opens, but only to *Your
+   account*), and a hand-built
    `POST /app/roles/save` from them is turned back at the door. Then, **in that same live session**, re-file them onto
    *Project Manager* and reload: `/app/forecasts` answers 200 and the drawer has grown the link, with no sign-out in the
    middle of it — that is the whole promise of the page, one role read by everybody who holds it. Finally check the
@@ -2804,10 +2855,10 @@ configuration, and it is the one to settle first: it decides what you can safely
 | `SQLITE_BUSY`, or the app will not open the DB after a crash | Remove stale `data/pts.db-wal`/`-shm` **only when the app is stopped** |
 | Everyone is locked out after failed logins | Throttle: wait 60s (window), or raise `PTS_LOGIN_MAX_ATTEMPTS` |
 | Login throttle never triggers on a proxied host | Real client IP needs `PTS_TRUST_PROXY=true` and proxy headers |
-| An account still signs in with its employee number | No password was set for it. An administrator sets one from the Team sheet's popup; nothing forces a change on the next sign-in since **Stage 99** |
+| An account still signs in with its employee number | No password was set for it. The super admin sets one from the Team sheet's popup (Stage 123); nothing forces a change on the next sign-in since **Stage 99**, and the account can change it itself under **Settings → Your account** |
 | A new project is refused with *"This category has no buckets yet"* | Expected since **Stage 100**, and narrower since **Stage 104**: a board is its category's Settings list, so an empty list with nothing typed in the popup has no column to file a card in. Add one in the popup for this project alone, or in **Settings › Project bucket settings** for every project of that category |
 | The popup's **Position** picker has no choices | The position catalog is its own table, filled on **Access control** (or by the legacy import). A fresh database has none, and the sheet falls back to `Team Member` |
-| A colleague has no **Settings** / **Access control** / **Forecasts** link, or one of those pages sends them back to `/app` | Their **role** does not hold the chip that section is written from (**Stage 110**): Settings needs one of *Manage employees* / *Manage project types* / *Manage email settings*, Access control one of *Manage employees* / *Manage roles & permissions*, Forecasts *View Forecasts tab*. The seeded *Project Manager* deliberately holds neither people chip — tick the right onto the role on **Access control** (every holder changes at their next request, no re-login) or file that person under *Administrator* |
+| A colleague has no **Access control** / **Forecasts** link, or one of those pages sends them back to `/app` | Their **role** does not hold the chip that section is written from (**Stage 110**): Access control needs *Manage employees* or *Manage roles & permissions*, Forecasts *View Forecasts tab*. The seeded *Project Manager* deliberately holds neither people chip — tick the right onto the role on **Access control** (every holder changes at their next request, no re-login) or file that person under *Administrator*. **Settings** is every account's page since **Stage 123**; a role with no settings chip sees only *Your account*, and only the super admin sees anyone else's password controls |
 | Pages show unstyled HTML after an upgrade | Static assets are cached by path — hard-reload; check `/static/js/app.js` returns 200 |
 | A card drags fine when the page opens, but stops dragging after you use a dropdown or a toggle on the same board | The board was replaced in place, and a replaced board is new markup with no listeners attached. Since **Stage 94** `kanban.js` answers from `document`, so this no longer happens on a stale build: hard-reload (Ctrl+F5) and the drops come back |
 | Some pages 500 with `NoClassDefFoundError` / `ClassNotFoundException`, others fine | The running JVM was started from `build/install/…` and a later `./gradlew installDist` replaced those jars underneath it, so any class not yet lazy-loaded is gone. Restart the app from the fresh dist; don't rebuild over a live instance |
@@ -2832,11 +2883,13 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-719 tests in 48 classes — 53 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+738 tests in 51 classes — 72 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
 (**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**) and the dense sheets' readable-width case (**Stage 120**), the login password toggle's case (**Stage 121**) and
-the second person on a project card's ten cases (**Stage 122**).
+the second person on a project card's ten cases (**Stage 122**), and the own-password form's two service cases plus the
+super-admin gate's render cases (**Stage 123**), the company-email rule's eight cases (**Stage 125**) and the
+one boot-time pass over stored accounts' four cases (**Stage 126**).
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name
@@ -2853,7 +2906,7 @@ picker, and its **Department** column and all-chip picker. `security/SecurityTes
 keys and labels in the picture's order, tolerant parsing) and `AuthorizationTest` (9 — the role decides and neither the
 old `access` word nor the position's level does; widening a role moves everybody on the next request; a null `role_id`
 falls back; a custom role holds exactly its ticks; the EMPLOYEES count includes roleless accounts). Settings' sheet and
-the sidebar follow — `SettingsRenderTest` is 46 with its role-column and picker cases, `EmployeeServiceTest` 32 (a
+the sidebar follow — `SettingsRenderTest` is 47 with its role-column, picker and change-password cases, `EmployeeServiceTest` 33 (a
 reader without *Manage roles* is offered no role field, and a hand-built `role=` on their POST is **refused** under
 *"Only somebody who manages roles can set a role."* rather than trimmed and written), `SidebarTaskCountTest` 7 (the pill
 is the reader's own cards for **every** role). **Stage 109** adds nine. `ProjectCurrencyMigrationTest` (three, on temp databases built to
@@ -3468,10 +3521,20 @@ the board: every opener on this page is a GET onto `/app/other-tasks` and no for
 `/app/assigned-tasks` except the shared card popup's own **Save**, whose hidden `back` field says `other` — or
 `other:<bucket id>` when the board is filtered (Stage 93) — which is
 how a card written here lands back here.
-`AssignedTasksRenderTest` keeps the page's absence tests (**22** now, four when Stage 47 wrote this line): the page
-prints its five status columns and no `#otherBoard`, no `#bucketModal`, no `⋮`, no dashed box, no `kanban-other`, and
-not one backlog card's title; and its own popup carries no view flag, because the board underneath it has no view to
+`AssignedTasksRenderTest` keeps the page's shared-board absence tests (four when Stage 47 wrote this line): the page
+prints its five status columns and no `#otherBoard`, no `⋮`, no dashed box, no `kanban-other`, and no colleague's
+backlog card; and its own popup carries no view flag, because the board underneath it has no view to
 keep — which since **Stage 97** is simply true rather than doubly true, the wide view having been retired.
+**Stage 124** adds three render cases: `an empty board offers a new column to the reader who may name one`
+(the `+ New bucket` GET, shared add popup, `back=assigned-tasks`, `#assignedOther` target and `#bucketModal` companion,
+with `bucket-modal.js`); `a refused new column keeps both filters and its typed name` (opener and POST carry
+`bucket`/`project`, the popup stays open with the typed name and field error); and `a card-writer without the bucket
+right keeps the new-task opener` (`+ New task`, no bucket offer or popup). The older no-`#bucketModal` assertion is
+now scoped to a reader without *Manage buckets*, not a claim that this page never carries a column popup.
+**Verified:** **726 tests / 49 classes / 0 failures, errors or skipped**, plus **25 throwaway HTTP checks** and
+**90 synthetic-DOM checks** against the actual `app.js`/`bucket-modal.js`; opener/create/refusal/retry swap in place,
+focus and all three close gestures work, both filters survive, and no navigation or fallback is observed in the harness.
+No signed-in visual sign-off; JavaScript changed, so **Ctrl+F5** once.
 
 A project page prints no roll-up of its board (Stage 28 took the strip and the `TaskService.summaryOf` /
 `ProjectTaskSummary` arithmetic behind it out of the codebase entirely — nothing else ever called them), so

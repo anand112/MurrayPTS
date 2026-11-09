@@ -426,11 +426,15 @@ private fun DIV.bucketAddTaskForm(bucket: Bucket, showBucketId: Int = 0) {
  * two writes they cannot see, so this is presentation; and a `?bucket=<id>` from such a reader is answered with
  * the add half rather than a rename form they were never owed.
  */
-private fun DIV.bucketModal(
+internal fun DIV.bucketModal(
     state: BucketForm,
     columns: List<Pair<Bucket, List<TaskItem>>>,
     canManage: Boolean,
     showBucketId: Int = 0,
+    target: String = "#otherBoard",
+    from: String = "",
+    assignedBucketId: Int = 0,
+    projectFilter: Int = 0,
 ) {
     val managed = columns.firstOrNull { it.first.id == state.bucketId }
     div("modal") {
@@ -442,14 +446,21 @@ private fun DIV.bucketModal(
                 +"×"
             }
             if (canManage && state.isManage && managed != null) bucketManageBody(managed, state, columns, showBucketId)
-            else bucketAddBody(state, showBucketId)
+            else bucketAddBody(state, showBucketId, target, from, assignedBucketId, projectFilter)
         }
     }
     script(src = "/static/js/bucket-modal.js") {}
 }
 
 /** The create half of the popup: one field, the name of the column to add. */
-private fun DIV.bucketAddBody(state: BucketForm, showBucketId: Int = 0) {
+private fun DIV.bucketAddBody(
+    state: BucketForm,
+    showBucketId: Int = 0,
+    target: String = "#otherBoard",
+    from: String = "",
+    assignedBucketId: Int = 0,
+    projectFilter: Int = 0,
+) {
     h3 { +"Add a bucket" }
     p("modal-scope") {
         +(
@@ -458,10 +469,14 @@ private fun DIV.bucketAddBody(state: BucketForm, showBucketId: Int = 0) {
             )
     }
     form(action = "/app/other-buckets", method = FormMethod.post) {
-        attributes["data-live-target"] = "#otherBoard"
+        // [target] is the block this write answers on. The Other-tasks board is the default; the Assigned page's
+        // `+ New bucket` panel (**Stage 124**) names its own Other-tasks block instead, which is the same half of
+        // that page — the picker that lists the columns, the reader's own cards and the `+ Add task` line under them.
+        attributes["data-live-target"] = target
         // The picker is a companion: a column that landed is an option it did not offer a moment ago, and a
         // picker still one name short is the half-updated page this mechanism exists to prevent (Stage 93).
-        attributes["data-live-extra"] = "#bucketModal,#otherBucketFilter"
+        attributes["data-live-extra"] =
+            if (target == "#otherBoard") "#bucketModal,#otherBucketFilter" else "#bucketModal"
         div("field") {
             label { +"Bucket" }
             input(type = InputType.text, name = "name") {
@@ -474,6 +489,11 @@ private fun DIV.bucketAddBody(state: BucketForm, showBucketId: Int = 0) {
             state.nameError?.let { p("field-err") { +it } }
         }
         if (showBucketId > 0) input(type = InputType.hidden, name = "show") { value = "$showBucketId" }
+        // Which page the write answers on. Empty is the Other tasks board, the popup's own page; the Assigned
+        // page's panel says so (**Stage 124**) and carries both filters through a refusal or a landed write.
+        if (from.isNotEmpty()) input(type = InputType.hidden, name = "back") { value = from }
+        if (assignedBucketId > 0) input(type = InputType.hidden, name = "bucket") { value = "$assignedBucketId" }
+        if (projectFilter > 0) input(type = InputType.hidden, name = "project") { value = "$projectFilter" }
         div("modal-actions") {
             button(type = ButtonType.submit, classes = "submit") { +"Add bucket" }
             button(type = ButtonType.button, classes = "ghost-btn") {

@@ -797,7 +797,7 @@ deliberately not gated, so a locked-out user can always sign out. *(Stage 99 ret
 password route: `requireSession` now answers only "is there a session".)*
 
 **Known gap:** `Csrf` is implemented and unit-tested but wired into no form and no route — POST protection
-currently rests on the `SameSite=Lax` session cookie. Open decision, tracked in README → Known gaps.
+currently rests on the `SameSite=Lax` session cookie. Open decision, tracked in README → Security model.
 
 ---
 

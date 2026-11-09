@@ -91,9 +91,13 @@ fun navItems(employeeNumber: String): List<NavItem> = listOf(
 
 /**
  * The sections whose link is a permission rather than everyone's page, and the chips that earn it
- * (Stage 110). The picture has no "view the backlog" or "view settings" chip, so each of these is gated on
- * the chip of the control inside it: the backlog board is edited by *Edit any task* or reshaped by *Manage
- * buckets*; Access control is the two people chips; Settings holds the three panels those chips stand for.
+ * (Stage 110). The picture has no "view the backlog" chip, so each of these is gated on the chip of the
+ * control inside it: the backlog board is edited by *Edit any task* or reshaped by *Manage buckets*;
+ * Access control is the two people chips.
+ *
+ * Settings is deliberately **not** here since Stage 123: it is every account's page, because the one
+ * thing every account owns — *Your account* and its change-password form — lives on it. The panels inside
+ * it stay gated on their own chips, so an Employee sees the one section and nothing else.
  *
  * They are kept here rather than dropped from [navItems] because that list does double duty — the notification
  * bell resolves a stored item's section back to a path through it (see [mn.murray.pts.notificationBell]). Take
@@ -104,7 +108,6 @@ val NAV_PERMISSIONS: Map<String, Set<Permission>> = mapOf(
     "forecasts" to setOf(Permission.VIEW_FORECASTS),
     "other-tasks" to setOf(Permission.EDIT_ANY_TASK, Permission.MANAGE_BUCKETS),
     "access-control" to setOf(Permission.MANAGE_EMPLOYEES, Permission.MANAGE_ROLES),
-    "settings" to Authorization.SETTINGS,
 )
 
 /** [navItems] as one account's sidebar should actually print it: a gated link only for a role holding its chip. */

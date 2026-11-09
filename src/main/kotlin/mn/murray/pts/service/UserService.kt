@@ -26,7 +26,7 @@ import mn.murray.pts.security.PasswordHasher
  *  - managers may not delete admins,
  *  - a user cannot delete themselves,
  *  - `MIN_PASSWORD_LENGTH` is enforced,
- *  - auto-email `first.last@murray.mn` when none is supplied,
+ *  - auto-email `firstname.surname@murrays.mn` when none is supplied,
  *  - adding a user also rosters them on the team,
  *  - changing a password revokes that user's sessions.
  *
@@ -94,6 +94,11 @@ object UserService {
         canSetProfile: Boolean = canSetRoles,
         requestedDepartment: String? = null,
         canSetDepartment: Boolean = false,
+        /**
+         * The super admin alone (Stage 123): another person's first password. Without it the posted word is
+         * ignored and the account starts on its employee number, exactly like one added by a colleague.
+         */
+        canSetPassword: Boolean = canSetProfile,
     ): PasswordStatus {
         val empNo = employeeNumber.trim().uppercase()
         if (empNo.isEmpty() || name.isBlank()) return PasswordStatus.EMPTY
@@ -110,9 +115,12 @@ object UserService {
         // Position catalog link (nullable FK); team_members keeps the free-text position.
         val positionId = PositionRepository.findByName(positionName)?.id
 
-        // Legacy default: an unset password means "password == employee number", forced change.
-        val initialPlain = newPassword.ifEmpty { empNo }
-        val mustChange = newPassword.isEmpty()
+        // Legacy default: an unset password means "password == employee number", forced change. Only the
+        // super admin may hand out a different first password (Stage 123); for anybody else the posted
+        // word is treated as though the field had been left blank.
+        val chosen = if (canSetPassword) newPassword else ""
+        val initialPlain = chosen.ifEmpty { empNo }
+        val mustChange = chosen.isEmpty()
 
         val department = (if (canSetDepartment) requestedDepartment?.trim() else null).orEmpty()
         val roster = TeamRepository.findByEmpNo(empNo)
@@ -170,6 +178,30 @@ object UserService {
         if (newPlain.length < MIN_PASSWORD_LENGTH) return PasswordStatus.TOO_SHORT
         UserRepository.updatePasswordHash(empNo, PasswordHasher.hash(newPlain), mustChange = false)
         SessionRepository.revokeAllFor(empNo)
+        return PasswordStatus.CHANGED
+    }
+
+    /**
+     * A reader changes their *own* password (Stage 123): they prove the current one, type the new one twice,
+     * and — because [AuthService.changePassword] revokes every session — every other browser is signed out
+     * while the route that calls this issues one fresh session back to the browser doing the change.
+     *
+     * The checks are in the order the form reads: nothing typed, then the wrong current password, then the
+     * two new words disagreeing, then a new word too short — each answering with the field it belongs to.
+     */
+    fun changeOwnPassword(
+        employeeNumber: String,
+        current: String,
+        new: String,
+        confirm: String,
+    ): PasswordStatus {
+        val empNo = employeeNumber.trim().uppercase()
+        if (current.isEmpty() || new.isEmpty() || confirm.isEmpty()) return PasswordStatus.EMPTY
+        val account = UserRepository.findByEmpNo(empNo) ?: return PasswordStatus.USER_NOT_FOUND
+        if (!PasswordHasher.verify(current, account.passwordHash)) return PasswordStatus.WRONG_CURRENT
+        if (new != confirm) return PasswordStatus.MISMATCH
+        if (new.length < MIN_PASSWORD_LENGTH) return PasswordStatus.TOO_SHORT
+        AuthService.changePassword(empNo, new, mustChange = false)
         return PasswordStatus.CHANGED
     }
 

@@ -1437,6 +1437,11 @@ is the plan — write the first card and it appears under its column."), and the
 the page head carries — no second mechanism, no new script. Dashed border, centred, themed through
 `--input-border`/`--input-bg` with a dark-mode override.
 
+*(**Stage 124** supersedes the same-opener claim only for the empty Assigned tasks projects-board panel:
+with *Edit any task* and *Manage buckets* it offers `+ New bucket`, the shared Other-tasks column-create popup.
+A card-writer without the bucket chip keeps `+ New task`, and the page head's `+ New task` is unchanged.
+Stage 124 was verified and deployed 2026-11-06 (726 tests/49 classes, 25 HTTP and 90 JavaScript checks; JavaScript changed → Ctrl+F5).)*
+
 **174 tests / 19 classes / 0 failures** (from 167). Service: `the account a project names as its manager
 writes its first card`, `a manager's new card is pinned to the page it came from, not to the form`, `a
 project's manager is not management on the general board`, `the right to add a card is management, or that
@@ -3568,6 +3573,12 @@ columns and no `#otherBoard`, no `#bucketModal`, no `d-bucket`, no `addbucket`, 
 `buckets-toggle`, no `allbuckets`, no `kanban-other` — and a backlog card's title is not printed on the page at all,
 which is the assertion that catches a board re-added under the board rather than a control renamed.
 
+*(**Stage 124** supersedes the no-column-popup and no-`/app/other-buckets` claims for a reader with
+*Manage buckets*: Assigned now carries the shared popup's add half, opened by `+ New bucket` in the empty
+projects-board panel when the reader also holds *Edit any task*. The shared board, column menus and view toggle
+still do not return here; without the bucket chip there is still no bucket popup. Stage 55 already superseded
+the absence of the reader's own backlog cards. Stage 124 was verified and deployed 2026-11-06 (726 tests/49 classes, 25 HTTP and 90 JavaScript checks; JavaScript changed → Ctrl+F5).)*
+
 **Verified live before deploying, on a throwaway.** Port 8095, fresh `%TEMP%` DB with `PTS_DB_PATH` passed and seeding
 off, own generated secret and admin password consumed through files with the newlines stripped, classpath of
 `build/classes` + `build/resources` + the dist jars **minus** `murray-pts-2.0.0.jar` (Flyway reads every migration
@@ -3988,7 +3999,7 @@ landing point for a control that no longer exists). What still prints for a View
 (*Your account*) and the **Change Password** form — the personal path that must stay open, and the one `requireSession`
 routes must-change-password accounts to via `MUST_CHANGE_ALLOWLIST = {"/app/settings", "/app/settings/password"}`. So
 the page is reachable by every role; only its management half is withheld. *(**Stage 99** removed the password form by
-the user's decision; a Viewer's page is now the account card alone, and the page stays reachable by every role.)*
+the user's decision; a Viewer's page is now the account card alone, and the page stays reachable by every role.)* *(**Stage 123** reopens the page to every account and restores the form: the sidebar link prints again for a Project Manager and an Employee, neither of whom holds a panel chip, and each of them opens Settings to exactly that account card and its change-password form. What Stage 51 keeps is the roster half — only a reader whose role holds *Manage employees* sees the Team block.)*
 
 **Other tasks** (`OtherTasks.kt`, `Application.kt`). The board is management's, but a Viewer keeps the personal path,
 so it is *scoped* rather than bounced. `otherColumns(canManage, viewerEmpNo)` filters a non-manager's column list to
@@ -4207,7 +4218,11 @@ changed a static asset, so a hard refresh is needed to see it.
 empty message is present while the shared board's `otherBoard`/`bucketModal`/`⋮` markup is still absent, and four new
 cases pin the ride-along (own backlog below the projects board, 2×`kcol-head` columns, no other column's name), the
 plain empty message, one shared popup + one opener across both boards, and management's own backlog surfacing while a
-colleague's never does. Column counts assert `kcol-head` rather than `data-status="` because a card's move-button arrows
+colleague's never does. *(**Stage 124** supersedes only the no-add-bucket/no-`bucketModal` part for *Manage buckets*:
+the empty projects panel offers `+ New bucket` when *Edit any task* also makes it visible, and the shared popup's add
+half now lives on Assigned. The shared board and its `⋮` stay absent and the lower cards stay personal; without the
+bucket chip the popup stays absent. Stage 124 was verified and deployed 2026-11-06 (726 tests/49 classes, 25 HTTP and 90 JavaScript checks; JavaScript changed → Ctrl+F5).)*
+Column counts assert `kcol-head` rather than `data-status="` because a card's move-button arrows
 also carry `data-status="` and inflate that token. `SidebarTaskCountTest` adds
 `the pill counts the reader's own other tasks alongside their project cards` (own project card + own backlog card = 2; a
 further reader with one backlog card = 1; a reader with neither = 0). 8080 restarted on PID **9084** with `/` 200;
@@ -7436,6 +7451,11 @@ Stage 51 shape exactly: its board's add line, its popup and its save branch are 
 *Add bucket*, the Team assign panel, and the sidebar link are untouched. Nothing here lets a reader write a card for a
 colleague — the service's rebuild makes the draft theirs whatever the POST names.
 
+*(**Stage 124** supersedes the shared-*Add bucket*-untouched claim only as to where its create popup can open:
+the empty Assigned projects panel offers that same add half as `+ New bucket` for *Edit any task* plus *Manage buckets*.
+Its POST returns to the lower personal picker on Assigned; the shared board, its `⋮`, the task head opener and the
+self-assignment rule do not change. Stage 124 was verified and deployed 2026-11-06 (726 tests/49 classes, 25 HTTP and 90 JavaScript checks; JavaScript changed → Ctrl+F5).)*
+
 **Tests.** **631 / 41 classes / 0 failures/errors/skipped** — three added, all in `AssignedTasksRenderTest`:
 `a reader with no other tasks still gets the picker and a line to add their own` (picker, `.kcol-add`, action
 `/app/assigned-tasks`, `new=1`, `column=<first>`, `data-live-target`, and the empty line still printed);
@@ -8234,6 +8254,8 @@ session it found.
 - `UserService.changeOwnPassword`, and `PasswordStatus.WRONG_CURRENT` / `MISMATCH`, which only that path produced.
   `AuthService.reissue` went too: the retired route was its one caller and keeping a self-service change signed in was
   its documented purpose.
+
+*(**Stage 123** brings the self-service form back, at the user's request: `PasswordStatus.WRONG_CURRENT` and `MISMATCH` return as field-level refusals, `UserService.changeOwnPassword` returns with the check order `EMPTY → WRONG_CURRENT → MISMATCH → TOO_SHORT`, and `POST /app/settings/password` revokes and reissues the session so the browser that changed the password stays signed in. `AuthService.reissue` itself stays deleted — the route calls `SessionRepository.create` directly. What Stage 99 keeps is the forced change: `must_change_password` is still recorded and still walls nobody off, and no account is stopped at login.)*
 
 **What did not move.** The `must_change_password` column and every write of it stay (`UserService.addUser`,
 `AuthService.ensureSuperAdmin`, `JsonImporter`): the flag is still a truthful record of how a password came to be, and
@@ -9311,7 +9333,7 @@ for the other three roles' work: an **Employee** was a Viewer, who never passed 
 backlog or account write, and the two administrator ranks hold all thirteen, so every route they were on reads the same
 answer as before. The one smaller difference on that side is presentation: at this stage `GET /app/settings` was an
 ungated page that simply printed a Viewer their own account card, and it now redirects a role holding none of the four
-panel chips — a card those accounts could only read, reached by a link their own drawer had already dropped in Stage 51.
+panel chips — a card those accounts could only read, reached by a link their own drawer had already dropped in Stage 51. *(**Stage 123** reopens Settings to every account, at the user's request: the link prints in every drawer again and `GET /app/settings` turns nobody away, but the page a Project Manager or an Employee now reaches is **Your account** alone — the Team sheet and the three panels stay on their chips, which neither of those two roles holds. Access control keeps the redirect this paragraph describes.)*
 
 **Tests.** **687 tests / 47 classes / 0 failures / 0 skipped** (666/44 at Stage 109's close). Three new classes:
 `db/RoleMigrationTest` (5 — V20 → V21 on a populated temp database: the seeded catalogue in the picture's order with its
@@ -9969,3 +9991,149 @@ stage.
 **Deploy.** Migration **V22**, schema **22**. Stopped PID 17068 (force) and confirmed the port free; backed up in place with the JVM stopped — `data/pts.pre-stage122-20261104-0911.db` (471,040 bytes, `-wal` 0, `-shm` 32,768); `installDist` jar **1,946,446 bytes**; relaunched detached → **PID 7092**, `/` **200**, boot log "Successfully applied 1 migration to schema main, now at version v22". Read-back on the real data (metadata only): schema 22, the `assignee2_emp_no` column present, 22 accounts, 22 roster rows, 1 project, 3 tasks, 4 roles and 36 role-permission rows; `/app/assigned-tasks` still redirects to `/app/`, GET `/login` still answers 405 (it is the form's POST target), and the served `app.css` hashes to `af81ae24…`, unchanged. No CSS or JavaScript changed, so no tab needs a reload. **No commit, no push.**
 
 **Never re-propose:** a `task_assignees` join table, or a third and further name, without an ask; a second person on an Other-tasks card (that board is one person's work by design); making the second person a watcher with fewer rights than the first; a separate co-assignee permission or role; mailing the existing holder again when a second is added (the rule is the set difference, not "tell everyone"); the second picker on the backlog popup; letting either holder set either name (both are management's, like the title); or dropping one avatar from a shared card's board, foot line or calendar bar.
+
+<a id="stage-123"></a>
+
+## Stage 123 — Settings opens to every account, your own password changes there, and only the super admin sets anyone else's (2026-11-05, live, no migration, Kotlin + test)
+
+**The ask:** *"everyone has settings function but when project manager and employees are should have only your account section also add change password part. And only super admin able to see others' password"* — a Project Manager and an Employee were turned away from Settings, and no account could change its own password at all since Stage 99 retired the form.
+
+**Two gates came off, not one.** Settings had been narrowed twice: Stage 51 dropped its sidebar link and bounced a `Viewer`, and Stage 110 re-cut the gate onto the three panel chips, so a **Project Manager** (nine chips, none of the four that draw the page) and an **Employee** (one chip) both got a redirect even though the page had always carried a personal card. `DashboardCommon.kt` now leaves `settings` out of `NAV_PERMISSIONS` entirely, so every signed-in drawer prints the link; `GET /app/settings` redirects nobody and simply draws whatever the reader's chips allow. The four panel chips still decide the rest of the page: `canPeople`, `canRoles`, `canTypes` and `canEmail` print the Team sheet, its popup and the three app-settings panels exactly as before, so a custom role holding one of them still gets that panel. What a Project Manager or an Employee sees is therefore one card — **Your account** — and nothing else: no roster (`#team-board`), no employee popup, no Project types, Project bucket settings or Email notifications. `SidebarTaskCountTest` pins the result: an Administrator's drawer keeps all ten links, a Project Manager's nine (no Access control), an Employee's seven (no Forecasts, Other tasks or Access control), and every id in `NAV_PERMISSIONS` still appears in an Administrator's menu.
+
+**The form that came back.** The account card is four `set-row`s — employee number, display name, position, role — then **Change password**: a caption (*"Type the password you sign in with, then the new one twice. Your other sessions are signed out; this browser stays signed in."*) and three fields, `currentPassword` (`#accountCurrentPassword`, `autocomplete="current-password"`), `newPassword` (`#accountNewPassword`, `minlength=4`, `autocomplete="new-password"`) and `confirmPassword` (`#accountConfirmPassword`), under the button **Change password**. It posts as an ordinary form to the new `POST /app/settings/password`, whose `UserService.changeOwnPassword` checks in the fields' own order: an empty field returns `EMPTY`; a current password that does not verify returns `WRONG_CURRENT`; two new passwords that differ return `MISMATCH`; a new one under `MIN_PASSWORD_LENGTH` returns `TOO_SHORT`; otherwise it calls `AuthService.changePassword` and returns `CHANGED`. The route answers with `303` to `/app/settings?pw=<status>`, and the page reads the code back into the field each refusal belongs under — *"Current password is not correct."*, *"The two new passwords do not match."*, *"A password is 4 characters or more."* — or prints the success line **Password updated successfully.** `PasswordStatus` regains `WRONG_CURRENT` and `MISMATCH`, both field-level, and `EMPTY` keeps its full-width sentence *"Please fill in all password fields."*
+
+**The browser that changes its password stays signed in.** `AuthService.changePassword` revokes every session the account has, which is the right rule but would have logged the reader out in the act of obeying the form. On `CHANGED` alone the route therefore creates a fresh session with `SessionRepository.create` (same TTL, user agent and client IP as a login) and writes the new `PTS_SID` cookie, so every other browser is signed out and this one is not. The revoked-cookie case is still the one the tests pin: after a change, the old token no longer resolves.
+
+**"See others' password" means the control, and it is the super admin's alone.** `users.password_hash` is bcrypt (cost 12); no page stores, returns or prints a readable password, so the honest reading of the ask is *who may see and set the password control for somebody else's account*. That is now the super admin — `session.employeeNumber == UserService.SUPER_ADMIN` (EMP0000), checked at the route and again when the page is drawn — and **not** a permission chip. An **Owner** or **Administrator** holds all thirteen chips and still loses every one of these controls, which is the difference the ask names. Three surfaces moved:
+
+- **Access control's People sheet.** The **Password** column and its per-row setter now follow `canSetPassword`, not `canPeople`; `POST /app/access-control/password` redirects anyone who is not the super admin before it reads a parameter. **Delete** stays on `canPeople`, so an Administrator keeps the roster and its bins and loses only the password pair.
+- **The add-account card on that page.** Its **Password** box is drawn only for the super admin; `UserService.addUser` takes `canSetPassword`, and when it is false it ignores a posted value and falls back to the employee number (`mustChange = true`, as before).
+- **The Settings employee popup.** `EmployeeForm.maySetPassword` draws the Password box and chooses the caption; a hand-built `password=` field is refused by `EmployeeService.save` under `EmployeeField.PERMISSION` with *"Only the super admin can set another person's password."*, and nothing is written. An Administrator's popup now says *"They sign in with their employee number as the password; only the super admin sets another one."*
+
+**Copy that had to change with the behaviour.** Access control's captions now say who holds what: when the reader cannot manage people, *"Manage employees is what adds and removes accounts. The role beside each name is set by whoever manages roles & permissions, the department by an Owner or Administrator, and a password only by the super admin."*; when they can manage people but are not the super admin, *"A new account signs in with its employee number as the password, and only the super admin can set another one. …"*. The README's sign-in bullets, Settings section, Access control paragraphs, security model and launch walkthrough were corrected in the same pass, and the project memory's Stage 99 and Stage 110 notes gained their supersession lines.
+
+**Verified:** **723 tests / 49 classes / 0 failures** (from 719/48). `OwnPasswordTest` is new and holds two cases: the check order (`EMPTY`, `WRONG_CURRENT`, `MISMATCH`, `TOO_SHORT`, the stored hash untouched by each refusal, and an unknown account) and a real change writing the new hash while the old session stops resolving. `SettingsRenderTest` rewrote the viewer case into *"a viewer's settings page is their own account and its change-password form, nothing of the roster"* and added *"the change-password form prints success and each refusal under its own field"* (every sentence, including the full-width empty-fields line), with the popup cases now covering the super admin's Password box and an Administrator's lack of it. `AccessControlRenderTest` asserts an Administrator gets no Password heading, no `/app/access-control/password`, no add-card `name="password"`, but keeps Delete and the new caption. `SidebarTaskCountTest` pins the three menus above. `EmployeeServiceTest` adds *"an administrator who holds every chip still cannot set another person's password"* — an edit refusal leaves the hash alone and a create refusal writes no row. The throwaway (port **8095**, an empty `%TEMP%` database, `PTS_SEED_DEMO=false`, a nonexistent data file, dry-run mail, random throwaway-only credentials) ran **34 checks, 0 failures**: a Project Manager and an Employee each got `/app/settings` **200** with the Settings link, *Your account* and the form, and no roster, popup or panels; an Administrator saw the roster and the form but no Password column, setter or add-card box, and their `POST /app/access-control/password` was turned away with the Employee's password unchanged; the Employee's own change answered `?pw=CHANGED`, kept the browser signed in and printed the success line, the new password signed in and the old one did not; `WRONG_CURRENT`, `MISMATCH` and `TOO_SHORT` came back as their own codes with the wrong-current sentence under its field; and the super admin's write through Access control took effect and signed in.
+
+**Deploy.** No migration, schema stays **22**. Stopped PID **12184** (force) and confirmed 8080 free; backed up in place with the JVM stopped — `data/pts.pre-stage123-20261105-162800.db` (471,040 bytes, `-wal` 0, `-shm` 32,768); `installDist` jar **1,956,235 bytes**; relaunched detached through `deploy/run.bat` → **PID 3096**, `/` **200**, boot log *"Schema "main" is up to date. No migration necessary."* Read-back on the real data (metadata only): schema 22, 22 accounts, 22 roster rows, 1 project, 2 tasks, 4 roles and 36 role-permission rows; GET `/login` still answers **405** (it is the form's POST target). Kotlin only — no CSS or JavaScript changed, so no tab needs Ctrl+F5. **No commit, no push.**
+
+**Never re-propose:** printing or returning an existing password (it is a bcrypt hash — "see" can only mean the control); giving Owner or Administrator the other-password controls because they hold every chip; making the super-admin check a fourteenth chip; restoring the first-login gate or forcing a change on employee-number passwords; a separate, poorer Settings page for Project Managers; letting a reader rewrite their own name, position or role from *Your account*; showing a password column to the account that owns it (the owner changes theirs through the form, never by reading a stored one).
+
+<a id="stage-124"></a>
+
+## Stage 124 — The empty Assigned panel offers a new bucket, the shared Other-tasks column (2026-11-06, live, no migration, Kotlin + JS + test)
+
+**The ask:** *"change this button’s purpose name it new bucket and make it same as a new column"* — the screenshot circled the button inside the empty Assigned tasks projects-board panel, not the page head's task opener. That panel repeated `+ New task`; the request makes this one control name a column instead, using the Other tasks board's existing mechanism.
+
+**The panel changes purpose, not the head or the rights.** `AssignedTasks.kt` supplies `taskKanban`'s `emptyOffer` and `emptyHint` rather than changing its shared default. The empty `.board-empty` panel is still visible only to a reader who holds *Edit any task*. With *Manage buckets* too, it now offers **+ New bucket** and the hint *"Write the first card from the page head, or name a bucket for work that is not on a project."* A card-writer without the bucket chip keeps **+ New task** and the old hint; the page head's **+ New task** is unchanged. A new bucket is a **shared Other-tasks column**, not a project lane, a new status, or a change to a project's board.
+
+**One popup, aimed back at this page.** `newBucketButton` is a GET onto `/app/assigned-tasks` carrying `newbucket=1` and the current `bucket` and `project` hidden fields, with `data-live-target="#bucketModal"`. It reuses `OtherTasks.kt`'s `bucketModal` **add half**: **Add a bucket**, **Bucket name**, **Add bucket**, **Cancel**, and the existing `bucket-modal.js` close/focus mechanism. No rename or delete half is brought onto Assigned. Its form posts `/app/other-buckets` with `back=assigned-tasks` and both filter ids, `data-live-target="#assignedOther"` and `data-live-extra="#bucketModal"`. `#assignedOther` now wraps the lower personal Other-tasks picker, cards or empty line, and `+ Add task`, so the response refreshes everything a new column can affect there without importing the shared board.
+
+**The route keeps the context on every answer.** The bucket POST checks *Manage buckets* again, and denial returns Assigned without creating a column. A refusal answers **200** on Assigned, keeping the typed name, the field error and both filters; success answers **200**, selecting the new bucket in the lower picker, preserving the project filter and closing the popup. `Application.kt`'s `respondAssignedTasks` centralizes GET, bucket-create and refusal rendering so a task-save refusal also retains the new empty-panel offer. The lower cards remain the reader's own: naming a shared column does not widen the personal read. No migration — schema stays **22** — and no CSS changed.
+
+**Closing knows which page owns the key.** `bucket-modal.js` removes `newbucket` on Cancel, Escape or backdrop close. It removes `bucket` only off `/app/assigned-tasks`: on Other tasks that key opens the column menu, but on Assigned it is the personal Bucket filter and must survive. Project, show, edit and new remain untouched. JavaScript changed, so **Ctrl+F5** once; `app.js` is unchanged.
+
+**Verified: 726 tests / 49 classes / 0 failures, errors or skipped.** Three added cases in `AssignedTasksRenderTest`: `an empty board offers a new column to the reader who may name one` pins the offer, GET key, shared popup, return field, live target/companion and script; `a refused new column keeps both filters and its typed name` pins both forms' normalized filter fields, the open popup, typed name and field error; `a card-writer without the bucket right keeps the new-task opener` pins the fallback and absence of the bucket popup. The old shared-board absence test scopes its no-`bucketModal` claim to a reader without the bucket chip. Two overlapping test runs collided in Gradle's report writer; after they had ended, one standalone `test installDist` run succeeded in **5m 39s**, and its XML totals above are the final evidence.
+
+**Final throwaway HTTP: 25 checks, 0 failures.** A fresh empty `%TEMP%` database on **8095**, explicit `PTS_DB_PATH`, demo seed off, nonexistent data file, dry-run mail and internally generated throwaway-only credentials verified the opener, preserved head task button, popup targets, create selecting the new column and aiming `+ Add task` at it, duplicate refusal and retry with both filters, Employee denial without a row, and filtered task-save refusal. A generic opener-form selector initially matched the page head rather than the circled panel; the verifier was corrected to the unique new-bucket control and rerun against a fresh database. Throwaway PID **19740** was stopped before `installDist`.
+
+**Actual scripts: 90 checks, 0 failures.** `scratch/stage124-js-harness.cjs` executes the shipped `app.js` and `bucket-modal.js` through a synthetic DOM, iterable FormData, response parsing, node imports/replacements and MutationObservers. Both the empty-line and personal-card branches verify delegated opener/create/refusal/retry, popup focus, two-block swaps, Cancel/Escape/backdrop, unchanged upstream content and no navigation, native fallback or reload; explicit close-query checks distinguish Assigned's filter from Other tasks' popup key. Browser credential entry remains blocked, so this is HTTP and synthetic-DOM evidence, **not a signed-in visual sign-off**.
+
+**Deployed 2026-11-06.** Earlier Stage 123 PID **3096** was already absent when checked; no claim is made that this pass stopped it. With 8080 absent, backed up in place: `data/pts.pre-stage124-20261106-091529.db` **471,040 bytes**, `-wal` **0**, `-shm` **32,768**. The successful single run installed the **1,962,188-byte** jar, then `deploy/run.bat` was launched detached through PowerShell: live PID **16344**, root **200**, boot says *Schema "main" is up to date. No migration necessary.* The served `/static/js/bucket-modal.js` answers **200** and is byte-identical to both source and packaged entry, including page-aware close. Metadata-only live read-back: schema **22**, **22** accounts, **22** roster rows, **1** project, **2** tasks, **4** roles and **36** role-permission rows, unchanged. **No commit, no push.**
+
+**Never re-propose:** replacing the page head's `+ New task`; offering a column write without *Manage buckets*; using a project lane or status as the new bucket; copying the bucket popup or adding a second create route; bringing the shared backlog board or its `⋮` onto Assigned; losing either filter on refusal; or leaving the popup open after a successful create.
+<a id="stage-125"></a>
+
+## Stage 125 — A blank email becomes firstname.surname@murrays.mn (2026-11-09, live, no migration, Kotlin + test)
+
+**The ask:** *"when creating a new user if the emails left empty call it firstname.surname@murrays.mn"*. The app already
+invented an address for a blank one, but two things about it were wrong: the domain was the singular `@murray.mn`, and the
+local part joined **every** word of the name with dots, so a three-word name produced a three-part address. The ask names
+both halves — first word, dot, last word, at the domain Murray actually runs.
+
+**One function, every create path.** `domain/User.kt`'s `autoEmail(name)` is the only generator: it lowercases, splits on
+anything that is not a letter, digit or hyphen, keeps **the first and the last word** (one word stands alone, a middle word
+is dropped), rejoins them with a single dot and appends `@murrays.mn`; a name with no word in it yields no address at all,
+so nobody gets `@murrays.mn` glued to an empty local part. Nothing else was touched, because nothing else generated one:
+`UserService.addUser` (Access control's add card and the Settings employee popup), `UserService.updateEmail` (a blank
+address on an edit regenerates it), `AuthService.ensureSuperAdmin` (the bootstrap account), `Data.kt`'s roster email,
+`AccessRow.displayEmail`, `EmployeeService`'s sheet display, `LegacyNormalizer` and `JsonImporter` all call it. A typed
+address is still kept, trimmed and lowercased — the ask is about the blank box, not about overriding a real mailbox.
+
+**Copy that said the old thing.** The add card's Email placeholder is now *"Auto: firstname.surname@murrays.mn"* and its
+caption *"A blank email is generated as firstname.surname@murrays.mn."* (`AccessControl.kt`), and `UserService`'s KDoc
+bullet names the same form.
+
+**Verified: 734 tests / 50 classes / 0 failures, errors or skipped** (from 726/49). `AutoEmailTest` is new and holds
+eight cases — the two-word join with case and spacing normalised, the middle word dropped, the one-word name, a hyphen
+surviving while punctuation splits (`Bat-Erdene Tudev` → `bat-erdene.tudev@murrays.mn`, `N. Enkhtuyaa` →
+`n.enkhtuyaa@murrays.mn`), a name with no words, a create through `UserService.addUser` storing the generated address, a
+typed address kept lowercased, and a blank on edit regenerating it. `SettingsRenderTest`'s one-word roster fixture now
+expects `nyambaapurev@murrays.mn`. **20 throwaway HTTP checks, 0 failures** on an empty `%TEMP%` database on
+**8095**: the bootstrap account reads `super.admin@murrays.mn`; five creates (two-word, three-word, hyphen, typed
+lowercase, one-word) each verified against `users.email` read-only; the generated address prints on the Settings Team
+sheet and, as the harness first wrongly asserted, **not** on Access control's People sheet, which has no Email column; the
+popup create with a blank address; and an edit that blanks a stored address. **Stage 126 superseded this stage's scope, not
+its rule:** the rule was written at create time, so the accounts already in the database kept what the older rule had
+stored.
+
+**Deployed 2026-11-09.** Schema stays **22** (no migration), Kotlin only, so a plain reload shows it — **no Ctrl+F5**. The
+previous live PID **16344** was stopped, the database copied in place as `data/pts.pre-stage125-20261109-081711.db` (**471040** bytes, `-wal` 0,
+`-shm` 32,768), `installDist` produced the **1962888-byte** jar, and the detached relaunch came up as PID **23544**:
+`/` **200**, boot *"Schema "main" is up to date. No migration necessary."* Metadata-only read-back: schema 22, **22**
+accounts, **22** roster rows, **1** project, **2** tasks, **4** roles,
+**36** role-permission rows. HTTP and markup evidence — **no signed-in visual sign-off**. **No commit, no push.**
+
+**Never re-propose:** a second generator beside `autoEmail`; keeping the singular `@murray.mn` "because mail still routes
+there"; joining every word of a name; inventing an address for a name with no word in it; overwriting an address somebody
+typed at create time; or editing stored rows from the creation rule and calling it the same change.
+
+
+<a id="stage-126"></a>
+
+## Stage 126 — The accounts already stored get the same address, once, at boot (2026-11-09, live, no migration, Kotlin + test)
+
+**The same ask, restated.** *"when creating a new user if the emails left empty call it firstname.surname@murrays.mn"* came
+back after Stage 125 was live, which is what a sheet full of old addresses does when only tomorrow's hires wear the new
+one. Reading the real database's aggregates said how wide that was: of **22 accounts, one** already matched the rule,
+**19** still carried the singular `@murray.mn`, and none was blank. The ask plainly means *the address this app writes for
+a person*, and the creation-only scope was Stage 125's exception, not its rule — so the exception went. The offered choice
+was normalise all 22 or leave the rows alone, and normalising all 22 was chosen; a collision check first confirmed the
+rewrite was safe (22 names → 22 **distinct** addresses, none of them already somebody else's stored value).
+
+**One rule, one implementation, run once.** `db/migration/UserEmailBackfill.applyOnce()` recomputes every account's
+address through the **same `autoEmail`** the create paths call and writes it only where it differs. It is deliberately not
+a `V*.sql` file: SQLite has no regex, so the migration would have to be a hand-port of the tokenizer — a second copy of one
+rule, free to drift from the first, and it would still have run before any legacy JSON import or bootstrap account existed.
+Instead `Application.bootstrapDatabase()` calls it after the import, the demo seed and `ensureSuperAdmin`, and an
+`app_settings` row (`email_rule_version = 1`) records that this database has been through it. **One row of data, no schema
+change** — schema stays **22**, and the marker means a second boot reads one key and touches nothing.
+
+**What it overwrites, and what that costs.** The pass rewrites any address that is not exactly what the person's own name
+produces, **including one an administrator typed** — that is what "all 22" means, and it is one pass, not a standing rule:
+an address typed *after* it stays typed (pinned by test and by the third throwaway boot). A name with no word in it yields
+no address, so the pass leaves that row's value alone rather than blanking it. Outbound alerts read `users.email`, so the
+day this ran, the address every notice is posted to changed for 21 accounts.
+
+**Verified: 738 tests / 51 classes / 0 failures, errors or skipped** (from 734/50). `UserEmailBackfillTest` is new
+and holds four cases: two old-rule rows and one uppercase row rewritten to the rule with the marker left behind; a second
+`applyOnce` returning 0 while a later-typed foreign address survives; a row the rule already matches not counted as a
+rewrite; and a no-word name keeping its stored address. **24 throwaway HTTP checks, 0 failures** across **three boots
+of one database**: seed four accounts on the old form over HTTP, clear the marker to simulate a pre-Stage-126 file, boot
+again, then read the throwaway back — every address on the rule, no `@murray.mn` left, the boot log carrying
+*Company emails: 4 account address(es) rewritten…*, the Settings Team sheet printing the rewritten address and no longer
+the old one, Access control's sheet intact; a fifth account typed with a foreign address on the second boot, and a third
+boot proving no second pass ran and that address untouched.
+
+**Deployed 2026-11-09.** No migration, schema **22**, Kotlin only → **no Ctrl+F5**. Live PID **23544** stopped with 8080
+confirmed free; `test installDist` run standalone; database backed up in place as `data/pts.pre-stage126-20261109-092654.db` (**471040** bytes, `-wal`
+0, `-shm` 32768) — the rewrite is reversible only from that file; jar **1965925** bytes; detached relaunch → PID
+**20752**, `/` **200**, boot *"No migration necessary"* and the rewrite line naming the accounts it changed. Read-back
+after the pass: **22** accounts, **22** roster rows, **1** project, **2**
+tasks, **4** roles, **36** role-permission rows, schema **22**, and every account's
+address now the one its own name produces. **No commit, no push.**
+
+**Never re-propose:** a regex port of the rule inside a SQL migration; re-running the pass on every boot (it would quietly
+overwrite a typed address forever); a per-account exception list; blanking an address because the name has no word in it;
+rewriting the roster's or a colleague's *display* name to make a nicer address; or claiming the sheet looks right from a
+boot log — the visible half is the Team sheet's Email column, which only a signed-in reader can see.
+

@@ -38,14 +38,14 @@
       return;
     }
     // A bookmark, a reload or the browser's Back would otherwise put this form back up on the screen.
-    // Only this popup's own keys go: `?newbucket=1` is the add opener and `?bucket=` the column's `⋮`.
-    // `?edit=` and `?new=` belong to the task popup's opener, and `?show=` is the board's own bucket filter
-    // rather than anything about this form, so none of them is ours to clear. (Until Stage 97 the second of
-    // those was `?allbuckets=`; the head's toggle and the wide view it carried are gone.)
+    // Only this popup's own keys go: `?newbucket=1` is the add opener. On Other tasks, `?bucket=` opens a
+    // column's menu; on Assigned tasks (Stage 124) it is the personal board's filter and must stay, like
+    // `?project=`. `?edit=` and `?new=` belong to the card popup and `?show=` is the shared board's filter.
     var params = new URLSearchParams(window.location.search);
-    if (!params.has('newbucket') && !params.has('bucket')) return;
+    var bucketIsOpener = window.location.pathname !== '/app/assigned-tasks';
+    if (!params.has('newbucket') && !(bucketIsOpener && params.has('bucket'))) return;
     params.delete('newbucket');
-    params.delete('bucket');
+    if (bucketIsOpener) params.delete('bucket');
     var query = params.toString();
     try {
       window.history.replaceState(null, '', window.location.pathname + (query ? '?' + query : ''));

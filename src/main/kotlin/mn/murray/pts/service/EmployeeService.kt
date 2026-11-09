@@ -26,10 +26,11 @@ import mn.murray.pts.security.Authorization
  *    — the role the account is filed under, with the chips it holds — and not the raw `access` column, because
  *    a sheet a reader acts on has to answer the question the app itself asks before every write.
  *  * **Nothing here re-decides an old rule.** The popup's save is a call into [UserService], whose
- *    rules are the ones the app has always applied: only an administrator sets a position, a
- *    role or a password; the Owner/Administrator pair alone sets a department (Stage 117); a new account
- *    added without that right starts as the catalogue's default role with its employee number as password
- *    and has to change it; `EMP0000` cannot be deleted and nobody can delete themselves.
+ *    rules are the ones the app has always applied: only an administrator sets a position or a role;
+ *    the super admin alone sets another person's password (Stage 123); the Owner/Administrator pair alone
+ *    sets a department (Stage 117); a new account added without that right starts as the catalogue's
+ *    default role with its employee number as password and has to change it; `EMP0000` cannot be deleted
+ *    and nobody can delete themselves.
  *
  * Rights are decided here and re-checked at every route, exactly as [LessonService] does: a button the
  * page did not print is not a permission the server granted, and a button it did print is not one
@@ -241,6 +242,11 @@ object EmployeeService {
         canAdmin: Boolean,
         canSetRoles: Boolean = canAdmin,
         canSetDepartment: Boolean = false,
+        /**
+         * The super admin alone (Stage 123): another person's password, on a create or an edit. A word posted
+         * by anybody else is refused on the form's own line, because the popup prints them no box for it.
+         */
+        canSetPassword: Boolean = false,
     ): EmployeeResult {
         val editing = draft.edit.trim().uppercase()
         val target = (editing.ifEmpty { draft.employeeNumber }).trim().uppercase()
@@ -289,7 +295,12 @@ object EmployeeService {
             if (position.isNotEmpty() && PositionRepository.findByName(position) == null) {
                 errors += EmployeeField.POSITION to UNKNOWN_POSITION
             }
-            if (password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH) {
+            // Stage 123: holding *Manage employees* no longer reaches somebody else's password — that is the
+            // super admin's alone. The check sits after the chip check above so the reason names the right the
+            // reader is missing rather than the one they hold.
+            if (password.isNotEmpty() && !canSetPassword) {
+                errors += EmployeeField.PERMISSION to NOT_YOURS_PASSWORD
+            } else if (password.isNotEmpty() && password.length < MIN_PASSWORD_LENGTH) {
                 errors += EmployeeField.PASSWORD to "A password is $MIN_PASSWORD_LENGTH characters or more."
             }
         }
@@ -321,6 +332,7 @@ object EmployeeService {
                     canSetProfile = canAdmin,
                     requestedDepartment = department,
                     canSetDepartment = canSetDepartment,
+                    canSetPassword = canSetPassword,
                 )
             ) {
                 PasswordStatus.USER_ADDED -> EmployeeResult(values = draft)
@@ -351,6 +363,7 @@ object EmployeeService {
     private const val NOT_YOURS_ADD = "Only somebody who manages employees can add an account."
     private const val NOT_YOURS_ROLE = "Only somebody who manages roles can set a role."
     private const val NOT_YOURS_PROFILE = "Only somebody who manages employees can set a position or a password."
+    private const val NOT_YOURS_PASSWORD = "Only the super admin can set another person's password."
     private const val NOT_YOURS_DEPARTMENT = "Only an Owner or Administrator can set a department."
     private const val BLANK_EMP = "Every account is signed in by its employee number."
     private const val EMP_TAKEN = "There is already an account with that number."

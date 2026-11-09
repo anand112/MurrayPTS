@@ -64,8 +64,23 @@ class AssignedTasksRenderTest {
 
     private fun render(block: DIV.() -> Unit): String = createHTML().div(block = block)
 
-    private fun page(canManage: Boolean, state: TaskForm? = null, bucketId: Int = 0, projectId: Int = 0): String = render {
-        assignedTasksContent(if (canManage) manager else engineer, canManage, state, bucketId, projectId)
+    private fun page(
+        canManage: Boolean,
+        state: TaskForm? = null,
+        bucketId: Int = 0,
+        projectId: Int = 0,
+        canAddBuckets: Boolean = false,
+        bucket: BucketForm = BucketForm(),
+    ): String = render {
+        assignedTasksContent(
+            if (canManage) manager else engineer,
+            canManage,
+            state,
+            bucketId,
+            projectId,
+            canAddBuckets,
+            bucket,
+        )
     }
 
     /** A card of this board: assigned work, sitting in [status] and owned by [assignee]. */
@@ -181,15 +196,16 @@ class AssignedTasksRenderTest {
         val html = page(canManage = true)
         // Not merely hidden behind a flag: none of the shared board's markup is emitted on this URL at all.
         assertNull(elementWithId(html, "otherBoard"), "the backlog board is still on this page")
-        assertNull(elementWithId(html, "bucketModal"), "the column popup is still on this page")
         assertFalse(html.contains("d-bucket"), "a backlog column head was drawn")
         assertFalse(html.contains("addbucket"), "the dashed add-bucket box was drawn")
-        assertFalse(html.contains("+ Add bucket"), "a bucket could be named from here")
         assertFalse(html.contains("kcol-menu"), "a column menu was drawn")
         assertFalse(html.contains("⋮"), "the column menu's glyph was drawn")
-        assertFalse(html.contains("/app/other-buckets"), "this page can post a bucket")
         assertFalse(html.contains("buckets-toggle"), "the head's view control was drawn here")
         assertFalse(html.contains("allbuckets"), "this page carries the backlog's view")
+        // The popup that names a column is here **since Stage 124**, but only for the reader who holds the right:
+        // this copy is a card-writer without *Manage buckets*, and gets neither the popup nor its opener.
+        assertNull(elementWithId(html, "bucketModal"), "a reader without the bucket right was given its popup")
+        assertFalse(html.contains("+ New bucket"), "a reader who may not name a column was offered one")
         // …and a backlog card that is not the reader's own does not ride along on their page.
         assertFalse(html.contains("Re-line the crusher"), "another person's backlog card was drawn here")
         assertFalse(html.contains("data-id=\"$cardId\""), "another person's backlog card is draggable here")
@@ -197,6 +213,63 @@ class AssignedTasksRenderTest {
         // The manager holds no Other-task cards of their own, so the personal section says so rather than drawing a
         // status board of empty columns.
         assertTrue(html.contains("You don"), "a manager with no own backlog was not told so")
+    }
+
+    @Test
+    fun `an empty board offers a new column to the reader who may name one`() {
+        // Stage 124: the panel that used to repeat the head's `+ New task` now opens the Other tasks board's own
+        // add-a-bucket popup — the "new column" control, on the page whose Other-tasks half is short a column.
+        val html = page(canManage = true, canAddBuckets = true)
+        assertTrue(html.contains("board-empty"), "an empty board said nothing about starting work")
+        assertTrue(html.contains("+ New bucket"), "the empty panel did not offer a column")
+        assertFalse(html.contains("+ New task"), "the empty panel still offered the head's card create")
+        assertTrue(html.contains("work that is not on a project"), "the panel did not say what a bucket is for")
+        // The opener is a GET onto this page carrying the popup's own key, swapped into `#bucketModal`.
+        val opener = formWithClass(html, "opener-form")
+        assertTrue(opener.contains("newbucket"), "the opener does not ask for the column popup: $opener")
+        assertTrue(opener.contains("data-live-target=\"#bucketModal\""), "the opener has no popup to swap into")
+        // The popup travels with the page, is the Other tasks board's own add half, and posts back here.
+        assertTrue(elementWithId(html, "bucketModal") != null, "the column popup is not on this page")
+        assertTrue(html.contains("Add a bucket"), "the popup is not the add-a-bucket form")
+        val add = formWithAction(html, "/app/other-buckets")
+        assertTrue(add.contains("name=\"back\" value=\"assigned-tasks\""), "the write would answer on another page")
+        assertTrue(
+            add.contains("data-live-target=\"#assignedOther\""),
+            "the write does not answer on this page's Other-tasks block: $add",
+        )
+        // …and that block exists, so the answer has somewhere to land.
+        assertTrue(elementWithId(html, "assignedOther") != null, "the Other-tasks block has no id to swap")
+        assertTrue(add.contains("data-live-extra=\"#bucketModal\""), "a landed write would leave its popup open")
+        assertTrue(html.contains("src=\"/static/js/bucket-modal.js\""), "the popup has no close or focus handler")
+    }
+
+    @Test
+    fun `a refused new column keeps both filters and its typed name`() {
+        val site = BucketRepository.insert("Site works")
+        val project = projectRow()
+        val html = page(
+            canManage = true, bucketId = site, projectId = project, canAddBuckets = true,
+            bucket = BucketForm(typed = "Site works", nameError = "That bucket name is taken."),
+        )
+        val opener = formWithClass(html, "opener-form")
+        val add = formWithAction(html, "/app/other-buckets")
+        for (form in listOf(opener, add)) {
+            assertTrue(form.contains("name=\"bucket\" value=\"$site\""), "the bucket filter was lost: $form")
+            assertTrue(form.contains("name=\"project\" value=\"$project\""), "the project filter was lost: $form")
+        }
+        assertTrue(elementWithId(html, "bucketModal")!!.contains("style=\"display:block\""))
+        assertTrue(add.contains("id=\"bucketName\""))
+        assertTrue(add.contains("value=\"Site works\""))
+        assertTrue(add.contains("<p class=\"field-err\">That bucket name is taken.</p>"))
+    }
+
+    @Test
+    fun `a card-writer without the bucket right keeps the new-task opener`() {
+        val html = page(canManage = true, canAddBuckets = false)
+        assertTrue(html.contains("board-empty"), "an empty board said nothing about starting work")
+        assertTrue(html.contains("+ New task"), "a writer who may not name a column lost their create")
+        assertFalse(html.contains("+ New bucket"), "a column was offered to a reader who may not name one")
+        assertNull(elementWithId(html, "bucketModal"), "the column popup was drawn for a reader without the right")
     }
 
     @Test

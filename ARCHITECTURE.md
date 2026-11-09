@@ -4,7 +4,7 @@ This document describes the restructured layout the app is built on: the package
 SQLite data model, the security model, the behavior the v2 rewrite had to preserve, and how it is
 tested. Stages 1–9 are complete and the app is launch-ready (see README → Launch checklist).
 
-**The stage-by-stage record — Stages 6 through 116, what each one asked for, decided, shipped,
+**The stage-by-stage record — Stages 6 through 124, what each one asked for, decided, shipped,
 verified and superseded — lives in [STAGE-HISTORY.md](STAGE-HISTORY.md)**, which this file was
 split in two to create on 2026-11-02. Those sections moved verbatim and stay in order; the index
 under [Stage history](#stage-history) links every one of them. Go there for the reasoning behind
@@ -22,7 +22,7 @@ truth.
 
 1. **Layered architecture**: routes → services → repositories → DB. No route touches SQL directly. No repository renders HTML.
 2. **Real persistence**: SQLite via Exposed ORM + Flyway migrations, replacing single-file JSON.
-3. **Hardened auth**: bcrypt password hashes, DB-backed session tokens (as built — see Security → Sessions, not the signed-cookie `Sessions` plugin originally assumed), per-route guards through one `call.requireSession()` helper (as built — a helper on `ApplicationCall`, not a Ktor plugin). The first-login password change this goal named was withdrawn in **Stage 99**: the box and the gate are gone and a password is set from the Team sheet.
+3. **Hardened auth**: bcrypt password hashes, DB-backed session tokens (as built — see Security → Sessions, not the signed-cookie `Sessions` plugin originally assumed), per-route guards through one `call.requireSession()` helper (as built — a helper on `ApplicationCall`, not a Ktor plugin). The first-login password change this goal named was withdrawn in **Stage 99**, and **Stage 123** restored only its self-service half: the gate is still gone, every account changes its own password under Settings › *Your account*, and only the super admin sets somebody else's.
 4. **Preserved behavior**: every current URL, cookie name, flash-banner protocol, and kanban drag-drop endpoint keeps working.
 5. **Understandable later**: consistent package layout, one file per feature area, `ARCHITECTURE.md` + `MIGRATION.md` kept current.
 
@@ -176,11 +176,11 @@ backfill cannot re-run over a lesson somebody has since typed. Flyway runs at st
 
 | Concern | Approach |
 |---|---|
-| Passwords | jBCrypt cost 12 (`security/PasswordHasher`). On first-run import, existing plaintext passwords are hashed and the JSON is renamed `.migrated`. `AuthService.changePassword` rehashes and revokes all of the user's sessions. |
+| Passwords | jBCrypt cost 12 (`security/PasswordHasher`). On first-run import, existing plaintext passwords are hashed and the JSON is renamed `.migrated`. `AuthService.changePassword` rehashes and revokes all of the user's sessions. Since **Stage 123** every account changes its **own** password on Settings › *Your account* (`POST /app/settings/password` → `UserService.changeOwnPassword`: current, new and confirm, refused as `EMPTY`/`WRONG_CURRENT`/`MISMATCH`/`TOO_SHORT` under the field each belongs to), and the route re-issues one session so the browser that made the change stays signed in. Setting **another** account's password is the super admin's alone (`UserService.SUPER_ADMIN`, EMP0000) — not a chip, so an all-chip Owner or Administrator does not get it — on Access control's Password column, its add card, and the Settings employee popup. A stored hash is never readable, so "see somebody's password" can only mean the control to set a new one. |
 | Sessions | **Opaque-token model (as built), not the signed-cookie `Sessions` plugin.** `PTS_SID` carries a random UUID; the authoritative record lives in the `sessions` table (`repository/SessionRepository`): employee_number FK, created_at, expires_at, user_agent, ip. Cookie stays `httpOnly`, name **preserved as `PTS_SID`**, 12h expiry from `AppConfig.sessionTtlHours` — **absolute, stamped at login** (`create` writes `expires_at`; nothing slides it on activity). DB rows survive restart and allow admin revocation (`revokeAllFor`). Expiry is enforced at read (`findValid`) and swept by `purgeExpired`. Chosen over the Ktor `Sessions` signed-cookie plugin because it keeps revocation and audit server-side and matches the legacy token-in-cookie shape. |
-| Authorization | **Since Stage 110: a role decides, and a role holds chips.** `security/Authorization` answers `canDo(employeeNumber, Permission)` and `canAny(employeeNumber, Collection<Permission>)` from `RoleRepository.roleOf` — one row of `roles` read through `users.role_id`, falling back to the default role when that column is null. The three-rank ladder it used to resolve (super-admin → position `permissionLevel` → account `access` → Viewer, through an ordered `security/Role` enum) is **gone**, and that enum is deleted; `positions.permission_level` stays in the schema but is no longer read for authorization. `canManage` (any chip except *View teammates' tasks*) and `canAdmin` (*Manage employees* or *Manage roles & permissions*) survive only as the one boolean each page-level renderer takes — **a route guards the chip its control is about, never these flags**. V21's backfill resolves every existing account in the old order, so each one lands on the role that matches the rank it had; the rights a role grants are the picture's sets, and the one reach that did change — a Project Manager no longer reaches Settings or Access control — is recorded in Stage 110's *What the picture narrows*. **Stage 117** adds one predicate beside `canDo`/`canAny`: `isOwnerOrAdministrator` is true when the role holds **every** chip, and it alone is the department right on the Settings popup — both seeded all-chip roles have it, a renamed one keeps it, and a twelve-chip role does not. |
+| Authorization | **Since Stage 110: a role decides, and a role holds chips.** `security/Authorization` answers `canDo(employeeNumber, Permission)` and `canAny(employeeNumber, Collection<Permission>)` from `RoleRepository.roleOf` — one row of `roles` read through `users.role_id`, falling back to the default role when that column is null. The three-rank ladder it used to resolve (super-admin → position `permissionLevel` → account `access` → Viewer, through an ordered `security/Role` enum) is **gone**, and that enum is deleted; `positions.permission_level` stays in the schema but is no longer read for authorization. `canManage` (any chip except *View teammates' tasks*) and `canAdmin` (*Manage employees* or *Manage roles & permissions*) survive only as the one boolean each page-level renderer takes — **a route guards the chip its control is about, never these flags**. V21's backfill resolves every existing account in the old order, so each one lands on the role that matches the rank it had; the rights a role grants are the picture's sets, and the one reach that did change — a Project Manager no longer reaches Access control — is recorded in Stage 110's *What the picture narrows*; **Stage 123** reopened Settings to every account, so Access control is now the only one of the two that still turns a Project Manager away. **Stage 117** adds one predicate beside `canDo`/`canAny`: `isOwnerOrAdministrator` is true when the role holds **every** chip, and it alone is the department right on the Settings popup — both seeded all-chip roles have it, a renamed one keeps it, and a twelve-chip role does not. **Stage 123** removes `settings` from `NAV_PERMISSIONS`: every account's drawer prints the link and `GET /app/settings` turns nobody away, while the Team sheet and the three panels stay on their chips, so a Project Manager or an Employee sees *Your account* alone. The other-password controls are the super admin's, not a permission — Owner and Administrator hold all thirteen chips and still do not get them. |
 | CSRF | Stateless session-bound token: `security/Csrf` = base64url(HMAC-SHA256(secret, sessionId)), validated in constant time. Rotates automatically with the session; no extra storage. **Not wired into any route (known gap, deliberately out of launch scope).** POSTs currently rely on the `SameSite=Lax` session cookie as the CSRF defence; `Csrf` is implemented and unit-tested (`CsrfTest`) and the production secret requirement in `AppConfig.validate()` exists precisely so turning it on later needs no config work. |
-| First login | **Deleted in Stage 99** — this is the rule as launched. The route gate, its Settings allowlist and the Change Password card are gone; `must_change_password` is recorded but nothing enforces it, and nothing reads the flag to stop a reader. (Stage 102 later touched only the login screen's case guidance.) As launched: `users.must_change_password` is enforced at the route level: `call.requireSession()` (in `Application.kt`) redirects a flagged account to `/app/settings` for every path except the Settings allowlist (`/app/settings`, `/app/settings/password`), so the user can only set a new password. Settings renders the reason inline in the Change Password card. Flagged by `AuthService.ensureSuperAdmin()` when no `PTS_ADMIN_PASSWORD` was configured, by `JsonImporter` for every legacy account that had no explicit password, and by `UserService.addUser`. Saving a password through `AuthService.changePassword` clears the flag and re-issues the session, so the user stays signed in. |
+| First login | **Deleted in Stage 99** — this is the rule as launched. The route gate, its Settings allowlist and the Change Password card are gone; `must_change_password` is recorded but nothing enforces it, and nothing reads the flag to stop a reader. **Stage 123** brings the *self-service* form back on every account's *Your account* card (`POST /app/settings/password`); the gate, the allowlist and the forced change do not return. (Stage 102 later touched only the login screen's case guidance.) As launched: `users.must_change_password` is enforced at the route level: `call.requireSession()` (in `Application.kt`) redirects a flagged account to `/app/settings` for every path except the Settings allowlist (`/app/settings`, `/app/settings/password`), so the user can only set a new password. Settings renders the reason inline in the Change Password card. Flagged by `AuthService.ensureSuperAdmin()` when no `PTS_ADMIN_PASSWORD` was configured, by `JsonImporter` for every legacy account that had no explicit password, and by `UserService.addUser`. Saving a password through `AuthService.changePassword` clears the flag and re-issues the session, so the user stays signed in. |
 | Headers | `web/plugin/SecurityHeaders` (installed): `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `Permissions-Policy`, `Content-Security-Policy` (`default-src 'self'; script-src 'self'; style-src 'self' + style-src-attr 'unsafe-inline'` — tightened in Stage 7 once the assets were extracted, see "Stage 7 progress"), `Strict-Transport-Security` in production. |
 | Secrets | `.env` (gitignored) + `.env.example`. `AppConfig` reads system property → env → `.env` → default. `AppConfig.validate()` refuses production boot with the default/short session secret. Secret never logged (`summary()` masks it). |
 | Rate limit | `security/LoginRateLimiter` — in-memory sliding window on `POST /login`, bounds from `AppConfig.loginMaxAttempts`/`loginWindowSeconds` (default 5/60s). The key is the client IP from `X-Forwarded-For` **only when `PTS_TRUST_PROXY=true`**; otherwise it is the socket peer, because on a directly exposed port a forged header would otherwise be a free way to dodge the limiter. Verified live both ways. |
@@ -204,10 +204,12 @@ Every item below must still work after Stage 9:
 - [x] `POST /app/tasks/status` form-encoded `id`+`status`, Referrer redirect
 - [x] `POST /app/todo/lists/reorder` with `order=csv`
 - [x] Positions endpoints return HTML `<tr>` fragments when `X-Requested-With: fetch`, 204 on delete
-- [x] `?type=` filter on projects, `?pw=PasswordStatus&who=emp` flash banner
+- [x] `?type=` filter on projects, `?pw=PasswordStatus` flash banner (Stage 123's own-password change; the old form's `who=emp` key went with it)
 - [x] First-run seed data — now gated behind `PTS_SEED_DEMO` (opt-in seeder wired in Stage 8: `db/migration/DemoSeeder`), EMP0000 super-admin always ensured ✓, `MIN_PASSWORD_LENGTH=4` ✓
 - [x] Password defaults to employee number for legacy users (only during import; new users must set one)
-- [x] Auto-email `first.last@murray.mn`
+- [x] Auto-email `firstname.surname@murrays.mn` (Stage 125: first and last word of the name, middle words dropped) —
+  **and since Stage 126 the accounts already stored read the same way**, recomputed once at boot through the same
+  function and marked in `app_settings`, not by a SQL copy of the rule
 - [x] Project code generation `PREFIX-NN` (verified `MFG-03` at the time — **since Stage 12 the prefix is
   one letter and the number is typed, only suggested**: `M-03`), task display code `T-%05d`
 - [x] Dark mode + accent toggle persisted in `localStorage` keys `pts-theme` / `pts-accent` (verified in a real browser in Stage 7 — see below; the old inline `THEME_JS` was dead code and never ran)
@@ -226,6 +228,36 @@ Every item below must still work after Stage 9:
   rebuilt Forecasts as the monthly money grid on `project_forecasts` (V8) and Stage 44 rebuilt Lesson learnt as the
   dated, per-person sheet on the widened `lessons` table (V9)
 - [x] Team member-popup JSON payload shape unchanged (`/app/team` still emits the `memberDetailData` island, keys = employee number, same fields; verified live)
+
+### Assigned tasks: the empty panel can name a shared column (Stage 124)
+
+`AssignedTasks.kt` supplies `taskKanban`'s `emptyOffer`/`emptyHint`: the empty projects-board panel remains
+visible on *Edit any task*, but with *Manage buckets* its offer is `+ New bucket`; without that chip it keeps
+`+ New task`. The page head's task opener is unchanged. The new GET onto `/app/assigned-tasks` carries
+`newbucket=1`, the current `bucket`/`project` filters and `data-live-target="#bucketModal"`. It reuses
+`OtherTasks.kt`'s `bucketModal` add half and `bucket-modal.js`, posting `/app/other-buckets` with
+`back=assigned-tasks`, both filter ids, `data-live-target="#assignedOther"` and `data-live-extra="#bucketModal"`.
+The POST rechecks *Manage buckets*; denial returns Assigned, refusal answers 200 with the typed name, field error
+and both filters, and success answers 200 selecting the new bucket in the lower personal picker, preserving the
+project filter and closing the popup. `#assignedOther` holds that picker, own cards or empty line, and `+ Add task`.
+`Application.kt`'s `respondAssignedTasks` centralizes GET/create/refusal rendering, including task-save refusals.
+The new bucket is shared Other-tasks work, not a project lane or a status change. `bucket-modal.js` clears
+`newbucket` on close but preserves Assigned's `bucket` filter; on Other tasks, `bucket` is a popup key and is cleared.
+No migration (schema **22**) or CSS change; JavaScript changed, so **Ctrl+F5** once. Verified: **726 tests / 49 classes**,
+**25 throwaway HTTP checks** and **90 JavaScript harness checks**, all passing. Live on 8080 since 2026-11-06,
+PID **16344**; HTTP and synthetic-DOM verification, not a signed-in visual sign-off.
+
+### Company email: one rule, and one pass over the rows written before it (Stages 125–126)
+
+`domain/User.kt`'s `autoEmail(name)` is the only generator: the name's first and last word, lowercased, joined by one
+dot, at `murrays.mn` (a one-word name stands alone, a middle word is dropped, a name with no word yields nothing).
+Every create path calls it — `UserService.addUser`, `UserService.updateEmail` on a blank edit, `AuthService.ensureSuperAdmin`,
+`EmployeeService`, `Data.kt`, `AccessRow.displayEmail`, `LegacyNormalizer`/`JsonImporter` — and a typed address at create
+time is kept, trimmed and lowercased. Stage 126 added `db/migration/UserEmailBackfill.applyOnce()`, called from
+`Application.bootstrapDatabase()` after the import, the seed and the bootstrap account: it recomputes each stored address
+through the same function and writes the ones that differ, guarded by the `app_settings` key `email_rule_version` so it
+runs once per database and a later-typed address stays typed. No schema change (Flyway stays **v22**); the cost is that
+the one pass also rewrites addresses an administrator had typed.
 
 ## Testing strategy (Stage 9)
 
@@ -249,8 +281,9 @@ but is not covered by a committed test.
 ## Stage history
 
 One section per stage, in order, in [STAGE-HISTORY.md](STAGE-HISTORY.md) — from the first
-route/service migration to the latest stage, 2026-11-04's second person on a project card. The middle column is that section's own
-heading text; the right column is its heading's parenthesised tail: the date it landed, whether
+route/service migration to the latest shipped stage, 2026-11-09's company email — the rule Stage 125 fixed and the
+one boot-time pass Stage 126 ran over the accounts stored before it (live, no migration, Kotlin + test). The middle column is that section's own
+heading text; the right column is its heading's parenthesised tail: its date and status, whether
 it is live, which migration it carries, which layers it touched. A stage with no date predates
 the convention.
 
@@ -372,6 +405,10 @@ the convention.
 | [120](STAGE-HISTORY.md#stage-120) | A dense sheet keeps a readable width and scrolls instead of breaking words into letters | 2026-11-03, live, no migration, CSS + test |
 | [121](STAGE-HISTORY.md#stage-121) | The login password box gets a Show/Hide button | 2026-11-03, live, no migration, Kotlin + CSS + JS + test |
 | [122](STAGE-HISTORY.md#stage-122) | A project card can be assigned to two people | 2026-11-04, live, migration V22, Kotlin + test |
+| [123](STAGE-HISTORY.md#stage-123) | Settings opens to every account, your own password changes there, and only the super admin sets anyone else's | 2026-11-05, live, no migration, Kotlin + test |
+| [124](STAGE-HISTORY.md#stage-124) | The empty Assigned panel offers a new bucket, the shared Other-tasks column | 2026-11-06, live, no migration, Kotlin + JS + test |
+| [125](STAGE-HISTORY.md#stage-125) | A blank email becomes firstname.surname@murrays.mn | 2026-11-09, live, no migration, Kotlin + test |
+| [126](STAGE-HISTORY.md#stage-126) | The accounts already stored get the same address, once, at boot | 2026-11-09, live, no migration, Kotlin + test |
 
 **Read the newest few before changing anything they touch.** A section is never trimmed when a
 later stage supersedes it — the superseding stage says so in its own heading and explains what no
@@ -387,7 +424,8 @@ lands, `STAGE-HISTORY.md` gets its section and this index gets its row.
 - Audit log beyond the `sessions` table — the Stage 10 `due_date_alerts` ledger is an audit trail for
   *alerts*, not for user actions
 - Email/password reset flow (Stage 10 added the outbound SMTP transport for alerts; nothing in auth
-  uses email, and a reset still means an admin setting the password)
+  uses email, and a reset still means the super admin setting somebody else's password — Stage 123's
+  own-password form is a change, not a reset)
 - A UI for the alert ledger — it is read through the admin routes and SQLite today
 - API versioning or a JSON API for a future SPA
 - Replacing kotlinx.html with a template engine

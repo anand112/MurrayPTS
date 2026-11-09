@@ -4,6 +4,7 @@ import mn.murray.pts.config.AppConfig
 import mn.murray.pts.db.DatabaseFactory
 import mn.murray.pts.db.migration.DemoSeeder
 import mn.murray.pts.db.migration.JsonImporter
+import mn.murray.pts.db.migration.UserEmailBackfill
 import mn.murray.pts.service.AuthService
 import mn.murray.pts.service.AuthResult
 import mn.murray.pts.service.BucketDefaultsService
@@ -30,6 +31,7 @@ import mn.murray.pts.service.RoleService
 import mn.murray.pts.service.TaskService
 import mn.murray.pts.service.TodoService
 import mn.murray.pts.service.UserService
+import mn.murray.pts.repository.SessionRepository
 import mn.murray.pts.security.Authorization
 import mn.murray.pts.web.plugin.SecurityHeaders
 
@@ -384,6 +386,39 @@ private fun bucketsBack(showBucketId: Int = 0): String =
     if (showBucketId > 0) "/app/other-tasks?show=$showBucketId" else "/app/other-tasks"
 
 /**
+ * The Assigned tasks page, rendered for whoever asked — a plain read, or one of the column popup's answers
+ * (**Stage 124**).
+ *
+ * The page was rendered inline in its GET route until Stage 124; the bucket popup's POST now has to answer with
+ * the same page, because the panel's `+ New bucket` opens that popup *here* rather than on the Other tasks board.
+ * One renderer is what keeps the two copies identical: [bucket] is the popup's state (blank and closed on a read,
+ * open when `?newbucket=1` asked, filled and open when a name was refused), [canAddBuckets] says whether the
+ * reader may name a column at all, and [otherBucketId] / [projectFilter] are the two view filters the page's own
+ * pickers post — carried through a write so it answers on the board the reader was looking at.
+ */
+private suspend fun ApplicationCall.respondAssignedTasks(
+    session: UserSession,
+    canWriteTasks: Boolean,
+    state: TaskForm? = null,
+    bucket: BucketForm = BucketForm(),
+    otherBucketId: Int = 0,
+    projectFilter: Int = 0,
+    canAddBuckets: Boolean = false,
+) = respondHtml {
+    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canWriteTasks) newTaskButton() }) {
+        assignedTasksContent(
+            session,
+            canWriteTasks,
+            state,
+            otherBucketId = otherBucketId,
+            projectFilter = projectFilter,
+            canAddBuckets = canAddBuckets,
+            bucket = bucket,
+        )
+    }
+}
+
+/**
  * Prepare persistence for the v2 SQLite/Exposed stack.
  *
  * Creates and migrates the database, performs the one-shot legacy JSON import, optionally
@@ -410,6 +445,13 @@ private fun bootstrapDatabase() {
     }
     // Guarantee an admin account exists even on a fresh DB with no legacy JSON.
     AuthService.ensureSuperAdmin()
+    // Put the accounts already on the sheet under the same address rule new ones get (Stage 126). Runs once per
+    // database — an `app_settings` marker records the rule version it wrote — and recomputes each address through
+    // the very function the create paths call, so there is one rule, not a SQL copy of it that can drift.
+    val emailsRewritten = UserEmailBackfill.applyOnce()
+    if (emailsRewritten > 0) {
+        log.info("Company emails: {} account address(es) rewritten as firstname.surname@murrays.mn.", emailsRewritten)
+    }
     // Publish the category catalogue (V14) into the domain's PROJECT_TYPES / TYPE_PREFIX views. Every board
     // panel, forecast tab, create-form picker and `?type=` check reads that snapshot rather than the table, so
     // it has to be loaded before the first request — and the count goes in the boot log because a catalogue
@@ -567,9 +609,9 @@ fun main() {
              * The assigned board: every card that carries an owner, cut into the five status columns.
              *
              * `?new=1` and `?edit=<card>` are the two openers of the card popup, both posted by markup on this
-             * page itself — the head's `+ New task` and a card's own click. Nothing else lives here since
-             * Stage 47: the backlog of work with no project is a page of its own, so no column popup and no
-             * second board belongs to this URL any more.
+             * page itself — the head's `+ New task` and a card's own click. Stage 47 moved the shared backlog
+             * board to its own page; Stage 55 added the reader's personal Other-task board below this one, and
+             * Stage 124's empty-panel `+ New bucket` opens the column-create popup here via `?newbucket=1`.
              *
              * Two view keys narrow the page without leaving it, because the URL is the state and a bookmark or a
              * back button restores the same view. `?bucket=<id>` (Stage 88) cuts the reader's own Other-tasks
@@ -590,11 +632,19 @@ fun main() {
                 // which is the same answer a deleted row gets in [assignedTasksContent].
                 val bucket = call.request.queryParameters["bucket"]?.trim()?.toIntOrNull() ?: 0
                 val project = call.request.queryParameters["project"]?.trim()?.toIntOrNull() ?: 0
-                call.respondHtml {
-                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canWriteTasks) newTaskButton() }) {
-                        assignedTasksContent(session, canWriteTasks, state, otherBucketId = bucket, projectFilter = project)
-                    }
+                // **Stage 124:** the empty projects board's `+ New bucket` is a GET opener onto this page. A reader
+                // who may name a column asks for that popup open; anybody else's `?newbucket=1` is an ordinary page,
+                // exactly as a hand-typed `?new=1` is when the reader may not write a card.
+                val canBuckets = session.may(Permission.MANAGE_BUCKETS)
+                val bucketState = if (canBuckets && call.request.queryParameters["newbucket"] == "1") {
+                    BucketForm(open = true)
+                } else {
+                    BucketForm()
                 }
+                call.respondAssignedTasks(
+                    session, canWriteTasks, state, bucketState,
+                    otherBucketId = bucket, projectFilter = project, canAddBuckets = canBuckets,
+                )
             }
             /**
              * The reader's own month plan, for whichever month the address names.
@@ -805,15 +855,15 @@ fun main() {
             get("/app/settings") {
                 val session = call.requireSession() ?: return@get
                 val query = call.request.queryParameters
-                // Stage 110: the page exists for three panels, each a chip of its own. An account holding none
-                // of them has no panel to be shown and is sent back to the app.
+                // Stage 123: Settings is every account's page. The panels are chips, so a reader holding none
+                // of them — a Project Manager, an Employee — sees exactly one section: *Your account*, with
+                // its change-password form. Nobody is redirected away from their own account any more.
                 val canPeople = session.may(Permission.MANAGE_EMPLOYEES)
                 val canRoles = session.may(Permission.MANAGE_ROLES)
                 val canTypes = session.may(Permission.MANAGE_PROJECT_TYPES)
                 val canEmail = session.may(Permission.MANAGE_EMAIL_SETTINGS)
-                if (!canPeople && !canTypes && !canEmail && !session.may(Permission.MANAGE_ROLES)) {
-                    return@get call.respondRedirect("/app")
-                }
+                // Stage 123: another person's password is `EMP0000`'s alone, whatever else a role may hold.
+                val isSuperAdmin = session.employeeNumber == UserService.SUPER_ADMIN
                 val row = if (canPeople) EmployeeService.row(query["edit"].orEmpty(), session.employeeNumber, canPeople, canRoles) else null
                 val account = row?.let { EmployeeService.account(it.employeeNumber) }
                 // Stage 117: the department picker is the Owner/Administrator pair's, so the form is told
@@ -831,8 +881,10 @@ fun main() {
                         mayEdit = canPeople || canRoles,
                         maySetRoles = canRoles,
                         maySetDepartment = canDepartments,
+                        maySetPassword = isSuperAdmin,
                     ),
                     note = PasswordStatus.fromCode(query["note"]),
+                    accountStatus = PasswordStatus.fromCode(query["pw"]),
                     mailStatus = PasswordStatus.fromCode(query["mail"]),
                     mailDetail = query["mailerr"]?.trim()?.takeIf { it.isNotEmpty() },
                     bucketNote = PasswordStatus.fromCode(query["lane"]),
@@ -842,6 +894,38 @@ fun main() {
                     typeDetail = query["caterr"]?.trim()?.takeIf { it.isNotEmpty() },
                     typeBeingEdited = query["edittype"]?.trim()?.takeIf { it.isNotEmpty() }.orEmpty(),
                 )
+            }
+
+            /**
+             * The reader changes their *own* password (Stage 123).
+             *
+             * Every account may call this — it is the one write on Settings that is not a chip's. The service
+             * proves the current password and checks the two new words agree before it touches anything; on
+             * success every session of that account is revoked (a stolen cookie must not survive the change)
+             * and this browser is handed a fresh one, so the reader stays signed in where they are. A refusal
+             * comes back as `?pw=<status>` onto the page, and the form prints it under the field it belongs to.
+             */
+            post("/app/settings/password") {
+                val session = call.requireSession() ?: return@post
+                val form = call.receiveParameters()
+                val status = UserService.changeOwnPassword(
+                    employeeNumber = session.employeeNumber,
+                    current = form["currentPassword"].orEmpty(),
+                    new = form["newPassword"].orEmpty(),
+                    confirm = form["confirmPassword"].orEmpty(),
+                )
+                if (status == PasswordStatus.CHANGED) {
+                    // ChangePassword revoked every session, this one included: issue the browser its own
+                    // again so the reader sees the answer on the page rather than the login screen.
+                    val token = SessionRepository.create(
+                        employeeNumber = session.employeeNumber,
+                        ttlHours = AppConfig.sessionTtlHours,
+                        userAgent = call.request.headers[HttpHeaders.UserAgent].orEmpty(),
+                        ip = call.clientIp(),
+                    )
+                    call.setSessionCookie(token)
+                }
+                call.respondRedirect("$SETTINGS_PATH?pw=${status.name}")
             }
 
             /**
@@ -911,6 +995,8 @@ fun main() {
                 val canRoles = session.may(Permission.MANAGE_ROLES)
                 // Stage 117: the owner/administrator pair alone writes a department; the service re-checks it.
                 val canDepartments = Authorization.isOwnerOrAdministrator(session.employeeNumber)
+                // Stage 123: another person's password is the super admin's alone; the service re-checks it.
+                val canSetPassword = session.employeeNumber == UserService.SUPER_ADMIN
                 val form = call.receiveParameters()
                 val filter = employeeFilterOfForm(form)
                 val result = EmployeeService.save(
@@ -920,6 +1006,7 @@ fun main() {
                     canAdmin = canPeople,
                     canSetRoles = canRoles,
                     canSetDepartment = canDepartments,
+                    canSetPassword = canSetPassword,
                 )
                 if (result.saved) {
                     val note = if (result.isEdit) PasswordStatus.USER_UPDATED else PasswordStatus.USER_ADDED
@@ -931,6 +1018,7 @@ fun main() {
                     employeeFormOf(
                         result, mayAdd = canPeople, maySetRoles = canRoles, filter = filter,
                         maySetProfile = canPeople, maySetDepartment = canDepartments,
+                        maySetPassword = canSetPassword,
                     ),
                 )
             }
@@ -1485,18 +1573,18 @@ fun main() {
                         session, canBoard, state = state, showBucketId = bucketOfOtherBack(back),
                     )
                 }
-                call.respondHtml {
-                    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canManage) newTaskButton() }) {
-                        // The filters this page was reading ride `back` (Stage 88 for the Other-tasks bucket,
-                        // Stage 107 for the project), so a refused save comes back on the same narrowed page the
-                        // popup was opened from.
-                        assignedTasksContent(
-                            session, canManage, state,
-                            otherBucketId = bucketOfBack(back),
-                            projectFilter = projectOfBack(back),
-                        )
-                    }
-                }
+                call.respondAssignedTasks(
+                    session, canManage, state,
+                    // The filters this page was reading ride `back` (Stage 88 for the Other-tasks bucket,
+                    // Stage 107 for the project), so a refused save comes back on the same narrowed page the
+                    // popup was opened from.
+                    otherBucketId = bucketOfBack(back),
+                    projectFilter = projectOfBack(back),
+                    // The same page also carries the column popup since Stage 124, so a refusal keeps the panel's
+                    // `+ New bucket` offer — one renderer, so a page arriving from a save is the page arriving
+                    // from a read.
+                    canAddBuckets = session.may(Permission.MANAGE_BUCKETS),
+                )
             }
             /**
              * Deletes the card named by the form's hidden `taskId`, its steps and its notes going with it.
@@ -1898,12 +1986,23 @@ fun main() {
                 // reader actually holds.
                 val canBuckets = session.may(Permission.MANAGE_BUCKETS)
                 val canManage = canBuckets || session.may(Permission.EDIT_ANY_TASK)
+                val form = call.receiveParameters()
+                // **Stage 124:** the Assigned page's empty panel opens this popup too, and names the page the
+                // answer belongs on. `back` is one of two fixed words — anything else is the Other tasks board —
+                // so it can neither send a reader off-site nor pick a route this file does not own.
+                val fromAssigned = form["back"]?.trim() == "assigned-tasks"
+                val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
+                val otherBucketId = form["bucket"]?.trim()?.toIntOrNull() ?: 0
+                val projectFilter = form["project"]?.trim()?.toIntOrNull() ?: 0
                 // Stage 51: naming a backlog column is an Other-tasks function, and the board is now management's,
                 // so the route turns a Viewer's add back to the page (which they cannot open) rather than growing
                 // a column. The rename/delete routes below have always checked the role; this closes the last
                 // write Stage 48 had left open to every signed-in account.
-                if (!canBuckets) return@post call.respondRedirect("/app/other-tasks")
-                val form = call.receiveParameters()
+                if (!canBuckets) {
+                    return@post call.respondRedirect(
+                        if (fromAssigned) "/app/assigned-tasks" else "/app/other-tasks",
+                    )
+                }
                 val name = form["name"]?.trim().orEmpty()
                 val showBucketId = form["show"]?.trim()?.toIntOrNull() ?: 0
                 // [TaskService.addBucket] answers with the rule that stopped the name, so the two a reader can
@@ -1916,6 +2015,13 @@ fun main() {
                     // board keeps the columns it has and only the popup moves — no reload, nothing retyped.
                     // A create has no column to name wrongly, so of the answers [TaskService.addBucket] can
                     // return, every one is a word about the field the reader is looking at.
+                    if (fromAssigned) {
+                        return@post call.respondAssignedTasks(
+                            session, canWriteTasks,
+                            bucket = BucketForm(typed = name, nameError = bucketMessage(error)),
+                            otherBucketId = otherBucketId, projectFilter = projectFilter, canAddBuckets = canBuckets,
+                        )
+                    }
                     return@post call.respondOtherTasks(
                         session, canManage, bucket = BucketForm(typed = name, nameError = bucketMessage(error)),
                         showBucketId = showBucketId,
@@ -1930,6 +2036,15 @@ fun main() {
                 // by it: names are unique case-insensitively, so this is the one column just inserted.
                 val createdId = TaskService.bucketRows()
                     .firstOrNull { it.name.equals(name, ignoreCase = true) }?.id ?: 0
+                // A create from the Assigned page answers with that page, its Other-tasks block redrawn with the
+                // new column in the picker and the filter on it — the same "see what you just added" the Other
+                // tasks board gets, without taking the reader off the page (**Stage 124**).
+                if (fromAssigned) {
+                    return@post call.respondAssignedTasks(
+                        session, canWriteTasks,
+                        otherBucketId = createdId, projectFilter = projectFilter, canAddBuckets = canBuckets,
+                    )
+                }
                 call.respondRedirect(bucketsBack(createdId))
             }
             /**
@@ -1994,12 +2109,13 @@ fun main() {
                 call.respondRedirect(bucketsBack(if (showBucketId == bucketId) 0 else showBucketId))
             }
             /**
-             * Add an account (Stage 51, re-chipped for **Stage 110**).
+             * Add an account (Stage 51, re-chipped for **Stage 110**, password narrowed in **Stage 123**).
              *
              * Two chips decide what this form may write. *Manage employees* is the door — without it nothing here
              * is reachable and the POST turns back to the page — and *Manage roles & permissions* is the **Role**
              * picker, so an account that only manages people adds a colleague under the catalogue's default role
-             * rather than choosing which set of powers they get.
+             * rather than choosing which set of powers they get. The first password is the super admin's alone:
+             * anybody else's posted word is ignored and the account starts on its employee number.
              */
             post("/app/access-control") {
                 val session = call.requireSession() ?: return@post
@@ -2008,11 +2124,12 @@ fun main() {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val canSetRoles = session.may(Permission.MANAGE_ROLES)
+                val canSetPassword = callerEmp == UserService.SUPER_ADMIN
                 val form = call.receiveParameters()
                 val employeeNumber = form["employeeNumber"]?.trim()?.uppercase().orEmpty()
                 val name = form["name"]?.trim().orEmpty()
                 val email = form["email"].orEmpty()
-                val newPassword = form["password"]?.trim().orEmpty()
+                val newPassword = if (canSetPassword) form["password"]?.trim().orEmpty() else ""
                 if (newPassword.isNotEmpty() && newPassword.length < MIN_PASSWORD_LENGTH) {
                     return@post call.respondRedirect("/app/access-control?pw=${PasswordStatus.TOO_SHORT.name}&who=$employeeNumber")
                 }
@@ -2025,6 +2142,7 @@ fun main() {
                     newPassword = newPassword,
                     canSetRoles = canSetRoles,
                     canSetProfile = true,
+                    canSetPassword = canSetPassword,
                 )
                 call.respondRedirect("/app/access-control?pw=${status.name}&who=$employeeNumber")
             }
@@ -2045,7 +2163,9 @@ fun main() {
             }
             post("/app/access-control/password") {
                 val session = call.requireSession() ?: return@post
-                if (!session.may(Permission.MANAGE_EMPLOYEES)) {
+                // Stage 123: another person's password is `EMP0000`'s alone — not a chip, so the Owner and
+                // Administrator roles lose this control even though they hold every chip.
+                if (session.employeeNumber != UserService.SUPER_ADMIN) {
                     return@post call.respondRedirect("/app/access-control")
                 }
                 val form = call.receiveParameters()
@@ -2517,6 +2637,8 @@ private suspend fun ApplicationCall.respondSettings(
     filter: EmployeeFilter,
     form: EmployeeForm,
     note: PasswordStatus? = null,
+    /** The change-password form's own answer (Stage 123), carried on `?pw=`. */
+    accountStatus: PasswordStatus? = null,
     mailStatus: PasswordStatus? = null,
     mailDetail: String? = null,
     bucketNote: PasswordStatus? = null,
@@ -2548,6 +2670,7 @@ private suspend fun ApplicationCall.respondSettings(
             canTypes = canTypes,
             canEmail = canEmail,
             note = note,
+            accountStatus = accountStatus,
             mailStatus = mailStatus,
             mailDetail = mailDetail,
             bucketNote = bucketNote,
@@ -2608,6 +2731,9 @@ private suspend fun ApplicationCall.respondAccess(
             roleForm = roleForm,
             passwordStatus = status,
             statusDetail = detail,
+            // Stage 123: the Password column is the super admin's, read here rather than passed in, so a
+            // refusal answering with this page cannot draw a control wider than the one the caller holds.
+            canSetPassword = session.employeeNumber == UserService.SUPER_ADMIN,
         )
     }
 }

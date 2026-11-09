@@ -602,6 +602,13 @@ fun openDoneLanesOf(params: Parameters): Set<Int> =
  * is the same form, and a five-column frame of "Nothing here." is not a thing anybody reads as an
  * invitation. [fixedProject] is what makes a new card land on this project.
  *
+ * [emptyOffer] and [emptyHint] are what that invitation says and offers, and they belong to the caller
+ * because what an empty board should offer is the caller's fact, not the board's. The default is the
+ * `+ New task` opener and the "write the first card" line every board has always printed. **Stage 124**
+ * is the one caller that answers differently: the Assigned tasks page offers **`+ New bucket`** there —
+ * naming a column of the Other tasks board — because that page already carries a `+ New task` in its head
+ * and its Other-tasks half is the one thing on it a reader can still be short of.
+ *
  * [canMoveCards] is the right to put one of this project's cards into a different lane of it, and since
  * Stage 49 it is the project page's one difference between management and everybody else: the cards printed
  * underneath are the same ones either way, and a plain account that has work on the project still sees it, in
@@ -637,6 +644,12 @@ fun DIV.taskKanban(
     drawOpener: Boolean = true,
     canManageLanes: Boolean = false,
     doneOpen: Set<Int> = emptySet(),
+    emptyOffer: (DIV) -> Unit = { it.newTaskButton(fixedProject) },
+    emptyHint: String = if (fixedProject == null) {
+        "The board is the plan — write the first card and it appears under its column."
+    } else {
+        "The board is the plan — write the first card and it appears under its lane."
+    },
 ) {
     val laneBoard = lanes.isNotEmpty()
     if (laneBoard) {
@@ -652,12 +665,9 @@ fun DIV.taskKanban(
                 +(if (fixedProject == null) "Nothing has been assigned yet." else "No tasks on this project yet.")
             }
             p("board-empty-sub") {
-                +(
-                    if (fixedProject == null) "The board is the plan — write the first card and it appears under its column."
-                    else "The board is the plan — write the first card and it appears under its lane."
-                    )
+                +emptyHint
             }
-            newTaskButton(fixedProject)
+            emptyOffer(this)
         }
     }
     // One opener for the whole board. Which card was clicked is only known in the browser, so the card's

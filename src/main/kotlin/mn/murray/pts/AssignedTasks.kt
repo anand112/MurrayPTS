@@ -6,6 +6,7 @@ import kotlinx.html.DIV
 import kotlinx.html.FormMethod
 import kotlinx.html.InputType
 import kotlinx.html.button
+import kotlinx.html.div
 import kotlinx.html.form
 import kotlinx.html.h2
 import kotlinx.html.id
@@ -37,10 +38,10 @@ import mn.murray.pts.service.TaskService
  * backlog card had nowhere personal to surface, and since Stage 51 a Viewer is not even offered the *Other tasks*
  * link. So "what is on me" was quietly two-of-nine for somebody whose work is not on a project. This page now
  * answers it whole: the cards filed under a project, then the cards that are theirs but on no project, or the
- * plain statement that they have none. It is **not** the shared backlog board returning here — no columns, no
- * `⋮`, no *Add bucket*, no view toggle: only the reader's own cards, cut by status like the projects board above,
- * opened and saved through the very same popup. The shared board and its management controls stay on
- * [mn.murray.pts.otherTasksContent], which is where the backlog *as a board* lives.
+ * plain statement that they have none. It is **not** the shared backlog board returning here — no bucket columns,
+ * no `⋮`, no view toggle: only the reader's own cards, cut by status like the projects board above, opened and
+ * saved through the very same popup. The shared board stays on [mn.murray.pts.otherTasksContent]; Stage 124
+ * adds only its column-create popup to this page, not its columns or their management menus.
  *
  * Since **Stage 90** the Other-task half is also where a reader **writes their first card**: one `+ Add task`
  * line under the board opens the blank popup on the bucket the picker is showing. It restores the self-service
@@ -54,6 +55,12 @@ import mn.murray.pts.service.TaskService
  * still in the five status columns. The two pickers narrow two different boards on one page, so each carries
  * the other's choice as a hidden field and both ride the page's `back` token ([backForFilters]) — a card opened,
  * saved, stepped, noted, deleted or refused from a filtered page returns to that same filtered page.
+ *
+ * **Since Stage 124 the empty projects board offers `+ New bucket`** where it used to repeat the page head's
+ * `+ New task`: the Other tasks board's own add-a-column popup ([newBucketButton]), drawn for a reader who may
+ * *Manage buckets*. The head already writes a card; a column is the one thing this page can still be short of
+ * — without one there is no `+ Add task` line to write under — and the popup's answer lands in `#assignedOther`
+ * so the picker, the reader's own cards and that line all arrive together, with no reload.
  *
  * The two boards share the page's **one** card popup and **one** editor opener: the project board draws the
  * opener only when the Other-task board has nothing to draw it with (see the `drawOpener` argument), because
@@ -71,6 +78,8 @@ fun DIV.assignedTasksContent(
     state: TaskForm? = null,
     otherBucketId: Int = 0,
     projectFilter: Int = 0,
+    canAddBuckets: Boolean = false,
+    bucket: BucketForm = BucketForm(),
 ) {
     // Both lists are the reader's own cards whichever role they hold ([canManage] governs the rights beneath —
     // create, the full editor, the drag — not who appears). This is the one place the personal-scoping is applied;
@@ -117,38 +126,77 @@ fun DIV.assignedTasksContent(
     // management's — [mn.murray.pts.service.TaskService.mayAddTasks] takes a project for a reason. The Other-task
     // board's own line is a separate right since Stage 90 (see below).
     // The opener travels with this board only while the Other-task board below has no card of its own to carry it.
-    taskKanban(cards, session, canManage, back, canAdd = canManage, drawOpener = ownOther.isEmpty())
+    //
+    // **Stage 124:** on an empty board this panel used to offer the page head's `+ New task` a second time. It now
+    // offers `+ New bucket` instead — the Other tasks board's own "new column" popup, the same one `+ Add bucket`
+    // opens there — for the reader who may name a column. That is the one thing this page can still be short of:
+    // the head already writes a card, while a reader whose board has no column at all has no `+ Add task` line to
+    // write one under. A reader who may write cards but not name columns keeps the old opener, so nothing is taken
+    // away from a role that never held the bucket right.
+    taskKanban(
+        cards, session, canManage, back,
+        canAdd = canManage,
+        drawOpener = ownOther.isEmpty(),
+        emptyOffer = if (canAddBuckets) {
+            { it.newBucketButton(chosenBucket, chosenProject) }
+        } else {
+            { it.newTaskButton() }
+        },
+        emptyHint = if (canAddBuckets) {
+            "Write the first card from the page head, or name a bucket for work that is not on a project."
+        } else {
+            "The board is the plan — write the first card and it appears under its column."
+        },
+    )
 
     h2("assigned-other-head") { +"Other tasks" }
     p("assigned-other-sub") { +"Work assigned to you that is not on a project." }
-    // Drawn whenever the board has columns, since **Stage 90** even when the reader has no Other-task cards yet:
-    // it is now also the chooser for the `+ Add task` line under the board, so hiding it on an empty board would
-    // leave a reader with no way to say which bucket their first card belongs in. A stale `?bucket=` still opens
-    // it so there is a way back to *All buckets*. The projects filter above rides along as a hidden field, so
-    // choosing a bucket does not quietly widen the board over it.
-    if (buckets.isNotEmpty()) {
-        otherBucketFilter(buckets, chosenBucket, chosenProject?.id ?: 0)
-    }
-    if (ownOther.isEmpty()) {
-        p("assigned-other-empty") {
-            +(if (chosenBucket != null) "You don't have any other tasks in ${chosenBucket.name}."
-            else "You don't have any other tasks assigned.")
+    // Everything a bucket write can change on this half of the page: the picker that lists the columns, the
+    // empty line or the reader's own cards, and the `+ Add task` line that needs a column to aim at. **Stage 124**
+    // made it the live block the bucket popup answers on, so a column named from the panel above lands here —
+    // without it the create would have to reload the page or leave the reader a picker one name short.
+    div("assigned-other") {
+        id = "assignedOther"
+        // Drawn whenever the board has columns, since **Stage 90** even when the reader has no Other-task cards yet:
+        // it is now also the chooser for the `+ Add task` line under the board, so hiding it on an empty board would
+        // leave a reader with no way to say which bucket their first card belongs in. A stale `?bucket=` still opens
+        // it so there is a way back to *All buckets*. The projects filter above rides along as a hidden field, so
+        // choosing a bucket does not quietly widen the board over it.
+        if (buckets.isNotEmpty()) {
+            otherBucketFilter(buckets, chosenBucket, chosenProject?.id ?: 0)
         }
-    } else {
-        // The reader's own backlog cards, cut by status exactly like the projects board above. `canAdd = false`:
-        // the page's create line is the row *below* the board, aimed at a bucket rather than a status column —
-        // the same reason the shared board puts one line at the foot of a bucket instead of one per status. The
-        // board carries the page's one opener, since the project board handed it over above.
-        taskKanban(ownOther, session, canManage, back, canAdd = false)
+        if (ownOther.isEmpty()) {
+            p("assigned-other-empty") {
+                +(if (chosenBucket != null) "You don't have any other tasks in ${chosenBucket.name}."
+                else "You don't have any other tasks assigned.")
+            }
+        } else {
+            // The reader's own backlog cards, cut by status exactly like the projects board above. `canAdd = false`:
+            // the page's create line is the row *below* the board, aimed at a bucket rather than a status column —
+            // the same reason the shared board puts one line at the foot of a bucket instead of one per status. The
+            // board carries the page's one opener, since the project board handed it over above.
+            taskKanban(ownOther, session, canManage, back, canAdd = false)
+        }
+        // Stage 90: the reader's own way in, on an empty board as readily as a full one. One line for the whole
+        // Other board, opening the blank card popup on the bucket the picker shows — the first column for *All
+        // buckets*, because a non-manager's popup pins its column (Stage 49). A non-manager's card lands as **theirs**
+        // and **Not started** ([mn.murray.pts.service.TaskService.createBacklog] rebuilds the draft that way);
+        // management writes the same form with the roster and the status picker. The project filter rides along like
+        // the bucket does, so a card written from a narrowed page answers on that same page.
+        if (buckets.isNotEmpty()) {
+            otherAddTaskForm(buckets, chosenBucket, chosenProject?.id ?: 0)
+        }
     }
-    // Stage 90: the reader's own way in, on an empty board as readily as a full one. One line for the whole
-    // Other board, opening the blank card popup on the bucket the picker shows — the first column for *All
-    // buckets*, because a non-manager's popup pins its column (Stage 49). A non-manager's card lands as **theirs**
-    // and **Not started** ([mn.murray.pts.service.TaskService.createBacklog] rebuilds the draft that way);
-    // management writes the same form with the roster and the status picker. The project filter rides along like
-    // the bucket does, so a card written from a narrowed page answers on that same page.
-    if (buckets.isNotEmpty()) {
-        otherAddTaskForm(buckets, chosenBucket, chosenProject?.id ?: 0)
+    // The column popup the empty panel's `+ New bucket` opens (**Stage 124**): the Other tasks board's own add-a-bucket
+    // form, drawn here because this is where it is opened from. It answers on `#assignedOther` — the block above —
+    // so the column it makes appears in this page's picker without the page restarting, and its refusal comes back
+    // with the word still in the field and the reason under it. Management only: naming a column is the
+    // *Manage buckets* right, and the POST route asks for it again.
+    if (canAddBuckets) {
+        bucketModal(
+            bucket, emptyList(), canManage = true, target = "#assignedOther", from = "assigned-tasks",
+            assignedBucketId = chosenBucket?.id ?: 0, projectFilter = chosenProject?.id ?: 0,
+        )
     }
 
     // The popup travels with the page, for every reader: management's `+ New task` in the head swaps into it,
@@ -287,5 +335,31 @@ private fun DIV.otherAddTaskForm(buckets: List<Bucket>, chosen: Bucket?, chosenP
         if (chosen != null) input(type = InputType.hidden, name = "bucket") { value = "${chosen.id}" }
         if (chosenProjectId > 0) input(type = InputType.hidden, name = "project") { value = "$chosenProjectId" }
         button(type = ButtonType.submit, classes = "kcol-add-btn") { +"+ Add task" }
+    }
+}
+
+/**
+ * The `+ New bucket` opener in the empty board's panel (**Stage 124**): the Other tasks board's "new column",
+ * offered from the panel that used to repeat the page head's `+ New task`.
+ *
+ * It is the Other tasks page's `+ Add bucket` mechanism, aimed at this page: a GET form carrying `newbucket=1`
+ * (and whichever filters are on, so opening the popup never rebuilds a widened board behind it) that
+ * `static/js/app.js` answers by fetching this URL and swapping only `#bucketModal` — the server draws the
+ * add-a-bucket popup open, exactly as it does there. Scripts off, the same click loads this page with the same
+ * popup up. The popup's own form posts to `/app/other-buckets` with `back=assigned-tasks`, and that route answers
+ * with this page so the column it makes arrives in `#assignedOther` (the picker, the reader's own cards and the
+ * `+ Add task` line) without a reload.
+ *
+ * Drawn for the reader who may name a column — *Manage buckets* — not for every card-writer: the route refuses
+ * the write for anybody else, so offering it would be a button a role cannot use. A reader who writes cards
+ * without that right keeps the old `+ New task` offer in the panel instead.
+ */
+private fun DIV.newBucketButton(chosenBucket: Bucket?, chosenProject: Project?) {
+    form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "opener-form") {
+        attributes["data-live-target"] = "#bucketModal"
+        input(type = InputType.hidden, name = "newbucket") { value = "1" }
+        if (chosenBucket != null) input(type = InputType.hidden, name = "bucket") { value = "${chosenBucket.id}" }
+        if (chosenProject != null) input(type = InputType.hidden, name = "project") { value = "${chosenProject.id}" }
+        button(type = ButtonType.submit, classes = "submit btn-sm new-bucket-btn") { +"+ New bucket" }
     }
 }

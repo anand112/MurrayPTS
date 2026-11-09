@@ -157,6 +157,8 @@ class AccessControlRenderTest {
         canRoles: Boolean = true,
         canDepartments: Boolean = false,
         roleForm: RoleForm = RoleForm(),
+        /** Stage 123: the Password column is `EMP0000`'s alone — and it only makes sense inside the people sheet. */
+        canSetPassword: Boolean = who == owner && canPeople,
     ): String = render {
         accessContent(
             canPeople = canPeople,
@@ -164,6 +166,7 @@ class AccessControlRenderTest {
             canDepartments = canDepartments,
             currentEmployeeNumber = who,
             roleForm = roleForm,
+            canSetPassword = canSetPassword,
         )
     }
 
@@ -569,8 +572,22 @@ class AccessControlRenderTest {
             "the sheet no longer says who sets the word beside a name",
         )
         assertTrue(
-            sheet.contains("Manage employees is what adds, removes and re-passes accounts"),
-            "the sheet no longer says what the four missing columns are for",
+            sheet.contains("Manage employees is what adds and removes accounts"),
+            "the sheet no longer says what the missing columns are for",
+        )
+
+        // Stage 123: an account that holds *Manage employees* but is not `EMP0000` still prints the Position
+        // picker, the Delete column and the Add-user card — and no password control anywhere, because another
+        // person's password is the super admin's alone.
+        val administrator = page(adminWord, canPeople = true, canRoles = true)
+        val adminSheet = peopleSheet(administrator)
+        assertFalse(adminSheet.contains("<th>Password</th>"), "an Administrator was offered the password column")
+        assertFalse(adminSheet.contains("/app/access-control/password"), "an Administrator was offered a password setter")
+        assertFalse(addCard(administrator).contains("name=\"password\""), "an Administrator was offered the add-user password box")
+        assertTrue(adminSheet.contains("<th>Delete</th>"), "an Administrator lost the delete column with the password one")
+        assertTrue(
+            adminSheet.contains("only the super admin can set another one"),
+            "the sheet does not say who sets a password",
         )
 
         // The page's own script is the popup's way out, and it loads for both readings.

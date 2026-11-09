@@ -29,10 +29,17 @@ data class AccessRow(
     fun displayEmail(): String = email.ifBlank { autoEmail(name) }
 }
 
-/** Auto-generated company email: firstname.lastname@murray.mn (keeps letters, digits and hyphens). */
+/**
+ * Auto-generated company email — what a blank address becomes when an account is created:
+ * `firstname.surname@murrays.mn` (Stage 125). The local part is the name's FIRST and LAST word
+ * (a one-word name stands alone and a middle word is dropped), lowercased, keeping letters,
+ * digits and hyphens inside each word. A name with no words at all yields no address.
+ */
 fun autoEmail(name: String): String {
-    val local = name.trim().lowercase().replace(Regex("[^a-z0-9-]+"), ".").trim('.')
-    return "$local@murray.mn"
+    val words = name.lowercase().split(Regex("[^a-z0-9-]+")).filter { it.isNotEmpty() }
+    if (words.isEmpty()) return ""
+    val local = if (words.size == 1) words.first() else "${words.first()}.${words.last()}"
+    return "$local@murrays.mn"
 }
 
 /**

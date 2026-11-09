@@ -166,8 +166,9 @@ internal fun TR.positionRow(pos: Position, canEdit: Boolean) {
  *
  * The People sheet beneath it keeps its Stage 51 shape. Its **Access** column became **Role**, because the
  * role is what decides access now; the position beside it is a job title and nothing more. [canPeople] is
- * *Manage employees* — the position, password, delete and add-user controls — while the role written in a
- * row is **Manage roles & permissions** and posts to its own route.
+ * *Manage employees* — the position, delete and add-user controls — while the role written in a row is
+ * **Manage roles & permissions** and posts to its own route. The **Password** column, its per-row setter and
+ * the add-user password box follow [canSetPassword] instead (Stage 123): `EMP0000` alone.
  *
  * **Department** (Stage 118) is the roster's own column, printed here between Position and Role. [canDepartments]
  * is the Owner/Administrator pair (a role holding every chip): they get a picker per row that posts to its own
@@ -183,6 +184,12 @@ fun DIV.accessContent(
     roleForm: RoleForm = RoleForm(),
     passwordStatus: PasswordStatus? = null,
     statusDetail: String? = null,
+    /**
+     * The super admin alone (Stage 123): the Password column, its per-row setter, and the Add-user password
+     * box. The Owner and Administrator roles hold every chip but are not that account, so holding *Manage
+     * employees* no longer reaches another person's password.
+     */
+    canSetPassword: Boolean = false,
 ) {
     val roles = RoleService.catalogue()
     val counts = RoleService.counts()
@@ -199,7 +206,7 @@ fun DIV.accessContent(
                     th { +"Position" }
                     th { +"Department" }
                     th { +"Role" }
-                    if (canPeople) th { +"Password" }
+                    if (canSetPassword) th { +"Password" }
                     if (canPeople) th { +"Delete" }
                 }
             }
@@ -296,7 +303,7 @@ fun DIV.accessContent(
                                 span("assignee none") { +"No account" }
                             }
                         }
-                        if (canPeople) {
+                        if (canSetPassword) {
                             td {
                                 if (account == null) {
                                     +"—"
@@ -312,6 +319,8 @@ fun DIV.accessContent(
                                     }
                                 }
                             }
+                        }
+                        if (canPeople) {
                             td {
                                 if (row.employeeNumber == "EMP0000" || row.employeeNumber == currentEmployeeNumber) {
                                     +"—"
@@ -331,7 +340,13 @@ fun DIV.accessContent(
             }
         }
         if (!canPeople) p("panel-caption") {
-            +"Manage employees is what adds, removes and re-passes accounts. The role beside each name is set by whoever manages roles & permissions, and the department by an Owner or Administrator."
+            +("Manage employees is what adds and removes accounts. The role beside each name is set by whoever " +
+                "manages roles & permissions, the department by an Owner or Administrator, and a password only " +
+                "by the super admin.")
+        } else if (!canSetPassword) p("panel-caption") {
+            +("A new account signs in with its employee number as the password, and only the super admin can " +
+                "set another one. The role beside each name is set by whoever manages roles & permissions, and " +
+                "the department by an Owner or Administrator.")
         }
     }
     if (canPeople) {
@@ -362,7 +377,7 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Email" }
                         input(type = InputType.email, name = "email") {
-                            placeholder = "Auto: firstname.lastname@murray.mn"
+                            placeholder = "Auto: firstname.surname@murrays.mn"
                         }
                     }
                     div("field") {
@@ -393,20 +408,24 @@ fun DIV.accessContent(
                             }
                         }
                     }
-                    div("field") {
-                        label { +"Password" }
-                        input(type = InputType.password, name = "password") {
-                            placeholder = "Defaults to employee number"
-                            attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
-                            attributes["autocomplete"] = "new-password"
+                    if (canSetPassword) {
+                        div("field") {
+                            label { +"Password" }
+                            input(type = InputType.password, name = "password") {
+                                placeholder = "Defaults to employee number"
+                                attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
+                                attributes["autocomplete"] = "new-password"
+                            }
                         }
                     }
                 }
                 p("panel-caption") {
                     +(
                         "Position defaults to the member's team-roster position and the role to the catalogue's " +
-                            "default. If no password is given it defaults to the employee number. A blank email " +
-                            "is generated as firstname.lastname@murray.mn."
+                            "default. " +
+                            (if (canSetPassword) "If no password is given it defaults to the employee number. "
+                            else "The account starts with its employee number as the password — only the super admin sets another. ") +
+                            "A blank email is generated as firstname.surname@murrays.mn."
                         )
                 }
                 button(type = ButtonType.submit, classes = "submit") { +"Add user" }

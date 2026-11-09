@@ -55,6 +55,10 @@ enum class PasswordStatus(val isError: Boolean, val text: String) {
     CHANGED(false, "Password updated successfully."),
     TOO_SHORT(true, "Password must be at least $MIN_PASSWORD_LENGTH characters."),
     EMPTY(true, "Please fill in all password fields."),
+    // Stage 123: the reader changing their own password has to prove the current one, and type the new
+    // one twice. Both refusals print under the field they belong to, like every other form in the app.
+    WRONG_CURRENT(true, "Current password is not correct."),
+    MISMATCH(true, "The two new passwords do not match."),
     USER_NOT_FOUND(true, "No user found with that employee number."),
     USER_DELETED(false, "User deleted."),
     USER_ADDED(false, "User added."),
@@ -112,8 +116,12 @@ fun DIV.flashBanner(status: PasswordStatus?, detail: String? = null) {
  * columns, and the two things anybody ever wanted from the old workload table (what this account may
  * do, and how much work is on it) printed as columns rather than as a count you have to click open.
  * So the sheet replaced that table here, and the account card underneath it stayed exactly where it
- * was. Stage 99 took the password box off the page: a password is set from the Team sheet, and the app
- * no longer stops a reader whose password is still the number the system gave them.
+ * was. Stage 99 took the password box off the page: a password was then set from the Team sheet.
+ *
+ * **Stage 123 opens the page to every account.** Settings is in every reader's sidebar now, and for a
+ * Project Manager or an Employee — holding none of the panels' chips — the page is exactly one section:
+ * *Your account*, with the change-password form it always should have had. The Team sheet and the three
+ * app panels still print only for the chips they belong to, so nothing wider leaked in with the door.
  *
  * How it updates, in the same shape the lesson sheet uses:
  *
@@ -153,6 +161,8 @@ fun DIV.settingsContent(
     canTypes: Boolean = canManage,
     canEmail: Boolean = canAdmin,
     note: PasswordStatus? = null,
+    /** The change-password form's answer (Stage 123): a success line, or a refusal under its field. */
+    accountStatus: PasswordStatus? = null,
     mailStatus: PasswordStatus? = null,
     mailDetail: String? = null,
     bucketNote: PasswordStatus? = null,
@@ -163,9 +173,9 @@ fun DIV.settingsContent(
     typeBeingEdited: String = "",
 ) {
     // Stage 51: the Team sheet is the Settings *function* — the roster of accounts with its add/edit controls,
-    // search and toolbar. It belongs to management alone, so a Viewer who reaches this page (the change-password
-    // form below is every account's, and a first-login forced change lands here) sees none of the sheet. The write
-    // routes refuse a non-manager again through mayAdd/mayEdit; this only stops printing it.
+    // search and toolbar. It belongs to management alone; since Stage 123 the page itself is every account's,
+    // and a reader without the people chip sees only the account card below. The write routes refuse a
+    // non-manager again through mayAdd/mayEdit; this only stops printing it.
     if (canManage) {
         h3("set-section") { +"Team" }
         flashBanner(note)
@@ -178,7 +188,7 @@ fun DIV.settingsContent(
         }
     }
 
-    accountCard(session)
+    accountCard(session, accountStatus)
 
     // The three panels below the account card are the settings *of the app*, not of the account: which
     // categories projects are filed under, which buckets a freshly created project starts with, and whether
@@ -513,8 +523,20 @@ private fun DIV.teamEmpty(filter: EmployeeFilter) {
     }
 }
 
-/** The reader's own account — the four things the old page printed, in the same rows. */
-private fun DIV.accountCard(session: UserSession) {
+/**
+ * The reader's own account — the four things the old page printed, and the one write every account owns.
+ *
+ * **Stage 123** puts the password form back inside this card. It left the page in Stage 99 because a
+ * password was management's to set; that left every Project Manager and Employee with no way to change
+ * the one they sign in with. It belongs here rather than in a section of its own, because for those two
+ * roles this card *is* the whole page — the user asked that Settings show them their account and nothing
+ * else — and a separate heading would split a single thing in two.
+ *
+ * The current password is asked for before a new one is accepted: a session left open on a shared machine
+ * is not a reason for the next person to take the account. A refusal comes back from the route as this
+ * card's own line, under the field that caused it ([passwordForm]).
+ */
+private fun DIV.accountCard(session: UserSession, status: PasswordStatus? = null) {
     val user = DemoData.userFor(session.employeeNumber)
     h3("set-section") { +"Your account" }
     div("card-panel") {
@@ -537,6 +559,62 @@ private fun DIV.accountCard(session: UserSession) {
         p("task-meta") {
             +"Use the 🎨 button in the sidebar to cycle the accent colour and 🌙 for dark mode. Preferences are stored in your browser."
         }
+        h3 { +"Change password" }
+        p("panel-caption") {
+            +("Type the password you sign in with, then the new one twice. Your other sessions are signed " +
+                "out; this browser stays signed in.")
+        }
+        passwordForm(status)
+    }
+}
+
+/**
+ * The form that changes the reader's own password.
+ *
+ * A plain POST with a redirect and a `?pw=` code, rather than a live-region swap: it is the one form on
+ * this page that must work for a reader holding nothing else, with no script between them and their
+ * account. The answer returns to the same card, and [PasswordStatus] names the field each refusal belongs
+ * under — the current password, the new one, its confirmation — or the form's own full-width line for a
+ * send that left every field blank. A success prints the green line where the form is, so a reader who
+ * changed their password is looking at the sentence when they look up.
+ */
+private fun DIV.passwordForm(status: PasswordStatus?) {
+    form(action = "/app/settings/password", method = FormMethod.post, classes = "account-password") {
+        if (status == PasswordStatus.CHANGED) div("flash ok") { +status.text }
+        div("form-grid") {
+            div("field") {
+                label { +"Current password" }
+                input(type = InputType.password, name = "currentPassword") {
+                    id = "accountCurrentPassword"
+                    required = true
+                    attributes["autocomplete"] = "current-password"
+                }
+                if (status == PasswordStatus.WRONG_CURRENT) p("field-err") { +status.text }
+            }
+            div("field") {
+                label { +"New password" }
+                input(type = InputType.password, name = "newPassword") {
+                    id = "accountNewPassword"
+                    required = true
+                    attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
+                    attributes["autocomplete"] = "new-password"
+                }
+                if (status == PasswordStatus.TOO_SHORT) p("field-err") { +status.text }
+            }
+            div("field") {
+                label { +"Confirm new password" }
+                input(type = InputType.password, name = "confirmPassword") {
+                    id = "accountConfirmPassword"
+                    required = true
+                    attributes["minlength"] = MIN_PASSWORD_LENGTH.toString()
+                    attributes["autocomplete"] = "new-password"
+                }
+                if (status == PasswordStatus.MISMATCH) p("field-err") { +status.text }
+            }
+        }
+        // No field of its own: a hand-built send can leave all three empty at once.
+        if (status == PasswordStatus.EMPTY) p("field-err full") { +status.text }
+        button(type = ButtonType.submit, classes = "submit btn-sm") { +"Change password" }
     }
 }
 
@@ -965,9 +1043,14 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                     if (form.isEdit) {
                         "Their name and employee number stay as the roster has them — projects and cards " +
                             "name people by those words."
-                    } else if (form.maySetRoles) {
+                    } else if (form.maySetPassword) {
                         "They sign in with the number and the password you set here. Leave the password " +
                             "blank and the number is it; you can set a new one here at any time."
+                    } else if (form.maySetRoles) {
+                        // Since Stage 123 the password box is the super admin's alone, so an Administrator
+                        // who may still choose the role is told plainly who sets the password.
+                        "They sign in with their employee number as the password; only the super admin " +
+                            "sets another one."
                     } else {
                         "They sign in with their employee number as the password, and start in the " +
                             "${form.defaultRole} role — the one the catalogue hands out by default."
@@ -1066,7 +1149,9 @@ private fun DIV.employeeModal(form: EmployeeForm) {
                             form.error(EmployeeField.DEPARTMENT)?.let { p("field-err") { +it } }
                         }
                     }
-                    if (form.maySetProfile) {
+                    // Stage 123: another person's password is the super admin's alone, so the box follows
+                    // `maySetPassword` rather than the wider *Manage employees* chip that draws Position.
+                    if (form.maySetPassword) {
                         div("field") {
                             label { +"Password" }
                             input(type = InputType.password, name = "password") {
@@ -1104,11 +1189,12 @@ private fun DIV.employeeModal(form: EmployeeForm) {
  * opened from a roster row that has no account yet, which is filled with that person's name and number
  * but writes a new account rather than looking for one that is not there.
  *
- * [mayAdd], [maySetRoles], [maySetProfile] and [maySetDepartment] are this reader's rights, carried in so
- * the page can print the controls that match them: management's popup opens; an administrator's asks for a
- * role; *Manage employees* draws the position and password boxes; and only the Owner/Administrator pair is
- * offered a department (Stage 117). [positions], [departments] and [filter] ride along for the same reason
- * — the pickers' choices and the sheet the popup has to answer when it closes.
+ * [mayAdd], [maySetRoles], [maySetProfile], [maySetPassword] and [maySetDepartment] are this reader's
+ * rights, carried in so the page can print the controls that match them: management's popup opens; an
+ * administrator's asks for a role; *Manage employees* draws the position box; only the super admin's asks
+ * for or changes a password (Stage 123); and only the Owner/Administrator pair is offered a department
+ * (Stage 117). [positions], [departments] and [filter] ride along for the same reason — the pickers'
+ * choices and the sheet the popup has to answer when it closes.
  */
 data class EmployeeForm(
     val edit: String = "",
@@ -1123,8 +1209,10 @@ data class EmployeeForm(
     val mayAdd: Boolean = false,
     /** *Manage roles & permissions*: the Role picker. */
     val maySetRoles: Boolean = false,
-    /** *Manage employees*: the position picker and the password box. */
+    /** *Manage employees*: the position picker. */
     val maySetProfile: Boolean = maySetRoles,
+    /** The super admin alone (Stage 123): the Password box for somebody else's account. */
+    val maySetPassword: Boolean = false,
     /** The Owner/Administrator pair alone: the Department picker (Stage 117). */
     val maySetDepartment: Boolean = false,
     val errors: Map<EmployeeField, String> = emptyMap(),
@@ -1177,6 +1265,7 @@ fun employeeFormOf(
     mayEdit: Boolean,
     maySetRoles: Boolean = mayEdit,
     maySetDepartment: Boolean = false,
+    maySetPassword: Boolean = false,
 ): EmployeeForm {
     val roles = EmployeeService.roles()
     val fallback = EmployeeService.defaultRoleName()
@@ -1197,6 +1286,7 @@ fun employeeFormOf(
             mayAdd = mayAdd,
             maySetRoles = maySetRoles,
             maySetProfile = mayEdit,
+            maySetPassword = maySetPassword,
             maySetDepartment = maySetDepartment,
             filter = employeeFilterOf(query),
             positions = EmployeeService.positionNames(),
@@ -1210,6 +1300,7 @@ fun employeeFormOf(
         mayAdd = mayAdd,
         maySetRoles = maySetRoles,
         maySetProfile = mayEdit,
+        maySetPassword = maySetPassword,
         maySetDepartment = maySetDepartment,
         role = fallback,
         department = row?.department.orEmpty(),
@@ -1229,6 +1320,7 @@ fun employeeFormOf(
     filter: EmployeeFilter,
     maySetProfile: Boolean = maySetRoles,
     maySetDepartment: Boolean = false,
+    maySetPassword: Boolean = false,
 ): EmployeeForm {
     val draft = result.values
     return EmployeeForm(
@@ -1243,6 +1335,7 @@ fun employeeFormOf(
         mayAdd = mayAdd,
         maySetRoles = maySetRoles,
         maySetProfile = maySetProfile,
+        maySetPassword = maySetPassword,
         maySetDepartment = maySetDepartment,
         errors = result.errors,
         filter = filter,

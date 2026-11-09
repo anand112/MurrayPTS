@@ -213,20 +213,20 @@ class SidebarTaskCountTest {
     fun `the gated sections leave an employee's sidebar but stay in the list the bell resolves through`() {
         // Stage 51 hid Settings, Access control and Other tasks from a Viewer. **Stage 110** replaced that
         // rank-based hide with the chips of [NAV_PERMISSIONS], so the question is now per role rather than per
-        // account level, and *Forecasts* joined the gated four. A Project Manager runs boards and the backlog but
-        // holds no people or settings chip; an Employee reads its colleagues' cards and nothing else; only an
-        // Administrator is offered all four gates. The gated items must still be in [navItems], because the
-        // notification bell maps a stored item's section back to a path through it — dropping them there would
-        // send a Viewer's own-card backlog notification to /app/projects instead of the board. So the filter
-        // lives at [navItemsFor], the sidebar's render, and not in the list every resolver reads.
+        // account level, and *Forecasts* joined the gated four. **Stage 123** took Settings back out of the
+        // gate: it is every account's page because *Your account* and its change-password form live on it, so
+        // a Project Manager and an Employee get the gear even though they hold no settings chip — the panels
+        // inside it stay gated, and they see only their own card. Access control stays gated. The gated items
+        // must still be in [navItems], because the notification bell maps a stored item's section back to a
+        // path through it — dropping them there would send a Viewer's own-card backlog notification to
+        // /app/projects instead of the board. So the filter lives at [navItemsFor], the sidebar's render, and
+        // not in the list every resolver reads.
         val boards = navItemsFor("EMP0001").map { it.id }
-        setOf("forecasts", "other-tasks").forEach {
-            assertTrue(it in boards, "a Project Manager lost the $it link, which its role has chips for")
+        setOf("forecasts", "other-tasks", "settings").forEach {
+            assertTrue(it in boards, "a Project Manager lost the $it link, which is theirs")
         }
-        setOf("access-control", "settings").forEach {
-            assertFalse(it in boards, "a Project Manager was offered the $it link with no chip to earn it")
-        }
-        assertEquals(8, boards.size, "a Project Manager's sidebar is not its role's links")
+        assertFalse("access-control" in boards, "a Project Manager was offered the access-control link with no chip to earn it")
+        assertEquals(9, boards.size, "a Project Manager's sidebar is not its role's links")
 
         val people = navItemsFor("EMP0004").map { it.id }
         NAV_PERMISSIONS.keys.forEach {
@@ -239,10 +239,11 @@ class SidebarTaskCountTest {
         // An account with no role row at all is read as the catalogue's default, so EMP0003 is measured the same
         // way as the Employee above rather than falling through to somebody's page.
         assertEquals(navItemsFor("EMP0003").map { it.id }, employee, "a role-less account is not the default role")
-        // Everything else is everybody's page, and the complete list the bell resolves through still has all ten.
-        val shared = setOf("projects", "assigned-tasks", "calendar", "team", "lessons", "todo")
+        // Everything else is everybody's page — Settings included since Stage 123 — and the complete list the
+        // bell resolves through still has all ten.
+        val shared = setOf("projects", "assigned-tasks", "calendar", "team", "lessons", "todo", "settings")
         shared.forEach { assertTrue(it in employee, "an Employee lost the $it link, which is theirs") }
-        assertEquals(6, employee.size, "an Employee's sidebar dropped more than the four gated sections")
+        assertEquals(7, employee.size, "an Employee's sidebar dropped a link that is everybody's")
         assertEquals(10, navItems("EMP0002").size, "the resolver's list was trimmed, not the render")
     }
 }

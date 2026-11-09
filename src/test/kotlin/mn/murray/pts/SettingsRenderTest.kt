@@ -177,6 +177,7 @@ class SettingsRenderTest {
         filter: EmployeeFilter = EmployeeFilter(),
         form: EmployeeForm? = null,
         note: PasswordStatus? = null,
+        accountStatus: PasswordStatus? = null,
         mailStatus: PasswordStatus? = null,
         mailDetail: String? = null,
         bucketNote: PasswordStatus? = null,
@@ -185,15 +186,18 @@ class SettingsRenderTest {
         typeNote: PasswordStatus? = null,
         typeDetail: String? = null,
         typeBeingEdited: String = "",
+        /** Stage 123: another person's password is `EMP0000`'s alone, so the popup follows the reader. */
+        maySetPassword: Boolean = who == superAdmin,
     ): String = render {
         settingsContent(
             session = UserSession(who),
             sheet = EmployeeService.sheet(filter, who, canManage, canAdmin),
             filter = filter,
-            form = form ?: employeeFormOf(query(), null, null, "", canManage, canAdmin),
+            form = form ?: employeeFormOf(query(), null, null, "", canManage, canAdmin, maySetPassword = maySetPassword),
             canManage = canManage,
             canAdmin = canAdmin,
             note = note,
+            accountStatus = accountStatus,
             mailStatus = mailStatus,
             mailDetail = mailDetail,
             bucketNote = bucketNote,
@@ -210,8 +214,10 @@ class SettingsRenderTest {
         form: EmployeeForm? = null,
     ): String = page(superAdmin, canManage = true, canAdmin = true, filter = filter, form = form)
 
-    private fun viewerPage(filter: EmployeeFilter = EmployeeFilter()): String =
-        page(worker, canManage = false, canAdmin = false, filter = filter)
+    private fun viewerPage(
+        filter: EmployeeFilter = EmployeeFilter(),
+        accountStatus: PasswordStatus? = null,
+    ): String = page(worker, canManage = false, canAdmin = false, filter = filter, accountStatus = accountStatus)
 
     private fun query(vararg pairs: Pair<String, String>): Parameters = Parameters.build {
         pairs.forEach { (key, value) -> append(key, value) }
@@ -223,9 +229,11 @@ class SettingsRenderTest {
         canManage: Boolean = true,
         canAdmin: Boolean = false,
         maySetDepartment: Boolean = false,
+        maySetPassword: Boolean = who == superAdmin,
     ): EmployeeForm =
         employeeFormOf(
-            query("new" to "1"), null, null, "", canManage, canAdmin, maySetDepartment = maySetDepartment,
+            query("new" to "1"), null, null, "", canManage, canAdmin,
+            maySetDepartment = maySetDepartment, maySetPassword = maySetPassword,
         )
 
     /** The popup as `?edit=<employee number>` draws it, carrying [view] so the sheet behind it is the same one. */
@@ -236,6 +244,7 @@ class SettingsRenderTest {
         canManage: Boolean = true,
         canAdmin: Boolean = true,
         maySetDepartment: Boolean = false,
+        maySetPassword: Boolean = who == superAdmin,
     ): EmployeeForm {
         val row = EmployeeService.row(employeeNumber, who, canManage, canAdmin)
         val account = row?.let { EmployeeService.account(it.employeeNumber) }
@@ -253,6 +262,7 @@ class SettingsRenderTest {
             mayAdd = canManage,
             mayEdit = canAdmin,
             maySetDepartment = maySetDepartment,
+            maySetPassword = maySetPassword,
         )
     }
 
@@ -466,7 +476,7 @@ class SettingsRenderTest {
         // An account prints its stored address; a person without one prints the address their account
         // would be given, so the sheet and the popup cannot disagree about who this is.
         assertTrue(row(html, worker).contains("<span class=\"ts-email\">bat@murray.mn</span>"), "the stored address was not printed")
-        assertTrue(row(html, noAccount).contains("<span class=\"ts-email\">nyambaapurev@murray.mn</span>"), "the sheet invented an address the account would not get")
+        assertTrue(row(html, noAccount).contains("<span class=\"ts-email\">nyambaapurev@murrays.mn</span>"), "the sheet invented an address the account would not get")
         // Management counts everybody: three cards, one completed, so two open, and a ten where a text
         // sort would have read "10" ahead of "2".
         assertTrue(row(html, worker).contains("<td class=\"t-tasks\">2</td>"), "a completed card was counted as work")
@@ -787,14 +797,13 @@ class SettingsRenderTest {
     // --- the popup --------------------------------------------------------------------------------------
 
     /**
-     * Stage 51: Settings *is* the roster sheet for management, but for a Viewer it shrinks to the one
-     * thing every account owns — their own account card. The Team heading, the search, the eight-column
-     * roster, the add card, the account popup and (since Stage 99) the password box are all absent.
-     * There is no password box left to lose: a password is set from the Team sheet now, and the app no
-     * longer gates a reader on a system-assigned one.
+     * Stage 123: Settings is every account's page. For a reader holding none of the panels' chips —
+     * an Employee, a Project Manager, a Viewer — it shrinks to the one thing every account owns: their
+     * own account card, with the change-password form inside it. The Team heading, the search, the
+     * eight-column roster, the add card and the account popup are all absent.
      */
     @Test
-    fun `a viewer's settings page is their own account, nothing of the roster and no password box`() {
+    fun `a viewer's settings page is their own account and its change-password form, nothing of the roster`() {
         val html = viewerPage()
         assertFalse(html.contains(">Team<"), "the roster heading printed for a Viewer")
         assertFalse(html.contains("id=\"team-board\""), "the roster sheet printed for a Viewer")
@@ -802,9 +811,29 @@ class SettingsRenderTest {
         assertFalse(html.contains("id=\"employeeModal\""), "the account popup printed for a Viewer")
         assertFalse(html.contains("/static/js/employee-modal.js"), "the account popup's script shipped to a Viewer")
         assertTrue(html.contains(">Your account<"), "a Viewer lost their own account card")
-        assertFalse(html.contains(">Change Password<"), "the retired password section printed for a Viewer")
-        assertFalse(html.contains("/app/settings/password"), "the retired password route is still on the page")
-        assertFalse(html.contains("name=\"currentPassword\""), "a password field is still on the page")
+        // The form Stage 99 took away and Stage 123 put back — every account may change its own password.
+        assertTrue(html.contains(">Change password<"), "the change-password section printed for a Viewer")
+        assertTrue(html.contains("action=\"/app/settings/password\""), "the password route is not on the page")
+        listOf("currentPassword", "newPassword", "confirmPassword").forEach {
+            assertTrue(html.contains("name=\"$it\""), "the $it field is missing from the form")
+        }
+    }
+
+    @Test
+    fun `the change-password form prints success and each refusal under its own field`() {
+        val changed = viewerPage(accountStatus = PasswordStatus.CHANGED)
+        assertTrue(changed.contains("Password updated successfully."), "a successful change printed nothing")
+
+        // Each refusal is drawn once, under the field it belongs to — the same placement every other form
+        // on the page uses, so the reader looks at the box they have to fix.
+        val wrong = viewerPage(accountStatus = PasswordStatus.WRONG_CURRENT)
+        assertTrue(wrong.contains("<p class=\"field-err\">Current password is not correct.</p>"), "the current-password refusal is not under its field")
+        val short = viewerPage(accountStatus = PasswordStatus.TOO_SHORT)
+        assertTrue(short.contains("<p class=\"field-err\">Password must be at least $MIN_PASSWORD_LENGTH characters.</p>"), "the length refusal is not under the new password")
+        val mismatch = viewerPage(accountStatus = PasswordStatus.MISMATCH)
+        assertTrue(mismatch.contains("<p class=\"field-err\">The two new passwords do not match.</p>"), "the mismatch refusal is not under the confirmation")
+        val empty = viewerPage(accountStatus = PasswordStatus.EMPTY)
+        assertTrue(empty.contains("<p class=\"field-err full\">Please fill in all password fields.</p>"), "an empty send has nowhere to print")
     }
 
     @Test
@@ -822,8 +851,8 @@ class SettingsRenderTest {
     }
 
     @Test
-    fun `an administrator's add popup asks for the three fields a manager's may not touch`() {
-        val asAdmin = adminPage(form = createForm(canAdmin = true))
+    fun `the super admin's add popup asks for the three fields a manager's may not touch, and an administrator gets no password box`() {
+        val asAdmin = adminPage(form = createForm(who = superAdmin, canAdmin = true))
         assertTrue(tag(asAdmin, "employeeModal").contains("style=\"display:block\""), "the add button opened nothing")
         assertTrue(asAdmin.contains("<h3>Add employee</h3>"))
         assertTrue(asAdmin.contains("They sign in with the number and the password you set here"), "the create does not say what the password is for")
@@ -848,6 +877,16 @@ class SettingsRenderTest {
         assertTrue(password.contains("placeholder=\"Blank means their employee number\""), "the password field does not say what blank means")
         assertTrue(password.contains("minlength=\"${MIN_PASSWORD_LENGTH}\""), "the field can type past what the service refuses")
         assertTrue(asAdmin.contains("<button type=\"submit\" class=\"submit\">Add employee</button>"))
+
+        // Stage 123: an Administrator holds every chip but is not `EMP0000`, so the popup still asks for
+        // the role and the position and prints no password box — and says who sets one instead.
+        val asAdministrator = page(adminAccess, canManage = true, canAdmin = true, form = createForm(who = adminAccess, canAdmin = true))
+        assertTrue(selectNamed(modal(asAdministrator), "role").contains("<option value=\"Employee\" selected=\"selected\">Employee</option>"), "an administrator lost the role picker")
+        assertFalse(modal(asAdministrator).contains("name=\"password\""), "an administrator was offered the password box")
+        assertTrue(
+            asAdministrator.contains("only the super admin sets another one"),
+            "the administrator's create does not say who sets the password",
+        )
 
         // A manager's popup asks for a number, a name and an address, and nothing the route would refuse.
         val asManager = page(form = createForm())
@@ -973,10 +1012,10 @@ class SettingsRenderTest {
                 employeeNumber = worker, name = "", email = "new@murray.mn",
                 position = "Engineer", role = "Boss", password = "ab",
             ),
-            superAdmin, canManage = true, canAdmin = true,
+            superAdmin, canManage = true, canAdmin = true, canSetPassword = true,
         )
         assertFalse(result.saved, "the setup wrote something it should have refused")
-        val html = adminPage(form = employeeFormOf(result, mayAdd = true, maySetRoles = true, filter = EmployeeFilter()))
+        val html = adminPage(form = employeeFormOf(result, mayAdd = true, maySetRoles = true, filter = EmployeeFilter(), maySetPassword = true))
         assertTrue(tag(html, "employeeModal").contains("style=\"display:block\""), "the popup closed on a refusal")
         assertTrue(tag(html, "employeeNumber").contains("value=\"$worker\""), "the typed number was thrown away")
         assertTrue(tag(html, "employeeEmail").contains("value=\"new@murray.mn\""), "the typed address was thrown away")
@@ -1026,11 +1065,10 @@ class SettingsRenderTest {
     // --- what stayed on the page ------------------------------------------------------------------------
 
     @Test
-    fun `under the sheet sits the reader's account card, and no password box`() {
+    fun `under the sheet sits the reader's account card, with the change-password form inside it`() {
         val html = page()
-        // The order the approved scope settled: Team first, then the reader's own account — and since
-        // Stage 99 the app panels follow the account card directly, because the password box between
-        // them is gone.
+        // The order the approved scope settled: Team first, then the reader's own account, then the app
+        // panels — the password form lives inside the account card rather than between them (Stage 123).
         assertTrue(html.indexOf("id=\"team-board\"") < html.indexOf(">Your account<"), "the sheet is not the first section")
         assertTrue(html.indexOf(">Your account<") < html.indexOf(">Project types<"), "the app panels jumped above the account card")
         assertTrue(html.contains("<h3 class=\"set-section\">Your account</h3>"))
@@ -1044,12 +1082,15 @@ class SettingsRenderTest {
         assertEquals("Project Manager", setRow(html, "Role").substringAfter(">").substringBefore("<"))
         assertFalse(html.contains(">Access level<"), "the retired access-word row is back on the card")
 
-        // Stage 99 retired the self-service password box: no heading, no form, no fields, for any role.
-        assertFalse(html.contains("Change Password"), "the retired password section is still printed")
-        assertFalse(html.contains("/app/settings/password"), "the retired password route is still a form target")
+        // Stage 123 restored the self-service password form, inside the card rather than as a section of
+        // its own, so a Project Manager or Employee sees one section and every account can change its own.
+        assertTrue(html.contains("<h3>Change password</h3>"), "the change-password heading is missing")
+        assertTrue(html.contains("action=\"/app/settings/password\""), "the password route is not a form target")
         listOf("currentPassword", "newPassword", "confirmPassword").forEach {
-            assertFalse(html.contains("name=\"$it\""), "the retired form's $it field is still printed")
+            assertTrue(html.contains("name=\"$it\""), "the form's $it field is missing")
         }
+        assertTrue(html.indexOf(">Your account<") < html.indexOf(">Change password<"), "the form sits before the card it belongs to")
+        assertTrue(html.indexOf(">Change password<") < html.indexOf(">Project types<"), "the form escaped the account card")
     }
 
     @Test
