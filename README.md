@@ -296,27 +296,138 @@ includeSubDomains`, so only enable it once the certificate is valid and HTTP red
 
 ## The shell on a small screen
 
-`app.css` has one breakpoint, `@media (max-width: 900px)`. Below it the sidebar becomes a full-width
-off-canvas drawer opened by the hamburger beside the page title; the page's card boards — the five status
-columns and a project's lane board — fold to two fluid columns a row. Above 900px nothing changes: the
-hamburger and its backdrop are `display: none`.
+`app.css` has two breakpoints, `@media (max-width: 900px)` and `@media (max-width: 520px)`. Below 900px the
+sidebar becomes a full-width off-canvas drawer opened by the hamburger beside the page title; the page's card
+boards — the five status columns and a project's lane board — become a row the thumb swipes, one bucket at a
+time with the next column's sliver showing (**Stage 134**, replacing Stage 119's two-up wrap); and a fixed bar
+of five tabs — *Home, My tasks, To-do, Search, Menu* — sits at the foot of the page, the active one lit, *Menu*
+opening the same drawer the hamburger does. Below 520px the project page's detail strip takes one field to a
+row instead of two. Above 900px there is no hamburger and no
+backdrop — both are `display: none`, as is the bottom bar — and the sidebar is the 240px column it has always been, which since
+**Stage 130** is a column you may fold away from its own top-right corner and bring back from a tab at the top of
+the window's left edge — **[Stage 131](STAGE-HISTORY.md#stage-131)** moved it out of the middle of that edge, so the two
+halves of the toggle sit at one height.
 
 The dense sheets bend the window's width at every size, not just below the breakpoint: projects, Team, the two
 forecast ledgers and Lesson learnt keep a minimum width (1040px, 1000px, 1280px, 1100px, 1000px), and the panel
 around them scrolls sideways when the window is narrower than that floor. Their columns still use percentage
 shares, so a wide window stretches them and every category panel still lines up; the floor is what stops a
 narrow one from printing "S 0 1" over three lines. The shorter People and permission sheets still wrap rather
-than scroll (**Stage 120**).
+than scroll (**Stage 120**). The calendar's month grid joins the scroll containers since **Stage 134** — it
+carries no floor of its own, but its seven day-columns are no longer squeezed into a phone's width.
 
 The open drawer is one class, `body.nav-open`, plus `html.js`, which `app.js` puts on the document before
-the first paint. Press the hamburger to slide the sidebar in from the left; press the dimmed backdrop,
-press Escape, follow a link, or grow the window past 900px to close it. Opening moves focus into the
-drawer and closing returns it to the button, whose `aria-expanded` and `aria-label` follow the state. With
-JavaScript off there is no hamburger to press, so the sidebar stays in the flow above the page — a smaller
-shell, but a usable one.
+the first paint. Press the hamburger — or the bottom bar's *Menu* tab (**Stage 134**) — to slide the sidebar in
+from the left; press the drawer's own panel
+button in its top-right corner (**Stage 128**), press the dimmed backdrop, press Escape, follow a link, or
+grow the window past 900px to close it — every one of them calls the same `closeNav()`, so the open state has
+one owner. Opening moves focus into the drawer and closing returns it to whichever control opened it — the
+hamburger or the *Menu* tab — whose `aria-expanded` and `aria-label` follow the state together. The closer is `button#navClose` inside the sidebar itself, after the logo
+caption and before the nav links: the panel glyph and an `aria-label` rather than a word, no `aria-expanded` of
+its own because the state belongs to the opener, and printed where it is so the first focus on opening still
+lands on the logo link. That box now holds **two** drawings of the glyph (**Stage 129**) — the panel stroked for
+the light theme and the same panel filled for the dark one, its divider and chevron cut out so the button's own
+background reads through them — and `app.css` shows one of them according to `html[data-theme]`, the attribute the
+theme switch already sets. Nothing else about the button moved: same box, same name, same `closeNav()`, and the
+choice needs no re-render because the server was never told which theme you are on. With JavaScript off there is no
+hamburger to press and no drawer to close, so the sidebar stays in the flow above the page — a smaller shell, but a
+usable one.
 
-The static files changed in **Stage 119** (the shell) and **Stage 120** (the sheet floors), so an open tab needs
-**Ctrl+F5** before the breakpoint, the drawer or the floors will look absent.
+The same corner button has a second job above 900px (**Stage 130**). On a wide page it sits in the sidebar's own
+top-right corner, and pressing it takes the 240px column out of the row — `display: none`, so the page you were working
+fills the window in one step rather than sliding everything sideways — and a slim tab appears at the top of the left edge, level
+with the corner button you just pressed, to bring it back. Nothing folds by itself: no width, page or visit hides the column except a press. The browser remembers the
+choice in `localStorage` under `pts-sidebar`, beside `pts-theme` and `pts-accent`, so a reload comes back the way you
+left it while a colleague's window stays untouched; block storage and you keep the button and lose only the memory. The
+button's accessible name follows the width — *Close navigation* in the markup, renamed to *Hide sidebar* by `app.js`
+once the window is wide — and the state itself is reported by whichever control is always there to be asked: the
+hamburger on a phone page, the reopen tab on a desktop one, never the closer. Below 900px every desktop rule above is
+answered inside the breakpoint, so the fold never costs you the drawer: the sidebar opens off-canvas from the hamburger
+whatever this browser remembered from a wider window.
+
+The static files changed in **Stage 119** (the shell), **Stage 120** (the sheet floors), **Stage 128** (the
+drawer's close button — `app.css` and `app.js` both), **Stage 129** (its two drawings — `app.css` again, plus the
+Kotlin that prints them) and **Stage 130** (the desktop fold — `app.css`, `app.js` and the Kotlin that prints the
+reopen tab), **Stage 131** (that tab's placement — `app.css` again) and **Stage 132** (the scale, the accent ink
+and the focus ring — `base.css` and `app.css`, which is why the *sign-in* page needs the reload too),
+**Stage 133** (the table of times — both stylesheets and `kanban.js`) and **Stage 134** (the phone's bar, the
+search page, the swipe and the folding strip — both stylesheets, `app.js`, `kanban.js` and the Kotlin), so an open tab
+needs **Ctrl+F5** before the breakpoint, the drawer, the floors, the button's second drawing, the corner button's
+desktop meaning, a keyboard focus ring, the bottom bar or the swipe will look absent.
+
+## The look of it
+
+There is one place a size lives. `base.css` — which every page loads, and which the sign-in page loads on its own —
+opens with a scale: `--sp-1` … `--sp-8` for spacing (4px to 32px), `--r-xs` … `--r-xl`, `--r-pill` and `--r-round` for
+corners, `--fs-1` … `--fs-15` for type (9px to 22px), and two font stacks, `--font-ui` and `--font-mono`. `app.css`
+asks those tokens for their values in 402 places instead of writing the numbers again (**Stage 132**). The scale is per
+family — 14px of *padding* is not the 14px of type called `--fs-11` — and the values *between* the steps are still
+literal numbers: 6px and 10px of padding, 2px and 5px borders, the modal's `clamp()`, the login box's reserved 74px.
+That is deliberate: the app's distance from a tidy grid stays a countable thing, and narrowing the ramp becomes a
+visible design choice rather than a rename that slipped through.
+
+An accent has two colours now, not one. `--accent-strong` is the **fill** — an avatar, a button under the cursor — and
+it is always a box with white words on it. `--accent-ink` is the **word**: a link, the active nav item, a count. They
+used to be the same value, which is why a dark page was being asked to show dark green on darker green; each hue lifts
+its ink for the dark theme instead (**Stage 132**). The three fills that remain keep their white text. Captions and
+placeholder text (`--muted`, `--note`) were measured the same way and darkened until they were readable at AA.
+
+One focus ring covers the app: `:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px }`, in
+`base.css` so the sign-in page gets it too. A mouse click draws nothing; a keyboard draws the page's own accent; a
+control that already drew its own ring — a kanban card, a bucket swatch — keeps the one it had. The interface asks for
+**Inter** first and falls back to the Windows stack: no font file is downloaded, packaged or referenced, so a machine
+without Inter renders exactly what it rendered before
+(**[Stage 132](STAGE-HISTORY.md#stage-132)**).
+
+There is one place a length of time lives, too. `base.css` carries `--dur-1: 120ms` and `--dur-2: 200ms` beside two
+curves — `--ease-std` for a state answering a pointer, `--ease-out` for something arriving — and neither duration was
+invented for the occasion: before **Stage 133** the stylesheet held five motion declarations and no animation at all,
+and what they ran was 120ms and 200ms. Five things now take time instead of happening. A control under a cursor or a
+finger travels its colour over an eighth of a second — one rule naming 28 of them (29 since **Stage 134** put the
+phone's tabs on it), because every one already changed
+colour and what was missing was the travelling. A popup arriving goes over a page that has gone soft: `.modal` fades
+while its scrim blurs and the box rises into place. The one-shot banner a save earns slides down rather than appearing.
+A card being dragged is dimmed, tilted a fraction and lifted out of the column it came from, so the thing in the hand
+looks held and the column behind it stays readable. And a page that has just changed fades in once, on load.
+
+Two of those are decisions rather than decoration. Entrances are animations and never transitions, because the scripts
+that open a popup do it by setting `display: block`, and a node arriving from `display: none` has no previous state for
+a transition to travel from — which is also why a close stays instant, an exit animation meaning every one of those
+scripts had to wait on an event first. And a board re-rendering *inside* a page is not a view change, so the live region
+keeps the dim it has always had and gets no fade: "once, when the view changes" is honoured by leaving that alone.
+
+A reader who asks their operating system for less motion gets it, on every page including the sign-in one: `base.css`
+ends with `@media (prefers-reduced-motion: reduce)` taking the time out of everything, its durations `.01ms` rather than
+zero so a `transitionend` or `animationend` still fires and no script hangs waiting for one, and its iteration count
+pinned to 1 so a spinner stops instead of spinning quickly
+(**[Stage 133](STAGE-HISTORY.md#stage-133)**).
+
+Both stylesheets and `kanban.js` changed, so an open tab needs **Ctrl+F5** once — including the sign-in page, which is
+where the focus ring shows up first and where reduced motion applies too.
+
+The phone got its own row of tabs, a search page, a board it can swipe and a KPI row that folds
+(**[Stage 134](STAGE-HISTORY.md#stage-134)**) — the design checklist's last kind of work, after the tokens and the
+motion. Below 900px a fixed bar sits at the foot of every page: *Home*, *My tasks*, *To-do*, *Search* and *Menu*,
+the page's own tab lit in the accent's ink, the row padded clear of a phone's gesture strip and the page padded
+clear of the row. *Menu* is not a fifth destination — it opens the same drawer the hamburger opens, through the
+same one function, and closing returns focus to whichever of the two you pressed. The bar sits under the drawer's
+dim, so an open menu still has exactly one way down.
+
+*Search* is a page of its own, `/app/search`: one box over projects, project cards, the shared backlog, lessons,
+your own to-do and people. The words you typed are in the address, so a result list can be shared as a link; the
+page says what it looked for and what came of it in every state, including the empty one; and every result opens
+the page that row already lives on — a card opens its own popup on its project's board. Your to-do is searched
+for you alone, archived cards are not results, and the backlog group is offered only to the roles whose sidebar
+already carries it.
+
+The boards are a swipe now: one bucket at a time, the next column's sliver showing there is more of it, and a
+flick settles on a column instead of stopping between two. The project page's detail strip — the checklist's
+"KPI row" — takes two fields to a row below 900px and one below 520px, and the calendar's month grid scrolls
+sideways like the other wide sheets instead of crushing its seven days into a phone's width.
+
+The suite is green at **778 tests in 54 classes**, and this is live since 2026-11-13 (PID **15388**, jar
+**2,009,972** bytes). An open tab needs **Ctrl+F5** once — both stylesheets, `app.js`, `kanban.js` and the
+Kotlin all changed.
 
 ## Projects and categories
 
@@ -599,7 +710,10 @@ defaults to `0`, is read by the same parser (grouped or signed input is accepted
 
 Opening a project prints its header and, below it, that project's own task board. **For management the header is an
 editable strip** (Stage 60): the top line is a `Projects / S-01` breadcrumb with a **☆ Pin for me** toggle and a
-**Delete project** button at the right. (Until **Stage 106** a 📋 copied the page's address and a 🗄 opened the
+**Delete project** button at the right. The pin is the one control on this line that is nobody's but the reader's
+own, and **Stage 127** says so: the write behind it no longer asks for *Edit project details*, the head's copy of it
+is drawn on *Edit project details* **alone**, and every reader who does not get that head is handed the same
+**☆ Pin for me** on the read-only card beneath — one pin per page, whoever you are. (Until **Stage 106** a 📋 copied the page's address and a 🗄 opened the
 project's archived tasks; the user asked for both out, and the panel went with its only opener — the archive's rows
 and its three routes are still there, but no page prints a control for them.) Under it runs **one flat, edge-to-edge
 row** of UPPERCASE-labelled fields — **Description**,
@@ -614,8 +728,9 @@ percentage with no bar, then a single **Save changes** button. **For a `Viewer` 
 its caption above its value, **Revenue** carrying the same currency-signed figure management's box holds, exactly as management's inputs are, with a plain value where management has a box. Nothing
 is dropped or reordered to fit; a value longer than its share is shortened with an ellipsis and the whole string is the
 cell's tooltip. **Progress keeps its bar** (management's cell shows only the percentage) because this is where a Viewer
-reads how far the project has got. No form, no strip, no delete. The split is by role, never by field: what a Viewer
-may see, they see exactly as before; only management gets to change it.
+reads how far the project has got. No edit strip and no delete — the card's head carries exactly one control, the
+**☆ Pin for me** button that **Stage 127** made work for the account pressing it. The split is by role, never by
+field: what a Viewer may see, they see exactly as before; only management gets to change it.
 
 Two of those header fields show a value but are not something you can type. The **project number is never editable** —
 the strip prints it in the breadcrumb and the save form sends no `code`, so an existing project keeps its number however
@@ -949,6 +1064,17 @@ back — **Stage 74**'s column popup is a page-level block like every other popu
 `#projectLaneModal` rather than a lane area. So a lane's head is its colour, its name and its count, plus a `⋯` for the
 reader who may re-shape a bucket the board is allowed to lose, and only while the board is the empty project's bucket
 board.
+
+### The sidebar's Pinned projects panel
+
+Every page's drawer holds a **Pinned projects** panel: the projects *this* account pinned, in the order they were pinned,
+and nothing anybody else pinned — `pins` is keyed by the reader's own employee number, and the pin route writes only that
+pair. Each row is the project's **ID**, then its name as the row's only link, then a **×** that unpins it. **Stage 127**
+put the ID first and made it the one the Projects sheet prints under its own **ID** header — `projects.code`, `S-01` — not
+the database row number, because the number is what people say out loud, and two long names clipped to an ellipsis are
+otherwise the same row. `app.css` keeps the line whole: the ID has `flex: 0 0 auto`, the name `flex: 1; min-width: 0` with
+`text-overflow: ellipsis`, so the name gives way and the ID does not. An empty panel says so and names the two places a
+pin is pressed — a project's own page, and the Projects list's last column, which still carries the short **☆ Pin**.
 
 ## Assigned tasks and checklists
 
@@ -2318,7 +2444,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (738 tests in 51 classes), on schema v22.
+2. `./gradlew test installDist` is green (778 tests in 54 classes), on schema v22.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2688,6 +2814,86 @@ configuration, and it is the one to settle first: it decides what you can safely
    before the rule all read the same way now, because one boot recomputed them (`app_settings`'s `email_rule_version` says
    it has run, so a restart changes nothing further). Outbound notices read these values, so a mail you send from Settings
    now goes to the corrected address.
+   Then check **Stage 127** signed in as an account whose role holds no project chips — an *Employee* will do. Open a
+   project: its read-only card's head offers **☆ Pin for me**; press it and the page comes back reading **★ Pinned**
+   with the project named by its **ID** in the sidebar's **Pinned projects** panel — `S-01` before the name, and a
+   **×** after it that takes the row off again. Press **Ctrl+F5** first if the ID does not print: Stage 127 changed
+   `app.css`. Now sign in as a second account and open the *same* project — its button reads **☆ Pin for me** and
+   its panel is empty, because a pin is one person's list, not a project's setting. Nothing else widened: that
+   Employee still has no **Save changes** strip and no **Delete project**, while management's page keeps its pin in
+   the head strip at the right beside **Delete project**, and the Projects list still ends in its short **☆ Pin**
+   column.
+   **Stage 128 walkthrough — deployed 2026-11-09; Ctrl+F5 once, because `app.css` and `app.js` both changed.**
+   Narrow the window past 900px (or use the browser's responsive mode) and press the hamburger: the drawer slides
+   in and carries its own close button — the panel glyph, no word — in its top-right corner. Press it and the
+   drawer shuts, the hamburger's label goes back to "Open navigation" and its `aria-expanded` to `false`, and
+   focus returns to the hamburger. Press the glyph inside the button rather than the button and it still closes,
+   because the listener sits on the button. Grow the window back past 900px and the button leaves the screen with
+   the hamburger: the desktop sidebar is permanent, so a control that closes it would close nothing. The same is
+   true with JavaScript off, where there is no drawer at all. Opening the drawer must still focus the logo link,
+   not the closer — that is why the button prints after the caption and before the nav.
+   **Stage 129 walkthrough — deployed 2026-11-09; Ctrl+F5 once, because `app.css` and the Kotlin that prints the
+   button both changed.** Open the drawer on a narrow window and look at its top-right button: on the light theme it is
+   the panel **stroked** — divider and left-pointing chevron in the same 2px round-capped line as every nav icon. Press
+   the theme switch in the page head. The button must not blink, move or reload the page; only its drawing changes, and
+   the new one is the same panel **filled**, with the divider and the chevron cut out of it so the card's own colour
+   reads through. Hover it while dark and those cut-outs show the hover background rather than a shape painted over it.
+   Widen the window past 900px and the button does not leave, drawing and all: **Stage 130** gave it the desktop job
+   this walkthrough once said it never would, so on a wide page it sits in the sidebar's corner and folds the column.
+   What it closes changes with the width; that it closes something real at both does not. Then switch the theme at a wide desktop width: nothing on the page
+   changes its drawing, because the choice is a stylesheet reading of `html[data-theme]`, not a second render and not a
+   width.
+   **Stage 130 walkthrough — deployed 2026-11-09; Ctrl+F5 once, because `app.css`, `app.js` and the Kotlin that prints
+   the shell all changed.** On a wide window press the button in the sidebar's top-right corner: the column should leave
+   the row and the page should take the whole window in one step — nothing sliding, no strip of icons left behind. A
+   slim tab should now sit on the window's left edge, at its **top** and level with the corner button — the height is
+   **[Stage 131](STAGE-HISTORY.md#stage-131)**'s; it shipped halfway down; press it and the sidebar returns with focus
+   on its first link. Reload and it is still folded, because this browser was told to remember; open another browser, or
+   another account, and it is not — the choice is per browser and nothing about it reaches the server. Drag the window
+   under 900px while folded: the hamburger must appear and open the drawer exactly as Stage 119 left it, and growing the
+   window back must leave the sidebar in the state you left it in. With JavaScript off neither the corner button nor the
+   tab shows up, and the sidebar stays put — there would be nothing to bring it back.
+   **Stage 131 walkthrough — deployed 2026-11-11; Ctrl+F5 once, because `app.css` changed.** Fold the sidebar from the
+   corner button on a wide window and look at the left edge: the slim tab should be at its **top**, 10px below the
+   window's own top and level with the button you just pressed, not halfway down the page. Press it, fold the column
+   again, reload: it comes back at that height every time, because the height is in the stylesheet and the only thing
+   this browser was ever asked to remember is folded or not.
+   **Stage 132 walkthrough — deployed 2026-11-11; Ctrl+F5 once, on the sign-in page too, because both stylesheets
+   changed.** Nothing here is meant to look different. Tab through the sign-in page and every field should draw a green
+   ring at 2px, offset 2px, before the caret lands — until this stage a checkbox, a select or an anchor could be focused
+   by keyboard with nothing to show for it. Then on any app page press Tab through the sidebar: the active item's word,
+   the project code, the count pill and a revenue figure should now read as accent-coloured *text* rather than the
+   accent *fill*, which on a dark page used to be dark green on darker green. Switch the theme and the accent (Settings
+   or the shell's own pickers) and the ring should change hue with the page, never stay green. The paddings, corners and
+   type sizes are the same numbers as yesterday, in a table at the top of `base.css` instead of written out four hundred
+   times — so if a card looks tighter or a heading larger, that is a bug to report, not a change to accept. If Inter is
+   installed on this machine the interface now asks for it first, and that is the one part nobody could verify from
+   here: the workspace's browser does not have it, so the before/after pass measured identical text widths.
+   **Stage 133 walkthrough — deployed 2026-11-11; Ctrl+F5 once, because both stylesheets and `kanban.js` changed.**
+   Nothing should move that did not move before, and nothing should have got bigger, tighter or heavier. Put the cursor
+   on a sidebar item, a button, a filter tab or a board card: the colour should *travel* over about an eighth of a second
+   rather than snap. Open any popup — a project's `⋯`, a new task, a team member — and the page behind it should go
+   soft while the box rises into place; it still closes the instant you ask it to, which is deliberate and not a dropped
+   animation. Save anything that earns a banner and the banner should slide down into place. Drag a card between buckets
+   on a project board: the card in the hand should be dimmed, tilted a fraction and lifted, with the column it came from
+   still readable behind it, and it should land the moment you let go rather than a beat later. Reload any app page and
+   its content should fade in once — but narrow a board with the Bucket picker, or tick a checklist step, and nothing
+   should fade, because a board re-rendering inside a page is not a page arriving. Then ask Windows for **Show animations
+   in Windows** off (Settings › Accessibility › Visual effects) and reload: every one of those effects should simply
+   stop taking time, the drawer's slide included, with nothing stuck half-faded and no control needing a second click.
+   **Stage 134 walkthrough — deployed 2026-11-13; Ctrl+F5 once, because both stylesheets, `app.js`,
+   `kanban.js` and the Kotlin changed.** Narrow the window below 900px: a bar of five tabs
+   should sit at the foot of the page — Home, My tasks, To-do, Search, Menu — with the page's own tab lit, and the
+   last row of the sheet should be reachable above it, not hidden under it. Press **Menu**: the same drawer should
+   slide in, and every way of closing it should return focus to the tab you pressed, not to the hamburger. On a
+   project board, flick sideways: one bucket at a time, the next column's sliver showing, and the flick should
+   settle on a column rather than stop between two; the dashed add-a-column box should ride the same width. Narrow
+   past 520px and open a project: the detail strip under its heading should take one field to a row, two between
+   520px and 900px. Press **Search** and type two letters: results should arrive grouped — projects, tasks, lessons,
+   your own to-do, people — each opening the page that row lives on, a card opening its own popup; type a word
+   nothing matches and the page should say so rather than go quiet; sign in as the `Viewer` and the Other-tasks
+   group should not be searched at all. Open **Calendar** at the same narrow width: the month grid should scroll
+   sideways inside its panel instead of crushing its seven day-columns.
    Then open **Calendar** with **Ctrl+F5** (Stage 66 put new rules in `app.css`). A reader who holds both project cards
    and Other-tasks cards should see *both* on the month: a dated backlog card draws its bar exactly like a project card,
    an undated one takes a row in the list under the grid and no bar, and the strip's `N cards dated here` counts the
@@ -2809,12 +3015,19 @@ configuration, and it is the one to settle first: it decides what you can safely
    cards, so both drop by one.
    Then check **Stage 119** with the window, not the tab: drag it narrower than 900px (or use the browser's
    responsive mode). The sidebar should disappear and a hamburger appear beside the page title; press it and
-   the menu should slide in from the left, full width, with the page dimmed behind it. Press the dimmed area,
-   press Escape, and follow a link — each should close it, and Escape should put focus back on the hamburger.
-   The five status columns and a project's lane board should now read as two columns a row. At the same narrow
+   the menu should slide in from the left, full width, with the page dimmed behind it. Press the panel button in
+   the drawer's own top-right corner (**Stage 128**), press the dimmed area, press Escape, and follow a link — each
+   should close it, and Escape should put focus back on the hamburger. Switch the theme while the drawer is open
+   (**Stage 129**): the button keeps its place, its box and its behaviour and changes only its drawing — stroked on
+   the light theme, filled with its chevron and divider cut out on the dark one — and the page must not reload.
+   The five status columns and a project's lane board should now read as two columns a row (*since **Stage 134**
+   they read as one column at a time under a swipe, the next column's sliver showing — the two-up wrap was this
+   stage's and no longer ships*). At the same narrow
    width, open a dense sheet — the projects board, Team, a forecast ledger, Lesson learnt: no word should be
    broken into letters, and the panel should scroll sideways to reach the columns that do not fit. Grow the
-   window back past 900px and the desktop sidebar should return with the hamburger gone; a window still
+   window back past 900px the desktop sidebar should return and the hamburger should go; the corner button stays, and
+   its meaning is the width's, not the markup's (**Stage 130**) — a wide page folds the column, the drawer closes; a
+   window still
    narrower than a sheet's floor (a 1000px window is) should scroll that sheet rather than crush it.
    Use **Ctrl+F5** first if the tab predates the deploy.
 8. `PTS_SEED_DEMO` is `false` and `data/pts-data.json` is either imported or absent — no demo
@@ -2883,13 +3096,58 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-738 tests in 51 classes — 72 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+778 tests in 54 classes — 112 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
 (**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**) and the dense sheets' readable-width case (**Stage 120**), the login password toggle's case (**Stage 121**) and
 the second person on a project card's ten cases (**Stage 122**), and the own-password form's two service cases plus the
-super-admin gate's render cases (**Stage 123**), the company-email rule's eight cases (**Stage 125**) and the
-one boot-time pass over stored accounts' four cases (**Stage 126**).
+super-admin gate's render cases (**Stage 123**), the company-email rule's eight cases (**Stage 125**), the
+one boot-time pass over stored accounts' four cases (**Stage 126**) and the pin's four cases (**Stage 127**),
+three in `ShellRenderTest` — the ID first in a pinned row, a pin being the reader's own list, and the CSS that
+holds the row on one line — and one in `ProjectsPageRenderTest` that renders all four chip combinations and
+counts the pin form in each. **Stage 128** adds three more, all in `ShellRenderTest`: the closer where it is
+printed (inside the drawer, after the logo and before the nav, and nowhere in the page head), the CSS that shows
+it only on an open drawer below 900px with its own corner and stacking box, and the one `closeNav()` that the
+backdrop, the drawer's button and the hamburger all hand the closing to. **Stage 129** adds one more and rewrites one:
+the closer test now reads **both** svgs inside the button — the stroked box, the solid box, and the even-odd path that
+makes the filled glyph's chevron a hole — and *the closer's glyph follows the theme, not the width* pins the four
+`html[data-theme]` rules and checks the opposite of them, that the 900px block names no drawing and the sizing rule
+carries no `display`. **Stage 130** adds three more, again all in `ShellRenderTest`: *the reopen tab is on the page,
+outside the panel it opens* — a hidden column cannot carry the only button that brings it back, so the tab is a sibling
+after the `<aside>`, and the closer is still the only one inside it; *a wide page folds the sidebar away and the
+breakpoint answers it back* — each desktop rule pinned above the block, its identical later selector pinned inside it,
+the corner and edge geometry pinned — since **Stage 131** the tab's `top` must equal the closer's, compared by
+capture rather than written twice, and no `transform` may appear in the tab's rule at all — and the file's `@media(`
+count pinned at one (*since **Stage 134** the pin names both widths — 900px and 520px — rather than counting one*);
+*the fold is remembered in one key,
+read before the paint* — `pts-sidebar` named exactly twice, the read ordered between marking the document `js` and
+wiring a control, both buttons handed the same named `toggleSidebar`, and the wide guard in front of it. Two existing
+cases were rewritten rather than extended, because this stage made their wording untrue: the default-hide line now
+carries the tab as its fourth name, and the closer test can no longer forbid a `display` for `.nav-close` outside
+`body.nav-open` — it now requires the desktop box, demands the breakpoint stand it down *before* it shows the drawer's
+own, and still forbids a drawing choice inside the block. **Stage 132** brings a new class and its eight cases, `DesignTokensTest`: every `var()` in both stylesheets resolves, the 30-step scale is exactly the pixels the app was measured at, no rule writes out a pixel its own family already names, Inter is asked for first while no font file ships, accent words clear AA on every surface they can be painted on, text asks for the ink while fills keep the dark end, each hue lifts its own ink for the dark theme, and one `:focus-visible` ring comes from one token in all six accent/theme combinations. Five existing CSS pins changed shape rather than being left behind: `ShellRenderTest` and `TaskBoardRenderTest` pinned literals (`8px`, `5px 12px`, `12.5px`) and now pin the token *and* the step it stands for, because a test that only reads `var(--r-md)` would still pass if the ramp were re-typed as 10px. **Stage 133** brings the run's ninth new class, `MotionTest`, and
+its eight cases: the table of times is one table whose two lengths are the two the app already ran; no rule writes out a
+length of time the table names; a popup comes over a page that has gone soft and still hides the way the seven opener
+scripts say; a dragged card is lifted *and `kanban.js` is what lifts it*, before `setData`, so the drag image the browser
+paints carries the lift rather than leaving it behind in the column; the one-shot banner arrives rather than appearing; a
+page fades in once while a board re-rendered inside it does not; reduced motion takes the time out in the file every page
+loads, `.01ms` rather than zero and its iteration count pinned to one; and every control that answers a pointer answers it
+over time — that last read back against the `:hover` rules that actually exist, so a name added to the 29-selector list
+without one is a failing test rather than a silent no-op. **Stage 134** brings the run's tenth new class,
+`SearchRenderTest`, and its nine cases: the page's sentence in all three of its states — nothing typed or one letter
+under the two-letter floor, a word with no answer, a word with one; a card is a result, an archived card is not, and a
+backlog card needs the board's own
+chips; the result list is a column of two-line rows and the stylesheet says so; the page is one box over a list of
+links and every link is a page the row already lives on; a long title cut on a word boundary and never in the middle
+of a word; a lesson found by its own words opening the sheet's popup; a project found by any word on its row, in any
+case; a to-do item found only by the account that owns it; and people found by name, position, department or number,
+under the department the roster files them in. `ShellRenderTest` grows four more (14 → 18): the phone's row of five
+tabs with the page's own tab lit on every page; a viewer getting the same four tabs the manager gets; the bar hidden
+above 900px and fixed to the foot of the page below it, the safe-area inset in exactly the two declarations that need
+it and the bar under the drawer's scrim; and the detail strip taking two fields to a row at 900px and one at 520px,
+all nine weight selectors answered in each block and the narrower breakpoint last in the file. `MotionTest`'s width
+pin changed shape rather than being left behind: the count of one became both widths named — 900px and 520px —
+because a count alone would pass on a stylesheet that had traded the drawer's width for somebody else's.
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded
 catalogue in the picture's order with its 13/13/9/1 chip counts; **every account already on file keeps the rights it had
 yesterday**, which is the `CASE` in `V21` and the check that makes the deploy safe; a chip key the app cannot name

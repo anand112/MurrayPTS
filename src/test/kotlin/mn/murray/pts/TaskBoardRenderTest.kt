@@ -2064,8 +2064,19 @@ class TaskBoardRenderTest {
         // `.ghost-btn` is written after `.btn-sm` in this file and would win the padding and the font size,
         // leaving a taller button standing beside a shorter one, so the delete button's metrics are spelled out.
         val metrics = css.substringAfter(".note-foot .task-del .ghost-btn {").substringBefore("}")
-        assertTrue(metrics.contains("padding: 5px 12px"), "the delete is not the Add note button's size")
-        assertTrue(metrics.contains("font-size: 12.5px"), "the delete is not the Add note button's type")
+        val small = css.substringAfter(".submit.btn-sm, .btn-sm {").substringBefore("}")
+        // Stage A named the sizes, so "the same size as the Add note button" is now a claim about two rules asking
+        // for the same two tokens — plus the tokens still standing for the pixels they were drawn at, because two
+        // buttons agreeing on `--sp-1` would agree and both be wrong.
+        val borrowed = listOf("padding: 5px var(--sp-3)", "font-size: var(--fs-8)")
+        borrowed.forEach {
+            assertTrue(metrics.contains(it), "the delete is not the Add note button's size: missing $it")
+            assertTrue(small.contains(it), "the note box's own Add button no longer measures $it")
+        }
+        val ramp = File("src/main/resources/static/css/base.css").readText()
+        listOf("--sp-3: 12px;", "--fs-8: 12.5px;").forEach {
+            assertTrue(ramp.contains(it), "the scale step the pair is measured in changed: $it")
+        }
         // And the markup really does wrap both of them in that row, note box first.
         val foot = edit(canManage = true).substringAfter("class=\"note-foot\"")
         assertTrue(

@@ -823,6 +823,21 @@ fun main() {
                 call.respondOtherTasks(session, canManage, state, bucket, showBucketId)
             }
             sectionRoute("/app/todo", "todo", "To-do") { todoContent(it) }
+            /**
+             * The search page (Stage 134), behind the bottom bar's *Search* tab: one GET box over projects,
+             * cards, lessons, the reader's own to-do and people.
+             *
+             * It is not a [sectionRoute] for the reason the calendar and the forecast sheet are not — that helper
+             * hands its view a `DIV.(UserSession)` and never sees the query, and here the query *is* the page. The
+             * words are trimmed and handed on as they arrived: matching, the two-letter floor and the decision
+             * about which groups this role is offered at all are [searchGroups]' job, so the route stays the one
+             * place that reads the address and the renderer stays testable without one.
+             */
+            get("/app/search") {
+                val session = call.requireSession() ?: return@get
+                val query = call.request.queryParameters["q"]?.trim().orEmpty()
+                call.respondHtml { appPage(session, "search", "Search") { searchContent(it, query) } }
+            }
             get("/app/access-control") {
                 val session = call.requireSession() ?: return@get
                 // Stage 110: the page is two functions now — the roles table (*Manage roles & permissions*)
@@ -2426,10 +2441,14 @@ fun main() {
             post("/app/projects/{id}/pin") {
                 val session = call.requireSession() ?: return@post
                 val projectId = call.parameters["id"]?.toIntOrNull()
-                // Stage 110: the pin rides on the head strip, so it is *Edit project details*'s. A row that is not
-                // an editor's prints no button, and this is the same answer the route gives when it is asked by a
-                // request nobody drew.
-                if (projectId != null && session.may(Permission.EDIT_PROJECT_DETAILS)) {
+                // **Stage 127 — a pin is a preference, not a project edit.** This write used to ride on *Edit
+                // project details* (Stage 110), which left an account without that chip — an *Employee*, or one whose
+                // role holds only *Delete projects* — looking at a **☆ Pin** button that answered nothing. The row it
+                // writes is keyed to `session.employeeNumber`, and [mn.murray.pts.repository.PinRepository.toggle]
+                // touches that one pair and no other, so the pin was never anybody's but the reader's own and the
+                // gate protected nothing. Every signed-in account may now pin for itself — and only for itself, which
+                // is why there is still no employee-number field here to forge.
+                if (projectId != null) {
                     ProjectService.togglePin(session.employeeNumber, projectId)
                 }
                 val back = call.request.headers[HttpHeaders.Referrer] ?: "/app/projects"

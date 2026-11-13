@@ -649,6 +649,40 @@ class ProjectsPageRenderTest {
         assertTrue(html.contains("action=\"/app/projects/${project.id}/pin\""), "the Viewer's own pin vanished")
     }
 
+    @Test
+    fun `every reader is offered one working pin, whatever their chips`() {
+        // **Stage 127** took the pin off the *Edit project details* chip. A pin is not a change to the project:
+        // `pins` is keyed by the signed-in employee number and the route writes only that pair, so a page now
+        // offers the control to every account — and what it offers has to be exactly one button, in whichever of
+        // the two heads this reader's role puts on the page.
+        val pinForm = "action=\"/app/projects/${project.id}/pin\""
+
+        // Neither chip: the read-only card, whose group head carries the pin.
+        val reader = render { projectDetailContent(viewer, project, canEdit = false, canDelete = false) }
+        assertEquals(1, occurrences(reader, pinForm), "a chip-less reader was offered a pin more or less than once")
+        assertTrue(reader.contains("Pin for me"), "the reader's pin does not say it is theirs")
+        assertFalse(reader.contains("/delete\""), "a chip-less reader was served the delete")
+
+        // The destructive chip without the editing one: the head strip is drawn, but the editable strip is not,
+        // so the pin lives in the card below. One button, not two.
+        val deletor = render { projectDetailContent(viewer, project, canEdit = false, canDelete = true) }
+        assertEquals(1, occurrences(deletor, pinForm), "a delete-only account was offered two pins")
+        assertEquals(1, occurrences(deletor, "/delete\""), "a delete-only account was served the delete twice")
+
+        // The editing chip: the head's pin, and the read-only card is not on the page at all.
+        val editor = render { projectDetailContent(manager, project, canEdit = true) }
+        assertEquals(1, occurrences(editor, pinForm), "an editor was offered a pin more or less than once")
+        assertTrue(
+            editor.substringAfter("class=\"head-actions\"").contains(pinForm),
+            "the editor's pin left the head strip",
+        )
+
+        // The Projects list keeps its own per-row pin for every reader too — that column was never gated, and the
+        // route that answers it is not now.
+        val list = render { projectsContent(viewer, null, canManage = false) }
+        assertTrue(list.contains(pinForm), "the list's pin column went with the gate")
+    }
+
     /**
      * The Viewer's field row and nothing else — from the `div` that opens it to the `div` that closes it, found
      * by balancing the tags between them. Slicing rather than searching the whole page is what lets a test say

@@ -3,7 +3,7 @@
 :root {
     --card-bg: #f8fafc;
     --title: #0f172a;
-    --muted: #64748b;
+    --muted: #5d6d84;         /* was #64748b: 4.39:1 on the page behind the card, just under AA */
     --label: #5b6b7f;
     --input-bg: #eef1f4;
     --input-border: #dfe4ea;
@@ -11,7 +11,41 @@
     --btn-bg: #33500b;
     --btn-bg-hover: #40650e;
     --toggle-bg: #e4e7eb;
-    --note: #9aa5b1;
+    /* The login page loads base.css alone, so the ring token needs a value here as well as in app.css. */
+    --focus-ring: #33500b;
+    --note: #626d79;          /* was #9aa5b1: 2.39:1 on the card, i.e. not a sentence a reader can read */
+
+    /* Scale (Stage A). Every step below is a size the app already paints with; the pass that named them changed no
+       computed value (scratch/stageA-resolve.py expands the var()s and diffs the resolved declarations against a
+       pre-edit snapshot, which is how "invisible" is proved rather than asserted). The point of putting them here
+       is that the ramp is now one edit: converging 12.5px onto 12px, or 6px onto 8px, is a decision about this
+       table instead of about four hundred lines. Values the ramp does not reach -- 6px and 10px, the modal's
+       clamp(), the login box's 74px -- stay literal on purpose, so the distance between the app and a clean grid
+       is countable rather than felt. */
+    --sp-1: 4px;   --sp-2: 8px;   --sp-3: 12px;  --sp-4: 16px;
+    --sp-5: 20px;  --sp-6: 24px;  --sp-7: 28px;  --sp-8: 32px;
+    --r-xs: 4px;   --r-sm: 6px;   --r-md: 8px;   --r-lg: 12px;  --r-xl: 16px;
+    --r-pill: 999px; --r-round: 50%;
+    --fs-1: 9px;     --fs-2: 9.5px;   --fs-3: 10px;    --fs-4: 10.5px; --fs-5: 11px;
+    --fs-6: 11.5px;  --fs-7: 12px;    --fs-8: 12.5px;  --fs-9: 13px;   --fs-10: 13.5px;
+    --fs-11: 14px;   --fs-12: 15px;   --fs-13: 16px;   --fs-14: 18px;  --fs-15: 22px;
+
+    /* Motion (Stage B). The two durations are the two the app already ran: 120ms on a board's dim,
+       a step list's swap and a busy block, and the drawer's .2s slide. The curves replace the bare
+       `ease` keyword those four rules leaned on, so a length of time and a shape of movement are now
+       one edit in this table rather than a word in five places. `--ease-out` opens the entrance
+       animations — a popup, a banner, a page — where `--ease-std` carries a hover or a press, which
+       is the difference between something arriving and something answering. */
+    --dur-1: 120ms;  --dur-2: 200ms;
+    --ease-out: cubic-bezier(.22, .61, .36, 1);
+    --ease-std: cubic-bezier(.4, 0, .2, 1);
+
+    /* The one intentional change in this edit is which face the app asks the browser for: Inter first, and the
+       old Windows-first stack immediately behind it, with no font file shipped (a machine without Inter renders
+       exactly what it renders today). `--font-ui` and `--font-mono` are picked up by the body and the two code
+       boxes; everything else already says `font-family: inherit` and follows. */
+    --font-ui: Inter, "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: Consolas, "SFMono-Regular", Menlo, monospace;
 }
 html[data-theme="dark"] {
     --card-bg: #17202b;
@@ -25,14 +59,15 @@ html[data-theme="dark"] {
     --btn-bg-hover: #6ba316;
     --toggle-bg: #243040;
     --note: #7c8a9b;
+    --focus-ring: #85a25d;
 }
 body {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
-    font-family: "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: var(--sp-6);
+    font-family: var(--font-ui);
     background: radial-gradient(120% 140% at 38% 38%, #4b7108 0%, #33490a 40%, #1b2a06 72%, #101a04 100%);
 }
 html[data-theme="dark"] body {
@@ -45,10 +80,10 @@ html[data-theme="dark"] body {
     width: 36px;
     height: 30px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: var(--toggle-bg);
     cursor: pointer;
-    font-size: 15px;
+    font-size: var(--fs-12);
     line-height: 1;
 }
 .card {
@@ -63,14 +98,14 @@ html[data-theme="dark"] body {
 
 .logo { width: 200px; height: auto; display: block; margin: 0 auto 18px; }
 .logo-img { width: 280px; max-width: 100%; height: auto; display: block; margin: 0 auto 18px; }
-h1 { font-size: 21px; font-weight: 800; color: var(--title); margin-bottom: 8px; }
-.subtitle { font-size: 13.5px; color: var(--muted); margin-bottom: 30px; }
+h1 { font-size: 21px; font-weight: 800; color: var(--title); margin-bottom: var(--sp-2); }
+.subtitle { font-size: var(--fs-10); color: var(--muted); margin-bottom: 30px; }
 form { text-align: left; }
 .field { margin-bottom: 18px; }
 label {
     display: block;
     margin-bottom: 7px;
-    font-size: 11px;
+    font-size: var(--fs-5);
     font-weight: 700;
     letter-spacing: .07em;
     text-transform: uppercase;
@@ -78,44 +113,49 @@ label {
 }
 input {
     width: 100%;
-    padding: 12px 14px;
-    font-size: 14px;
+    padding: var(--sp-3) 14px;
+    font-size: var(--fs-11);
     font-family: inherit;
     color: var(--input-text);
     background: var(--input-bg);
     border: 1px solid var(--input-border);
-    border-radius: 8px;
+    border-radius: var(--r-md);
     outline: none;
 }
-input:focus { border-color: #6b9c1e; box-shadow: 0 0 0 3px rgba(107, 156, 30, .25); }
-input::placeholder { color: #9aa5b1; }
+input:focus { border-color: var(--focus-ring); box-shadow: 0 0 0 3px rgba(107, 156, 30, .25); }
+input::placeholder { color: var(--note); }
 button.submit, a.submit {
     display: block;
     width: 100%;
-    margin-top: 8px;
+    margin-top: var(--sp-2);
     padding: 13px;
     border: none;
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: var(--btn-bg);
     color: #fff;
-    font-size: 15px;
+    font-size: var(--fs-12);
     font-weight: 700;
     font-family: inherit;
     text-align: center;
     text-decoration: none;
     cursor: pointer;
+    transition: background-color var(--dur-1) var(--ease-std), box-shadow var(--dur-1) var(--ease-std),
+        transform var(--dur-1) var(--ease-std);
 }
 button.submit:hover, a.submit:hover { background: var(--btn-bg-hover); }
+/* A press is the only feedback a page that reloads can give while it reloads, so the button answers the
+   finger before the request does. A disabled one stays where it is — it has nothing to answer. */
+button.submit:active:not(:disabled), a.submit:active { transform: translateY(1px); }
 .error {
-    margin-bottom: 16px;
-    padding: 10px 12px;
+    margin-bottom: var(--sp-4);
+    padding: 10px var(--sp-3);
     border: 1px solid #f5c6c0;
-    border-radius: 8px;
+    border-radius: var(--r-md);
     background: #fdecea;
     color: #b3261e;
-    font-size: 13px;
+    font-size: var(--fs-9);
 }
-.note { margin-top: 22px; font-size: 11.5px; line-height: 1.6; color: var(--note); }
+.note { margin-top: 22px; font-size: var(--fs-6); line-height: 1.6; color: var(--note); }
 
 /* The password box and its show/hide button share the one line (Stage 121). The button sits inside the
    field so it can pin itself to the input's right edge, and the input reserves room for it so a long
@@ -127,10 +167,34 @@ button.submit:hover, a.submit:hover { background: var(--btn-bg-hover); }
 .password-toggle {
     display: none;
     position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
-    padding: 7px 9px; border: 0; border-radius: 6px; background: transparent;
-    color: var(--label); font-family: inherit; font-size: 11px; font-weight: 700;
+    padding: 7px 9px; border: 0; border-radius: var(--r-sm); background: transparent;
+    color: var(--label); font-family: inherit; font-size: var(--fs-5); font-weight: 700;
     letter-spacing: .07em; text-transform: uppercase; cursor: pointer;
+    transition: color var(--dur-1) var(--ease-std), background-color var(--dur-1) var(--ease-std);
 }
 html.js .password-toggle { display: block; }
 .password-toggle:hover { color: var(--title); background: var(--toggle-bg); }
-.password-toggle:focus-visible { outline: 2px solid #6b9c1e; outline-offset: 1px; }
+.password-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+
+/* One focus ring for the whole app (Stage A), in the file both pages load. It is a universal selector with no
+   class in it, which is the weakest specificity a rule can have, so every control that already names its own
+   ring keeps that ring -- the kanban card that draws its 2px inside the border rather than outside the page,
+   the bucket dot that draws it 4px out around a swatch. What this adds is the rest: an anchor, a select, a
+   checkbox, anything reachable by Tab that until now had `outline: none` and no answer to it. The ring is
+   `:focus-visible`, not `:focus`, so a click still does not draw one and a keyboard always does. */
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* Motion is a courtesy, not a requirement (Stage B). A reader who has told the operating system that they
+   want less of it gets the identical page with the *lengths* taken out: one block, in the file every page
+   loads, reaching every rule in the app — the drawer's slide, a popup's fade, a banner's entrance, a hover.
+   The durations are `.01ms` rather than zero so a `transitionend` or `animationend` still fires, which is
+   what keeps any script that ever waits for one of those events from hanging. This is the only place in
+   either stylesheet that uses `!important`, and it is the last rule in the file so it outranks by source
+   order too. Nothing here decides whether an effect exists: it decides only that it does not take time. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+    }
+}

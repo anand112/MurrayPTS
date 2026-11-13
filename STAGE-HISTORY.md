@@ -9920,7 +9920,7 @@ stage.
 
 <a id="stage-119"></a>
 
-## Stage 119 — The shell folds to a drawer below 900px, and a card board keeps two columns (2026-11-03, live, no migration, Kotlin + CSS + JS + test)
+## Stage 119 — The shell folds to a drawer below 900px, and a card board keeps two columns (2026-11-03, live, no migration, Kotlin + CSS + JS + test; **its two-column board half is superseded by [Stage 134](#stage-134)** — a phone now pages through one bucket at a time under a swipe, and the stylesheet's one `@media` rule became two, so read the two-up grid below as the history of a layout that no longer ships; the drawer half stands)
 
 **The ask:** *"Apply responsive behaviour Add a breakpoint at 900px in app.css: hide the sidebar and replace it with a hamburger button that slides it in, make the side panel full-width on small screens, and stack the dashboard cards 2 per row."*
 
@@ -9928,11 +9928,11 @@ stage.
 
 **The markup: one hamburger in the page head, one backdrop on every page.** `appPage` (`DashboardCommon.kt`) now wraps the heading in `.page-title` and prints `#navToggle` before it, so the page's actions and the bell keep `.page-head`'s far edge. The opener is a real `<button type="button" class="nav-toggle">` with `aria-controls="appSidebar"`, `aria-expanded="false"` and `aria-label="Open navigation"`, and three `.nav-bar` spans for the bars — no icon font and no inline SVG. The sidebar gets `id="appSidebar"`; a `.nav-backdrop` with `id="navBackdrop"` and `aria-hidden="true"` closes the drawer when pressed. Both are printed on every page, and the stylesheet decides whether they can be seen.
 
-**The breakpoint: the first `@media` rule in `app.css`.** `@media (max-width: 900px)` takes `.app` to block layout, narrows `.main` to 16px side padding, gives `.sidebar` the full width, and makes it an off-canvas drawer — `position: fixed; width: 100%; transform: translateX(-100%)`, a `.2s` transition, `z-index: 60` above a `z-index: 55` backdrop. `body.nav-open` slides it to `transform: none`, locks the page's scroll, shows the backdrop and tints the button. `.kanban, .kanban-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }` is the "two per row" half; the lane board's fixed 288px tracks are overridden so both boards agree at this width. Above the breakpoint `.nav-toggle, .nav-backdrop { display: none; }`, which is what leaves a desktop unchanged.
+**The breakpoint: the first `@media` rule in `app.css`.** `@media (max-width: 900px)` takes `.app` to block layout, narrows `.main` to 16px side padding, gives `.sidebar` the full width, and makes it an off-canvas drawer — `position: fixed; width: 100%; transform: translateX(-100%)`, a `.2s` transition, `z-index: 60` above a `z-index: 55` backdrop. `body.nav-open` slides it to `transform: none`, locks the page's scroll, shows the backdrop and tints the button. `.kanban, .kanban-lanes { grid-template-columns: repeat(2, minmax(0, 1fr)); }` is the "two per row" half; the lane board's fixed 288px tracks are overridden so both boards agree at this width. *(**Superseded by [Stage 134](#stage-134)**: two columns at a phone's width print a card at a phone's text size, so the grid became a flex row the thumb swipes — one bucket at a time, `scroll-snap-type: x mandatory`, each column 88% of the width so the next one's sliver is the affordance. The drawer, the backdrop and the one `nav-open` class are untouched.)* Above the breakpoint `.nav-toggle, .nav-backdrop { display: none; }`, which is what leaves a desktop unchanged.
 
 **One class, `body.nav-open`, and a script that only sets it.** `app.js` adds `html.js` to the document before the first paint, and the off-canvas rules are scoped to it — with JavaScript off the sidebar stays in the flow and stacks above the page, a smaller shell but one that still navigates. With it, the toggle flips `nav-open` and `aria-expanded` and swaps the label between *Open navigation* and *Close navigation*. Opening moves focus to the drawer's first `a, button`; closing (the toggle again, the backdrop, Escape, a drawer link, or the window growing past 900px through `matchMedia('(min-width: 901px)')`) removes the class, and every close except the grow returns focus to the button. The grow closes quietly without stealing focus, because the reader has just been handed the desktop layout.
 
-**Verified:** **707 tests / 48 classes / 0 failures** (from 704/47). `ShellRenderTest` (3) renders the whole shell on a temp database: the opener's id, classes, `type`, `aria-controls`, `aria-expanded="false"`, `aria-label` and three bars; the title wrapper holding the toggle and `<h1>Projects</h1>`; the backdrop's id and `aria-hidden`; exactly one `@media` at-rule, the 900px block's named rules, the hidden-by-default pair, and no unscoped `.sidebar` translation above it; and the script's `html.js` class, ids, `nav-open` toggle, `aria-expanded`, Escape and 901px query. The live behaviour was exercised with `scratch/stage119-js-harness.cjs` (15 checks, 0 failures) driving the shipped `app.js` through a DOM stub: class added, open state, aria and label, focus into the drawer, Escape closing and returning focus, backdrop closing, a drawer link closing, widening closing without moving focus, and Escape as a no-op when already closed.
+**Verified:** **707 tests / 48 classes / 0 failures** (from 704/47). `ShellRenderTest` (3) renders the whole shell on a temp database: the opener's id, classes, `type`, `aria-controls`, `aria-expanded="false"`, `aria-label` and three bars; the title wrapper holding the toggle and `<h1>Projects</h1>`; the backdrop's id and `aria-hidden`; exactly one `@media` at-rule, the 900px block's named rules, the hidden-by-default pair, and no unscoped `.sidebar` translation above it; and the script's `html.js` class, ids, `nav-open` toggle, `aria-expanded`, Escape and 901px query. The live behaviour was exercised with `scratch/stage119-js-harness.cjs` (15 checks, 0 failures) driving the shipped `app.js` through a DOM stub: class added, open state, aria and label, focus into the drawer, Escape closing and returning focus, backdrop closing, a drawer link closing, widening closing without moving focus, and Escape as a no-op when already closed. *(The "exactly one `@media`" count pinned here is the count of its day: **[Stage 134](#stage-134)** added a second block at 520px for the detail strip, and the test now reads two.)*
 
 **Deploy.** No migration, schema **21**; stopped PID 14788 (force), backed up in place with the JVM stopped — `data/pts.pre-stage119-20261103-1309.db` (471,040 bytes, `-wal` 86,552, `-shm` 32,768); `installDist` jar **1,934,345 bytes**; relaunched detached → **PID 12764**, `/` **200**, boot log "Schema "main" is up to date. No migration necessary", 9 categories. Read-back on the real data (metadata only): schema 21, 21 accounts, 21 roster rows, 15 projects, 31 tasks, 4 roles and 36 role-permission rows; the roster's departments still add up to 21 (Project 5, Engineering 5, Management 3, Production 2, and six one-person labels including the off-list *IT / Systems*). CSS and JavaScript changed, so every open tab needs **Ctrl+F5**. **Committed later the same day** when asked — *“commit this and push”*: `4a024b1` (the push `9b7cbd5..4a024b1` to the **github** remote also published `e05e42f`, Stages 117–118; `origin` untouched).
 
@@ -9946,7 +9946,7 @@ stage.
 
 **What was actually shrinking.** The dense sheets are `table-layout: fixed` with percentage `<col>` widths that add up to 100 and `overflow-wrap: anywhere` on every cell; that was the projects board's only responsive rule (Stage 16) and the forecast ledgers copied it. Below a certain width the free-text columns run out of room and `anywhere` does what it says: at 520px the board's code cell printed `S 0 1` under a heading reading `C O D E`, names split mid-word and the dates overlapped. The squeeze is not only a small-screen fault: at 1000px the 240px sidebar is back and the panel is still narrower than the sheet wants, so a manager's name broke inside itself there too. Stage 119's 900px rule moves the drawer and the card boards and deliberately leaves tables alone, which is why the fault survived it.
 
-**The answer: a floor per sheet, and a panel that scrolls to reach it.** Outside the breakpoint — so the stylesheet still has exactly one `@media` rule — each dense sheet gets a `min-width`: projects `1040px`, Team `1000px`, the running forecast `1280px`, its completed half `1100px` and Lesson learnt `1000px`. `table.grid { width: 100% }` still stretches them on a wide window; below the floor the panel around the table becomes the scroll container: `.card-panel:has(table.grid), .board-results:has(table.grid) { overflow-x: auto; }`. `:has` is what keeps the scroll on panels that actually hold a sheet — the popups (`.mpop`), the fixed modals and the notification panel are not `.card-panel`s, and a card-panel holding only a caption or a form is not turned into a scroll box. Calendar, Access control's People sheet and the permission sheet are not listed: their three and four columns fit, and they still wrap as before.
+**The answer: a floor per sheet, and a panel that scrolls to reach it.** Outside the breakpoint — so the stylesheet still has exactly one `@media` rule — each dense sheet gets a `min-width`: projects `1040px`, Team `1000px`, the running forecast `1280px`, its completed half `1100px` and Lesson learnt `1000px`. `table.grid { width: 100% }` still stretches them on a wide window; below the floor the panel around the table becomes the scroll container: `.card-panel:has(table.grid), .board-results:has(table.grid) { overflow-x: auto; }`. `:has` is what keeps the scroll on panels that actually hold a sheet — the popups (`.mpop`), the fixed modals and the notification panel are not `.card-panel`s, and a card-panel holding only a caption or a form is not turned into a scroll box. Calendar, Access control's People sheet and the permission sheet are not listed: their three and four columns fit, and they still wrap as before. *(**Superseded in part by [Stage 134](#stage-134)**: the Calendar's month grid is the one wide sheet `:has(table.grid)` never saw — it is `table.calendar-grid` with no `grid` class — so the scroll container now also answers `.card-panel:has(table.calendar-grid)`; and the "exactly one `@media`" clause became two when the detail strip got its own 520px block. The floors themselves are unchanged.)*
 
 **Column shares traded where the floor still pinched.** At the floor the projects board's old 5% code column was 52px, still too narrow for `S-01` beside its padding, and the manager's 9% was about 94px, which still broke a long name — the sheet was wider but not yet readable. The Stage 120 block rebalances four projects columns (code 6%, name 16%, manager 11%, pin 7%), two Team columns (department 11%, email 17%), four forecast columns (type 4%, code 6%, description 14%, previous 8%) and two completed-ledger columns (type 5%, description 23%), each pair trading width with the free-text column beside it so every sheet still sums to 100. The percentages are unchanged in kind: the floor decides how many pixels a share is worth.
 
@@ -9954,7 +9954,8 @@ stage.
 
 **Deploy.** No migration, schema **21**. Stopped PID 12764 (force) and confirmed the port free; backed up in place with the JVM stopped — `data/pts.pre-stage120-20261103-1439.db` (471,040 bytes, `-wal` 0, `-shm` 32,768); `installDist` jar **1,935,072 bytes**; relaunched detached through `deploy/run.bat` → **PID 6788**, `/` **200**, and the served `/static/css/app.css` carries the `:has` rule and `table.projects-table { min-width: 1040px; }`. Read-back on the real data (metadata only): schema 21, 22 accounts, 22 roster rows, 1 project, 2 tasks, 4 roles and 36 role-permission rows — the board held 15 projects at Stage 119 and one at this deploy, and the roster 21 → 22; both are the operator's own data, read only. CSS and the test changed, so every open tab needs **Ctrl+F5**. **No commit, no push.**
 
-**Never re-propose:** letting a dense sheet shrink until `overflow-wrap: anywhere` splits words into letters; a second `@media` rule for the floors (they apply at every width, and the one breakpoint is the shell's); applying `overflow-x` to every `.card-panel` rather than the ones holding a `table.grid`; hiding columns or shrinking the font instead of scrolling; or replacing the percentage shares with fixed pixel columns (the shares are what keeps every category panel lined up).
+**Never re-propose:** letting a dense sheet shrink until `overflow-wrap: anywhere` splits words into letters; a second `@media` rule for the floors (they apply at every width, and the one breakpoint is the shell's — *a count
+**[Stage 134](#stage-134)** raised to two, the second block for the detail strip alone; the floors are still outside both*); applying `overflow-x` to every `.card-panel` rather than the ones holding a `table.grid`; hiding columns or shrinking the font instead of scrolling; or replacing the percentage shares with fixed pixel columns (the shares are what keeps every category panel lined up).
 
 <a id="stage-121"></a>
 
@@ -10137,3 +10138,925 @@ overwrite a typed address forever); a per-account exception list; blanking an ad
 rewriting the roster's or a colleague's *display* name to make a nicer address; or claiming the sheet looks right from a
 boot log — the visible half is the Team sheet's Email column, which only a signed-in reader can see.
 
+
+<a id="stage-127"></a>
+
+## Stage 127 — Every account pins projects for itself, and a pinned row names the project by its ID (2026-11-09, live, no migration, Kotlin + CSS + test)
+
+**The ask:** *"every user can pin the projects for their own, and pinned projects show project's id"*. Two halves, and the
+second needed no terminology question, because the app already has an ID and prints it in a column headed **ID**:
+`projects.code` — `S-01` — not the integer `projects.id`. The panel was made to print the number a reader quotes.
+
+**The write was management's, and that was the bug.** `POST /app/projects/{id}/pin` guarded its only statement with
+`session.may(Permission.EDIT_PROJECT_DETAILS)` (Stage 110, whose comment called the pin *"the head strip's"*), while
+`Projects.kt` had already gone on printing a **☆ Pin** button on the read-only card and in the Projects list's own column.
+So an account without that chip — an *Employee*, or a role holding only *Delete projects* — clicked a control that
+redirected it back to the page with nothing written. A pin is not a project edit: `pins` is keyed by
+`employee_number`, and `PinRepository.toggle` touches that one pair and no other, so the gate protected nothing that was
+ever anybody else's. It is gone; the route now takes only the id from the path and the employee number from the session,
+which is why there is still no field here to forge.
+
+**One pin per page, said the same way.** The editable head keeps **☆ Pin for me** / **★ Pinned**, gated on `canEdit`
+alone — *not* on the `canEdit || canDelete` that decides whether the head exists at all — because an account that may
+delete but not edit already gets the card beneath it, and that card carries the pin. The read-only card's button, which
+used to read the shorter **☆ Pin**, now reads **☆ Pin for me** like the head's: same control, same words, whichever strip
+the reader's role selects. The Projects list column and the sidebar's own × rows are untouched.
+
+**The panel leads with the ID.** `DashboardCommon.kt`'s `pinned-row` is now `span("code") { +project.code }`, then the
+name link, then the × form — the ID first, in pin order, so two rows whose names are long enough to ellipsize stay
+distinguishable, and the name stays the row's only link. `app.css` gives the span `flex: 0 0 auto` and adds
+`min-width: 0` to the name so the existing `text-overflow: ellipsis` can actually do its job inside a flex row — the same
+guarantee the Projects sheet makes about its ID column.
+
+**Verified: 742 tests / 51 classes / 0 failures, errors or skipped** (from 738/51). `ShellRenderTest` went from 4 to 7:
+*a pinned row leads with the project's ID, in the order it was pinned*, *a pin is the reader's own list, and the × takes it
+off again*, and *the pinned row gives the ID its own width and the name the rest* — the last reads `app.css` the way the
+responsive-shell tests do. `ProjectsPageRenderTest` went from 48 to 49 with *every reader is offered one working pin,
+whatever their chips*, which renders all four chip combinations and counts the pin form in each. **49 throwaway HTTP
+checks, 0 failures** on port 8095: two Employee accounts with no project chips at all, two projects filed under one of
+them, then the write landing on the caller's own number and nobody else's; the second Employee's panel staying empty over
+the same project; pin order; the list's `ID` header and its two codes; the forged `employeeNumber`, the unknown project
+id, the edit and the delete each refused; and the served `app.css` carrying the new rule.
+
+**Two things the harness got wrong before the product did**, worth recording because both are easy to repeat. Served HTML
+and `createHTML()` output differ in **whitespace**: the unit-test string breaks a pinned row onto lines, while a browser is
+handed `<div class="pinned-row"><span class="code">S-01</span><a href=…` on one line, because every part of that row is an
+inline element — so an assertion needs one shape in `ShellRenderTest` and another in `scratch/`. And `'Pinned' in page` is
+not a needle: the panel's own `<h2>Pinned projects</h2>` contains it. The surviving invariant is
+`pin_forms(page) == 1 + len(pinned_ids(page))` — one control for the page, plus one × per row the sidebar prints.
+
+**Deployed 2026-11-09.** Live PID **20752** stopped with 8080 confirmed free; database backed up in place as
+`data/pts.pre-stage127-20261109-134825.db` (**471040** bytes, `-wal` 0, `-shm` 32768); one `test installDist` run; jar
+**1965948** bytes; detached relaunch → PID **25068**, `/` **200**, boot *"No migration necessary"*. Read-back: schema
+**22**, **22** accounts, **22** roster rows, **1** project, **2** tasks, **4** roles, **36** role-permission rows, and the
+one pin row already in the live database untouched at `position 0` — widening who *may* pin added and moved nothing. **CSS
+changed, so Ctrl+F5 once.** **No commit, no push.**
+
+**Never re-propose:** a pin that follows the project instead of the person; an employee-number field on the pin route, or
+any other way to pin on somebody's behalf; drawing the pin in the head strip **and** the read-only card of the same page;
+gating the panel's ID on a permission, since the panel is already the reader's own list; or reading `projects.id` and
+calling it the project's ID.
+
+<a id="stage-128"></a>
+
+## Stage 128 — The drawer carries its own close button, and it appears only while the drawer is open (2026-11-09, live, no migration, Kotlin + CSS + JS + test)
+
+**The ask:** *"add sidebar close icon button like this"*, with a picture of the glyph — a rounded square with one
+vertical line near its right edge, the Lucide `panel-right` shape. **This app has two sidebars and the ask named
+neither**: the permanent left column every desktop page draws, and the full-width drawer **Stage 119** gave phones
+and tablets. One question, answered **drawer only, on phones**, and the scope settled: the button lives at the top
+right of the open drawer, closes it the way the backdrop, Escape and the hamburger already do, and a desktop page
+keeps its always-there sidebar with nothing new on it.
+
+**Where in the drawer, and why not at the start of it.** `DashboardCommon.kt` gained `navCloseButton()` beside
+`navToggle()`, called inside `aside("sidebar")` **after the logo link and the caption and before `nav`**. That
+position is not decoration: `app.js` opens the drawer with `navDrawer.querySelector('a, button')` and focuses the
+answer, so a button printed first would be the first thing a keyboard reader is handed — an offer to leave before
+anything has been read. The logo link stays that first answer; the closer follows it.
+
+**One glyph, drawn the house way.** The box carries no word. It holds `icon(...)` — the same
+`viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"` wrapper every nav icon already uses — with
+`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/>`, so the picture the reader sent is drawn with
+the strokes the rest of the shell is drawn with, and no icon font or asset arrived for one control. Like `navToggle`
+it is a real `<button type="button">` with `aria-controls="appSidebar"` and `aria-label="Close navigation"`, because
+it is a disclosure and not a link. It deliberately **omits `aria-expanded`**: the drawer has one state, the hamburger
+owns its label, and a second control reporting the same state is a second thing to get out of step.
+
+**The stylesheet decides when it exists.** `.nav-close` joined the default-hide line with the hamburger and the
+backdrop, and inside the single `@media (max-width: 900px)` block one rule prints it:
+`html.js body.nav-open .nav-close` — three conditions, each one a reader for whom the button would close nothing.
+`html.js`, because with scripting off the sidebar is the page's first block and there is no drawer; `body.nav-open`,
+because a control offering to close an already-closed panel is a lie; the breakpoint, because a desktop sidebar is
+permanent. It is the hamburger's own 40px box, `position: fixed` at `top: 12px; right: 12px`, `z-index: 61` — above
+the panel's 60 — and fixed rather than in the panel's flow so a long menu keeps it on screen while its rows scroll
+under it.
+
+**One close path, not four.** `app.js` finds `#navClose` and hands it the existing `closeNav()`: the `nav-open` class
+off, the hamburger's `aria-expanded`/`aria-label` back to the closed words, and focus returned to the hamburger so a
+keyboard reader is not left standing on a button that just went off-screen. It did not grow a copy of that logic, and
+the press that arrives on the glyph's own `<svg>` still reaches the button's handler — the drawer's delegated link
+handler answers only for `<a>`, so the closer's icon cannot be mistaken for a navigation.
+
+**Verified: 745 tests / 51 classes / 0 failures, errors or skipped** (from 742/51). `ShellRenderTest` went from 7 to
+10: *the drawer carries its own close button, behind the link it opens on* (the markup, and its place in the drawer's
+own order), *the close button shows only on an open drawer, in its top-right corner* (the stylesheet, the way the
+responsive-shell tests already read it), and *every closer hands the drawer to the one function that closes it* (the
+script). **166 throwaway HTTP checks, 0 failures** on port 8095: all ten authenticated pages each print one closer,
+inside `#appSidebar`, after the logo, before the nav, with the glyph and no word, while the page head still carries
+exactly one hamburger — and the login page prints neither control, because it has no drawer. **19 synthetic-DOM
+checks** in `scratch/stage128-js-harness.cjs`: opening focuses the logo and not the closer, the closer shuts the
+drawer and returns focus to the hamburger, a press while closed is a no-op, and Escape, the backdrop, a drawer link
+and a widening window all still behave as Stage 119 left them.
+
+**Two probes that read a shipped change as missing, both about where a compiler puts a string.** A `<button>`
+assertion written as `<button[^>]*id="navClose"[^>]*>` matches the **opening tag only**, so the glyph inside it is
+outside the match — the check needs `.*?</button>` with `DOT_MATCHES_ALL`, in both the pretty-printed and the served
+shape. And the raw string that draws the glyph is compiled into the synthetic `DashboardCommonKt$navCloseButton$1$1.class`,
+not into `DashboardCommonKt.class`: a packaged-byte probe of the outer class alone reported `M15 3v18` absent. The
+live read-back now searches every class the shell file compiles to, by prefix rather than by generated name.
+
+**Deployed 2026-11-09.** Live PID **25068** stopped with 8080 confirmed free; database backed up in place as
+`data/pts.pre-stage128-20261109-144415.db` (**471040** bytes, `-wal` 0, `-shm` 32768); one `test installDist` run; jar
+**1967979** bytes; detached relaunch → PID **18932**, `/` **200**, boot *"No migration necessary"*. Read-back: schema
+**22**, **22** accounts, **22** roster rows, **1** project, **2** tasks, **4** roles, **36** role-permission rows, and
+the one pin row still at `position 0` — a shell change wrote and moved nothing. Packaged-byte probes confirmed the
+button, its class, its glyph, both stylesheet rules and the script wiring are in the deployed jar. **CSS and JS both
+changed, so Ctrl+F5 once.** **No commit, no push.**
+
+**Never re-propose:** printing it **before** the logo link, which makes the drawer's opening focus land on a door
+instead of a destination; `aria-expanded` on the closer, giving the drawer two controls that each claim to own its
+state; a second implementation of closing for the button to call, which the backdrop, Escape and the hamburger would
+not share; showing it when `html.js` is absent, since a scripting-off reader's sidebar is not a drawer; or an icon
+font, an asset file or an SVG sprite for one 24×24 stroke drawing.
+
+**The one line of this list that no longer stands** is its original first item — *"the close button in the desktop
+sidebar, where there is no drawer to dismiss and it would sit on every page doing nothing"* — **superseded by
+[Stage 130](#stage-130) at the reader's later request.** The button is in the desktop sidebar now, and it folds the
+column. What the reasoning was really for survives the reversal intact: a control has to act on something, which is
+why that stage's desktop press hides a panel rather than dismissing a drawer that is not open, why the hamburger is
+still the only opener below 900px, why the closer still carries no `aria-expanded`, and why the drawer's own contract
+is byte-for-byte what this stage wrote.
+
+<a id="stage-129"></a>
+
+## Stage 129 — The drawer's closer carries two drawings of its glyph, and the theme picks one (2026-11-09, live, no migration, Kotlin + CSS + test)
+
+**The ask:** *"use it when dark and light"*, with a picture of the same panel glyph twice — once stroked, once
+filled so its divider and chevron read as holes. Two things could have been meant, so two questions went out
+together and came back: **light → outline, dark → filled**, and **only the drawer's close button**. The hamburger's
+three bars and every nav icon stay as they were drawn; the theme system keeps its own ink rules untouched.
+
+**The glyph also moved a hair, because the picture asked for it.** Stage 128 shipped `panel-right` — a rounded square
+with its divider near the *right* edge. The reader's picture is `panel-left-close`: the divider at `M9 3v18` and a
+chevron pointing at it, `m16 15-3-3 3-3`. It is the shape that says "put the panel back where it came from", which is
+what the button does, and it is the shape the user sent twice.
+
+**Two drawings in one box, printed by the shell.** `DashboardCommon.kt`'s `icon(path)` gained an optional
+`classes` argument and `iconFilled(path, classes)` arrived beside it — the same 24×24 box with
+`fill="currentColor" stroke="none"` instead of strokes. `navCloseButton()` now emits both svgs into the one
+`button#navClose`, `glyph-outline` first and `glyph-filled` after, and nothing else about the control moved: same id,
+same class, same `aria-controls`, same `aria-label`, same place after the logo link, same single `closeNav()`. The
+optional argument defaults to empty, so **every other icon's markup is byte-identical to what it was**, which is what
+a served-page scan for `class=""` is there to prove rather than to hope.
+
+**The solid drawing cuts its own holes.** The filled path is three subpaths — the panel block, the divider strip, the
+chevron — with `fill-rule="evenodd"` on the path, so the last two subtract from the first instead of painting over it.
+What reads through them is whatever the button is standing on: the card background, and on hover the `--input-bg` the
+button already takes. That is why there is no second hover rule chasing a `--panel-colour`, and why the glyph needs no
+theme-specific variable of its own.
+
+**The stylesheet decides, and it is not the breakpoint's business.** Two rules show the outline and hide the solid one;
+two more, hung on `html[data-theme="dark"]`, swap them. All four sit **after** the `@media (max-width: 900px)` block, on
+purpose: a theme is not a width, and if the drawing were chosen inside the breakpoint a theme toggle would look broken
+until the window was resized. `theme.js` already sets `data-theme` on `document.documentElement` from `localStorage`
+and nothing else — it writes no markup and re-renders no page — so the swap happens on the attribute the CSS is already
+reading. The rule that sizes the glyph was stripped of its `display` at the same time, so the two drawings cannot both
+be painted by accident.
+
+**Verified: 746 tests / 51 classes / 0 failures, errors or skipped** (from 745/51). `ShellRenderTest` went 10 → 11: the
+existing *the drawer carries its own close button, behind the link it opens on* now reads both svgs — each drawing's box,
+its own fragments, and the even-odd attribute — and a new *the closer's glyph follows the theme, not the width* pins the
+four rules verbatim, then asserts the opposite of what they must not be: no `glyph-*` mention inside the breakpoint block,
+and no `display` in the sizing rule. **243 throwaway HTTP checks, 0 failures** on 8095: ten authenticated pages each
+carry exactly one `#navClose` with exactly one outlined and one solid drawing, in that order, with Stage 128's contract
+still intact; the login page carries neither; the served stylesheet's four rules match whole-line and land after the
+block's closing brace; the served `app.js` still hands the button to `closeNav`; and the served `theme.js` touches
+`documentElement` while naming neither `innerHTML` nor the button.
+
+**The pairing was looked at, not just asserted.** `scratch/stage129-glyph-fixture.html` puts both drawings in real
+`app.css` boxes — light row, dark row, dark row over the hover background — and headless Chrome
+(`scratch/stage129-shot.ps1`) renders it to `scratch/stage129-glyph.png`: the stroked panel against the pale card, the
+solid one with the divider and chevron open onto the dark card on both of its backgrounds. That is a local render of the
+stylesheet's rules, not a look at a signed-in page; the drawer on the live app is still the reader's to see.
+
+**One harness trap, and it was the harness.** Both whole-line CSS regexes failed on the first run and returned nothing:
+`app.css` is written, and served, with CRLF endings, and a Python `$` anchor under `re.M` sits before the `\n` while the
+`\r` is still glued to the `}`. The served text is now normalised once where it is read. The two
+"sits after the breakpoint" checks passed throughout, because they compare offsets rather than anchoring — which is how
+the failure was known to be a reporting bug and not a stylesheet one.
+
+**Deployed 2026-11-09.** Live PID **18932** stopped with 8080 confirmed free; database backed up in place as
+`data/pts.pre-stage129-20261109-153255.db` and again at **153302** (**471040** bytes each, `-wal` 0, `-shm` 32768) — the
+second copy came from a shell-quoting mistake that threw away the printed table, not from a second write, and both
+snapshots are identical; the read-back uses the newest trio and lists all six files. One `test installDist` run (`test`
+came back `UP-TO-DATE` against the green run minutes earlier with the same sources); jar **1970812** bytes; detached
+relaunch → PID **24848**, `/` **200**, boot *"No migration necessary"*. Read-back: schema **22**, **22** accounts,
+**22** roster rows, **1** project, **2** tasks, **4** roles, **36** role-permission rows, the one pin still at
+`position 0`. Packaged-byte probes over every `DashboardCommonKt*.class` — the glyph strings live in the synthetic lambda
+class, per Stage 128's lesson — confirm both drawings, the solid box, the even-odd attribute, both class names, all four
+theme rules in order after the block, one `@media` still (*two since **[Stage 134](#stage-134)**: the 900px fold and a
+520px detail-strip block*), and the JS and `theme.js` wiring. **CSS and Kotlin both
+changed, so Ctrl+F5 once.** **No commit, no push.**
+
+**Never re-propose:** the server knowing the theme — it does not, `localStorage` does, and re-rendering to find out would
+put a reload in the middle of a toggle; `prefers-color-scheme`, when the app's theme is an explicit choice the reader
+makes in the page head; a filled glyph on the light theme, which is the mapping the reader was asked about and did not
+pick; two icons in place of one button's two drawings, which would double the control a screen reader is handed;
+`aria-hidden` swaps, class rewrites or any JS touching the markup to switch drawings, when the attribute the theme
+already sets is enough; giving every nav icon a solid twin; or a theme-specific colour variable for the glyph, when
+`currentColor` and `fill-rule="evenodd"` already make the button's own background do the work.
+<a id="stage-130"></a>
+
+## Stage 130 — A desktop page folds the sidebar away, and a tab on the left edge brings it back (2026-11-09, live, no migration, Kotlin + CSS + JS + test)
+
+**The ask:** *"i need close sidebar button when web page is full its optional the user close sidebar when web site is
+full"* — at a full, desktop width the sidebar should be closeable, and closing it should be the reader's option rather
+than the app's. This is the third ask about the same corner of the shell and it **reverses a recorded decision**:
+Stage 128 put the question to the reader, the answer came back *drawer only, on phones*, and the desktop button went
+onto that stage's **Never re-propose** list. The list has now been amended in place rather than quietly deleted —
+the reader is the authority on their own app, and Stage 128's drawer contract is untouched.
+
+**Three choices, asked as one batch.** **Slide it away, full width** — the 240px column leaves the flex row and `main`
+takes the whole window; not an icon rail, not hide-and-leave-a-hamburger. **localStorage, per browser** —
+`pts-sidebar`, the third key beside `pts-theme` and `pts-accent`, so there is no migration, no account column, and one
+reader's fold never arrives on another's screen. **Closer in the corner, tab on the edge** — the button that already
+shuts the phone drawer sits in the sidebar's own top-right corner and folds it here too, and once the column is gone a
+slim vertical tab on the page's left edge brings it back. Neither overlaps the page title, because neither is in the
+page head.
+
+**One button, two meanings, and still exactly one breakpoint.** `.sidebar` is `position: sticky`, which makes it the
+containing block for the corner button, so the desktop copy of that button is one rule above the Stage 119 block —
+`html.js .nav-close`, `position: absolute; top: 10px; right: 10px`, a 34px box — and `html.js body.sidebar-hidden
+.sidebar { display: none; }` is what takes the column out of the row. `display: none`, not a flex basis animating to
+zero: the page widens in one step instead of sliding everything sideways for a fifth of a second while the reader
+watches. Below 900px the block answers each of those rules with its own identical, later selector — the sidebar stands
+(`display: flex`), the desktop box is stood down, the tab is hidden — which is how a phone page keeps Stage 119's
+drawer whatever this browser remembered from a wider window. Adding a second breakpoint would have put the fold's
+future in the hands of a window resize; answering inside the one that exists puts it in the cascade, where a rule that
+stops applying cannot take the drawer with it. *(**Superseded by [Stage 134](#stage-134)**: the count is now two —
+900px and 520px — but the reasoning stands. The fold's rules are still answered inside the 900px block, and the newer
+block only narrows the detail strip to one field a row; it never touches the drawer or the fold. The second breakpoint
+was added where the first had nothing left to say, not where the fold lives.)*
+
+**The tab cannot live in the panel it opens.** `sidebarTab()` prints `button#sidebarTab` in `appPage` as a sibling
+after `<aside id="appSidebar">` and still inside `.app`: the control that hides the column is *in* that column, so
+once it has, there is nothing left in it to press. `position: fixed` at `top: 50%; left: 0` — the centring that
+**[Stage 131](#stage-131) undid the next day** — 22×72px, its right corners rounded and no left border, so it reads as a
+lip on the window's edge rather than a button floating over the page. It
+carries one stroke glyph — the panel with its divider and a chevron pointing *in*, at the side the column comes from —
+and deliberately not Stage 129's two-face treatment, which was asked for on the closer and is not a rule about icons.
+
+**The state has one owner, and at each width it is a different control.** The drawer's closer still has no
+`aria-expanded`: on a phone page the hamburger is always there to be asked. On a desktop page the hamburger is gone, so
+the reopen tab is the control that is always there, and it is the one that reports — shipped `aria-expanded="true"`
+because the panel is present on arrival, kept honest by `app.js` on every fold and every resize. The word on the
+closer is the other half: markup can only know the drawer's meaning, so it prints *Close navigation* and `app.js`
+renames it *Hide sidebar* once `matchMedia('(min-width: 901px)')` says the window is wide. Same script, same attribute
+the theme rules already read; the server is told nothing, because there is nothing worth telling it.
+
+**Nothing on this page folds itself.** No width auto-collapses, no first visit hides the column, no route remembers on
+the server's behalf. `app.js` reads `pts-sidebar` immediately after it marks `document.documentElement` with `js` and
+before it wires a single control, which is the ordering that keeps a remembered fold from painting a sidebar for one
+frame and then taking it away — a visible reload counts as broken here as everywhere else in this app. Both reads and
+writes are wrapped, so a browser that refuses `localStorage` loses the memory and not the button.
+
+**What it cost the drawer: nothing.** The desktop half of the click handler starts `if (!isWide()) return;`, so below
+900px the closer's new listener answers for nothing and Stage 128's single `closeNav()` — the one the hamburger, the
+backdrop, Escape and a drawer link all call — is still the only way a drawer shuts. Pressing the closer is two listeners
+on one button in that order: `closeNav()` runs, finds no `nav-open`, and returns; `toggleSidebar()` does the folding.
+Folding moves focus the way opening the drawer does — into the tab when the column goes, onto the drawer's first link
+when it comes back — and a page drawn without the tab (a stale cached shell) still folds rather than throwing on a
+missing focus target.
+
+**Verified: 749 tests / 51 classes / 0 failures, errors or skipped** (from 746/51). `ShellRenderTest` went 11 → 14.
+Three new cases: *the reopen tab is on the page, outside the panel it opens* asserts the markup and its place as a
+sibling of the sidebar; *a wide page folds the sidebar away and the breakpoint answers it back* pins each desktop rule
+above the block, each reply inside it, the corner and strip geometry, and the count of `@media(` at one; *the fold is
+remembered in one key, read before the paint* pins `pts-sidebar` appearing exactly twice, the read landing between
+`classList.add('js')` and the wiring, both controls handed the same named `toggleSidebar`, and the wide guard. Two
+existing cases were rewritten because this stage made them untrue rather than because they were weak: the default-hide
+line gained the tab as its fourth name, and *the close button shows only on an open drawer* can no longer forbid a
+`display` for `.nav-close` outside `body.nav-open` — it now requires the desktop box, demands the breakpoint stand it
+down *before* it shows the drawer's own, and still forbids a drawing choice inside the block. **248 throwaway HTTP
+checks, 0 failures** on 8095 over ten authenticated pages plus the login page, the served stylesheet and the served
+script; **41 synthetic-DOM JS checks** in `scratch/stage130-js-harness.cjs` — narrow press does nothing, wide press
+folds and unfolds with one toggle per click, a remembered fold is applied at load, a resize renames the closer and
+shuts the drawer's desktop half down, blocked storage costs the memory and not the control, and a page with no tab
+survives.
+
+**Deployed 2026-11-09.** Live PID **24848** stopped with 8080 confirmed free; database backed up in place as
+`data/pts.pre-stage130-20261109-162508.db` (**471040** bytes, `-wal` 0, `-shm` 32768). One `test installDist` run —
+`test` came back `UP-TO-DATE` against the green suite minutes earlier with the same sources — jar **1974696** bytes;
+detached relaunch → PID **11348**, `/` **200**, boot *"Successfully validated 22 migrations"* and *"No migration
+necessary"*. **43 live read-back checks, 0 failures**: the packaged `app.css` and `app.js` are what the server hands
+out; every `DashboardCommonKt*.class` sweep finds the tab's id, class, name and chevron beside the closer's two
+drawings and the hamburger; the three desktop rules and their three breakpoint replies are in the shipped stylesheet in
+the order that makes them work; schema still **22**, and **22** accounts, **22** roster rows, **1** project, **2**
+tasks, **4** roles, **36** role-permission rows, **9** project types, **39** notifications and the one pin row at
+`position 0` are all exactly as they were. **Kotlin, CSS and JS all changed, so Ctrl+F5 once.** **No commit, no push.**
+
+**Still the reader's eyes on.** What every check here proves is markup, cascade and script behaviour; none of it is a
+picture. Two placements are for a human on a signed-in wide page: the 34px corner button sitting over the sidebar head
+beside the logo and its caption — not colliding with either at the longest project name — and the 22px tab reading as
+part of the window edge rather than as a stray control at `top: 50%`. The tab's half of that sentence is
+**[Stage 131](#stage-131)**'s business now — it is placed at the top of the edge — and the corner chip beside the logo
+is still the reader's to look at.
+
+**Never re-propose:** auto-folding at some width, which is the surprise the ask ruled out by saying *optional*; an icon
+rail or a hover-reveal strip, when the choice made was the column leaving and the page taking the row; remembering the
+fold on the account, in a column or a cookie — it is a window arrangement, per browser, like the theme is; a second
+`@media` block for the desktop half, which would make the fold and the drawer two breakpoints that can disagree; a
+`width`/`visibility` fold that keeps the flex track and leaves a 240px gutter of nothing; `aria-expanded` on both the
+closer and the tab at once, which is two controls claiming one state; a slide animation on `display: none`, which does
+not animate, or one on the panel that drags the whole row sideways to do it; a second drawing (solid and outline) for
+the tab, when Stage 129's two faces belong to the closer the reader pictured; or a server-rendered class on `<body>` —
+the fold is not in the session, and reading `localStorage` server-side means a round trip per press.
+<a id="stage-131"></a>
+
+## Stage 131 — The way back from a folded sidebar stays at the top of the edge, level with the button that hid it (2026-11-11, live, no migration, CSS + test)
+
+**The ask:** *"when the sidebar is closed the stays still dont move it down in the middle"* — the reopen tab belongs at
+the top of the window's left edge, where the reader's eye already is when they fold the column away, not at its middle.
+Nothing else needed interpreting. The tab, its glyph, its toggle and the browser's memory of the fold were all wanted
+exactly as [Stage 130](#stage-130) shipped them; the ask named one placement, and one placement is what changed.
+
+**It arrived the day after the deploy, and the reader was right about the page they were looking at.** Stage 130's
+stylesheet was in the running JVM's jar and Stage 131's was not until this stage restarted it. A CSS-only stage is
+still a deploy: `app.css` is served out of the distribution, not out of `src/`, so until the jar is rebuilt and the JVM
+relaunched a browser is being handed the old cascade and the edit on disk is worth nothing to the person using the app.
+
+**One rule, and the change is mostly subtraction.** `html.js body.sidebar-hidden .sidebar-tab` went from
+`position: fixed; top: 50%; left: 0; transform: translateY(-50%); z-index: 50` to
+`position: fixed; top: 10px; left: 0; z-index: 50`. `top: 50%` became `top: 10px` because the box is no longer placed by
+its middle; `translateY(-50%)` was removed rather than replaced, because a rule that still carries a `transform` is a
+rule that has centred the tab again under a different name — which is why the test forbids the word outright, not just
+the old pair. `position: fixed`, `left: 0` and `z-index: 50` did not move: the tab is still measured against the window
+rather than the panel it opens, still 22×72px with its left border off and its right corners rounded, still outside the
+`<aside>` as its sibling.
+
+**Why the closer's number, and not a new one.** `10px` is the offset `html.js .nav-close` is given inside the sidebar,
+and the two controls are one toggle — a press at the top right of a column should put its answer at the top left of the
+window that column just left, so the pair reads as the same control answering from whichever side is still visible. The
+test does not hard-code the number twice: it captures `top: (\d+)px` from each rule and asserts the two groups are
+equal, so a future edit that moved one and not the other fails with a message about the pair rather than a message about
+a pixel value. Nothing in the geometry was left to chance either: `.main` keeps its 32px of padding, so a 22px strip at
+the left edge still cannot sit over the page title.
+
+**The numbers, taken off the rendered page rather than off the cascade.** `scratch/stage131-measure.html` is the shell
+`appPage` prints — both stylesheets in the order it links them, `body.app-body`, the `<aside>` and the tab as its
+sibling — and `scratch/stage131-measure.ps1` has headless Chrome, at 1280×360, dump the DOM after measuring both
+states of the toggle: the closer's `getBoundingClientRect().top` is **10.0** with the column open, the tab's is
+**10.0** after the same `sidebar-hidden` class `app.js` sets, and the difference between them is **0.0**. The tab sits
+at `left: 0` and 22×72px while the page title's box begins at `left: 32`, so the strip clears the heading by 10px, and
+the closer's rect collapses to 0×0 once the column is hidden — the fold doing its job, not the tab doing anything.
+`scratch/stage131-folded.png` and `scratch/stage131-open.png` are those two states as pictures. **The first pass of
+that page measured the pair 8px apart, and the 8px was the fixture's fault, not the app's:** it linked `app.css` alone,
+so `base.css`'s `* { box-sizing: border-box; margin: 0 }` never applied, the body kept its default 8px margin, and the
+sidebar was a content-box 268px wide instead of a border-box 240. A geometry check that skips a stylesheet is measuring
+a different page — which is the same reason the fixtures link both files in `appPage`'s order and carry `app-body`.
+
+**What did not move, and was checked as not having moved.** No Kotlin — `sidebarTab()` prints the same button, in the
+same place, with the same `aria-controls`, `aria-expanded` and name, and one stroke glyph whose chevron points in. No
+script — the fold, the `pts-sidebar` read before paint, the single `toggleSidebar()`, the wide guard and the focus
+behaviour are the bytes Stage 130 shipped. No markup and no breakpoint reply: the three desktop rules are still above
+the one `@media (max-width: 900px)` block and still answered identically inside it, so a phone page is still
+Stage 119's drawer whatever this browser remembered.
+
+**Verified: 749 tests / 51 classes / 0 failures, errors or skipped** — the count did not move, because this stage
+rewrote assertions inside one existing case instead of adding a case.
+*a wide page folds the sidebar away and the breakpoint answers it back* now expects `top: 10px` among the tab's pieces
+and no longer names `top: 50%` or `translateY(-50%)`; it then asserts the opposite of three words — `top: 50%`,
+`translateY`, `transform` — are absent from the rule, and compares the closer's and the tab's `top: (\d+)px` captures
+for equality. **252 throwaway HTTP checks, 0 failures** on 8095, in `scratch/stage131-verify.py`: a fork of Stage 130's
+248 with those same three negatives and the same equality check added, which is also how the unchanged 248 were proved
+unchanged — every page still prints one `#sidebarTab` outside the `<aside>`, the login page still prints neither
+control, and Stage 128's shared `closeNav()` is still in the served script. **41 synthetic-DOM JS checks re-run green**
+against the untouched `app.js`.
+
+**Deployed 2026-11-11.** Live PID **11348** stopped with 8080 confirmed free; database backed up in place as
+`data/pts.pre-stage131-20261111-083113.db` (**471040** bytes) — and this time there was no `-wal` or `-shm` partner to
+copy, because the JVM's shutdown had already checkpointed and removed them, so the single file is the whole snapshot.
+One `test installDist` run (`test` came back `UP-TO-DATE` against the green suite minutes earlier with the same
+sources); jar **1974818** bytes (from 1974696); detached relaunch → PID **3140**, `/` **200**, boot *"Successfully
+validated 22 migrations"* and *"No migration necessary"*. **48 live read-back checks, 0 failures**: the packaged
+`app.css` is byte-for-byte what the server hands out and carries `top: 10px` with no `transform` in the tab's rule, the
+packaged `app.js` is unchanged, the compiled shell still carries the tab's id, class, name and chevron beside the
+closer's two drawings and the hamburger, the fold's three rules and three replies are still in the shipped order with
+one `@media` in the file (*[Stage 134](#stage-134) later added a second — 520px, for the detail strip; the fold's own
+rules are untouched*), schema is still **22**, and **22** accounts, **22** roster rows, **1** project, **2** tasks,
+**4** roles, **36** role-permission rows, **9** project types, **39** notifications and the one pin at `position 0` are
+all exactly as they were. That read-back also stopped reading the whole `logs/pts.log`: it now slices from the byte
+offset recorded before the restart, so a boot line cannot be satisfied by the Stage 130 instance that wrote the first
+half of that file. **CSS only, so Ctrl+F5 once.** **No commit, no push.**
+
+**Still the reader's eyes on.** Every check here is the cascade, the served bytes, and a render of a made-up page
+standing where a real one would; none of it is a signed-in page. What a
+human has to confirm on a signed-in wide page is that a 22×72px strip whose top is 10px below the window's reads as the
+answer to the button they just pressed, and does not look clipped against the page head or trip over whatever the
+sidebar's own head carries when the column comes back.
+
+**Never re-propose:** centring the tab on the edge, under `top: 50%` or under any of its workarounds — a `margin-top`,
+a `calc()`, or a `transform` that reproduces the same middle-placement by another property, all of which this stage
+removed and one of which the test now fails on sight; giving the tab a `top` of its own instead of the closer's, which
+lets the two halves of one toggle drift apart by however many pixels the next edit likes; moving the tab into the
+sidebar's head so it is level with the closer *in spirit*, when a hidden panel cannot carry the control that opens it —
+Stage 130's whole argument; writing the offset from `app.js`, which puts a script between the reader and a number the
+stylesheet already knows; or a second breakpoint to place a control at the top of a window, when the fold, the drawer
+and the theme have all been kept to exactly one. *(**[Stage 134](#stage-134)** added a second breakpoint — 520px, for
+the detail strip alone — so the count is two; the fold, the drawer and the theme still live in the one 900px block, and
+the prohibition stands: no breakpoint was added to place a control.)*
+
+<a id="stage-132"></a>
+
+## Stage 132 — The stylesheet is given a scale, accent text is given its own ink, and every control is given one focus ring (2026-11-11, live, no migration, CSS + test)
+
+**The ask:** the fifteen-bullet design checklist, in its own three kinds of work — *design tokens*, *motion*,
+*responsiveness* — and the reader's answer to how to ship it: **"Three stages, tokens first."** This is that first
+stage, and the checklist's words for it are *"add spacing, font-size and radius variables and an Inter-first font stack;
+fix low-contrast accent text; add a `:focus-visible` ring"*. A second answer arrived before a line was written —
+**"Stack only, no download"** for Inter. Nothing here is new interface: no Kotlin, no route, no table, no migration
+(Flyway stays **v22**), and `app.js` is byte-identical to the file Stage 131 deployed. The motion and phone bullets are
+deliberately not reached for in passing; they are Stages B and C.
+
+**The scale, in the file both pages load.** `base.css` went from 137 lines and 4,322 bytes to 169 lines and 7,280, and
+almost all of the growth is one table at its head: eight spacing steps (`--sp-1` … `--sp-8`, 4 → 32px), seven radius
+steps (`--r-xs` … `--r-xl`, 4 → 16px, beside `--r-pill` and `--r-round`) and fifteen type steps (`--fs-1` … `--fs-15`,
+9px → 22px), plus `--font-ui` and `--font-mono`. **Every one of those numbers is a pixel the app was already painting**,
+which is the claim the stage hangs on and the reason it was measured instead of asserted (below). The literals moved
+into `var()` in both files; `app.css` — 1,591 to 1,603 lines, 128,005 to 132,604 bytes — reads the table in 402 places
+across the same three families.
+
+**Per family, on purpose.** 14px is a type step, and `padding: var(--sp-3) 14px` is not type. The ramp names each
+family's own values and leaves the values *between* the steps — 6px and 10px of padding, 2px and 5px of border, the
+modal's `clamp()`, the login box's reserved 74px — as numbers, so the distance between the app and a tidy grid is
+countable rather than felt, and converging them stays the decision it actually is: a design change with a visible
+consequence, not a rename. 170 geometry declarations still read as bare literals for exactly that reason.
+`DesignTokensTest` therefore checks a declaration against its own family's steps and nothing else, because the rot a
+token layer invites is somebody typing `12px` again and the table becoming decoration.
+
+**Ink is not fill.** The six accent/theme blocks in `app.css` — `:root`, `html[data-theme="dark"]` and the blue and
+amber pairs — each declare `--accent-ink`, the colour an accent hue's *words* are drawn in, and
+`--focus-ring: var(--accent-ink)`. `--accent-strong` keeps its old job of filling a box that has white on it, and in the
+dark theme the two are not close: each hue lifts for the dark page (`#33500b` → `#85a25d`, `#1a4f8a` → `#689dd8`,
+`#8a5a06` → `#c0903c`) so a dark page is no longer asked to show dark green on darker green — that pairing measured
+**1.45:1**. `color: var(--accent-strong)` goes from 32 rules to **none** and `color: var(--accent-ink)` to 35; three of
+those 35 came from `color: var(--accent)`, which was the worse offender on a tinted background. `var(--accent-strong)`
+survives in exactly three declarations, all `background:` on boxes whose text is `#fff`: `.avatar`,
+`.mpop-head .avatar.sm`, `.modal-btn:hover`. `--muted` and `--note`, the greys that carry captions and placeholder
+text, were measured with the same arithmetic and lifted to 4.86:1 and 4.87:1 on the page behind the card, from 4.39 and
+**2.31** — a sentence nobody could read.
+
+**Why the ring token is written six times.** It looks like duplication and it is a cascade fact: a custom property
+resolves at computed-value time against the element's own cascade, so a lone `--focus-ring` on `:root` (0,1,0) loses to
+`base.css`'s `html[data-theme="dark"]` (0,1,1) and every dark page would ring in green whatever hue it wore. The test
+loops all six combinations, asserts each ring *is* that combination's ink, and then measures the resolved colour
+against the four surfaces it can land on.
+
+**One ring, in the weakest selector in the file.** `base.css` now ends with
+`:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }` — universal, no class in it, so every
+control that already drew its own ring keeps that ring (the kanban card opener's 2px drawn inside its border, the bucket
+dot's 4px around a swatch, the login toggle's 2px at 1px offset) and everything else reachable by Tab — an anchor, a
+select, a checkbox, anything that had `outline: none` and no answer — has one. It lives in `base.css`, not `app.css`,
+because the login page links `base.css` alone; that is also why `--focus-ring` carries a literal `#33500b` / `#85a25d`
+there, and why `input:focus`'s border and the toggle's outline now read the token instead of `#6b9c1e`.
+`:focus-visible`, not `:focus`, so a click still draws nothing and a keyboard always does.
+
+**The one change that could have been visible, and was proved not to be here.** `--font-ui` asks for Inter first and
+keeps `"Segoe UI"` immediately behind it, exactly as chosen: no `@font-face`, no `.woff`/`.ttf`, no
+`src/main/resources/static/fonts/` directory, and the live check asks the running app for
+`/static/fonts/inter-regular.woff2` to be sure nothing was packaged by accident. Inter is not installed on this machine,
+so the browser pass finds no text width or height that moved — the stack is inert here, and what it promises is about
+machines that do have the face. That is a fact about the check, not an endorsement: it is the reader's to see.
+
+**Proved invisible, three ways.** `scratch/stageA-resolve.py` expands every `var()` in the patched files and compares
+613 geometry declarations, in cascade order, against the pre-edit snapshot: **421 references resolved and matched,
+RESULT: IDENTICAL — the token pass changed no computed value.** `scratch/stageA-render.py` renders one made-up shell,
+board, form and ledger against the before and after stylesheets in headless Chrome (1280×900, both fold states, 23
+computed properties over 56 element states) and finds **two differing lines, both of them the `font-family` itself, and
+not one geometry line different**. `scratch/stageA-contrast-check.py` measures colour off the real cascade rather than a
+table of hexes typed by hand — winner per (theme, accent) by specificity then source order, `base.css` first because
+that is the order a page links them — and reports the under-threshold pairings going **37 → 2**; the accent *text* and
+*ring* set is empty (the render pass counts it as **17 → 0**, tightest survivor clearing its floor by 1.029×).
+
+**Verified: 757 tests / 52 classes / 0 failures, errors or skipped** (from 749 / 51). `DesignTokensTest` is the new
+class and brings the eight cases: every token defined somewhere, the ramp is those 30 exact pixels, no rule writes a
+pixel its own family already names, Inter first with no font shipped, accent text clears AA on every surface it can be
+painted on, text asks for the ink while fills keep the dark end, each hue lifts for the dark theme and keeps its own hue
+doing it, and one ring from one token on `:focus-visible` — that last looping all six combinations. Five existing CSS
+pins were rewritten rather than left behind: `ShellRenderTest` and `TaskBoardRenderTest` used to pin literals
+(`border-radius: 8px`, `padding: 5px 12px`, `font-size: 12.5px`) and now pin the token **and** the step it stands for,
+through a new `stepIs(token, pixel)` helper, because a test that only sees `var(--r-md)` would keep passing if someone
+re-typed the ramp as 10px. **92 throwaway HTTP checks** (`scratch/stageA-verify.py`) run against an instance booted on
+8095 with a `%TEMP%` database and read the bytes it serves: stylesheet order and `body.app-body` on every page, base.css
+alone on login, both files byte-for-byte as committed with their per-file line endings intact, every `var()` defined, the
+ramp, 350+ references, no bare ramp pixel, the six ink and ring blocks, the three dark lifts, no rule painting text or
+outlines with the fill, the one `:focus-visible`, the note-foot pair, and the untouched fold of Stages
+119/128/129/130/131.
+
+**Deployed 2026-11-11.** Stopped PID **13520** with 8080 confirmed free; `data/pts.db` backed up **in place** as
+`data/pts.pre-stageA-20261111-103521.db` (**471040** bytes) with its `-wal` (0) and `-shm` (32768) partners, and
+`logs/pts.log`'s offset (10,019,565) recorded beside them; one `test installDist` (`:test` UP-TO-DATE on the same
+sources, `:installDist` re-packaged the stylesheets); jar **1976964** bytes (from 1974818); detached relaunch → **PID
+21024**, one listener on 8080; **58 live read-back checks** (`scratch/stageA-live-check.py`) green — served bytes equal
+disk bytes equal packaged bytes for both stylesheets, `app.js` untouched, `base.css` still LF and `app.css` still pure
+CRLF *inside the jar*, the ramp and the six ink blocks and the one ring present in what a browser receives, no font file
+packaged and none served, the schema still **22** with every table holding the rows it held before (22 users · 22 roster
+· 1 project · 2 tasks · 4 roles · 36 chips · 9 types · 42 notifications · 1 pin), and this boot's own log lines
+validating 22 migrations and applying none. Throwaway 8095 free afterwards and its `%TEMP%` directory deleted. **Both
+stylesheets changed, so Ctrl+F5 once — and this time the login page needs it too, because that page is where the new
+ring lives.** **No commit, no push.**
+
+**Left over, and said so.** Two `--accent` *border* pairings still sit just under 3:1 on their own tinted background —
+amber light at 2.98 and blue dark at 2.88. Darkening `--accent` would move the progress bar and the bucket dots with it,
+which is a palette decision rather than a contrast fix and not this stage's to make. The 170 geometry values between the
+ramp steps stay literal by design. And a script that was looking for something else found a pre-existing defect it did
+not cause and did not fix: in the dark theme the background actually painted behind the content is `base.css`'s
+`html[data-theme="dark"] body` radial gradient (0,1,2), which beats `app.css`'s `body.app-body { background:
+var(--main-bg) }` (0,1,1) — so a dark app page wears the login page's background. The contrast work measures against the
+declared `--main-bg` and prints that finding rather than smoothing it over; the rule is one line wide, and nobody has
+been told about it until now.
+
+**Still the reader's eyes on:** the Inter-first stack on a machine that really has Inter, which nobody in this workspace
+can see — the browser here has no Inter, so the pass could only measure nothing moving; whether a 2px ring at 2px offset
+is visible enough on a dark page and not too loud on a light one; and whether an accent *word* now sitting a step away
+from the accent *fill* beside it still reads as one palette rather than two.
+
+**Never re-propose:** a font file in `src/main/resources/static/fonts/`, an `@font-face`, or a CDN link — the reader
+chose a stack, not a download, and a test fails on the word `.woff`; a second token table inside `app.css`, which is the
+copy that turns `base.css`'s into decoration; `--focus-ring` declared once on `:root` instead of six times, which is a
+real cascade bug that the suite now names; text painted with `--accent-strong`, whose job is the fill white sits on;
+converging the between-step pixels onto the ramp as part of a rename, when it changes the page; a ring on `:focus`
+instead of `:focus-visible`, which puts an outline on every clicked button; or motion or responsive work landed inside a
+token stage, which is how a change that was proved invisible stops being provable.
+
+<a id="stage-133"></a>
+
+## Stage 133 — The stylesheet is given a table of times, and five moments on the page now take one (2026-11-11, live, no migration, CSS + JS + test)
+
+**The ask:** the second of the fifteen-bullet design checklist's three kinds of work, which the reader's **"Three
+stages, tokens first"** made Stage B. The checklist's own words are *"add hover and press transitions on buttons,
+nav items and cards; fade and blur modal overlays, and give the toast an entrance; make the dragged Kanban card
+lift; add a one-time fade-in when the view changes (not on every render); respect `prefers-reduced-motion`
+everywhere."* [Stage 132](#stage-132) gave the app one table for sizes; this gives it one for time, on the same
+argument and with the same discipline: **not one number here was invented for the occasion.** No Kotlin, no route,
+no table, no migration (Flyway stays **v22**), and the responsive bullets are Stage C — deliberately not reached
+for in passing, because a stage that was proved invisible stops being provable the moment it also moves things.
+*(**Stage C arrived as [Stage 134](#stage-134)**: the bottom bar, the search page, the swipe board and the folding
+KPI row. The table of times was not re-typed to make them — the bar's tabs joined the one pointer rule this stage
+wrote, and no new duration was invented.)*
+
+**There is no toast, so the banner got the entrance.** The app has no toast system: no queue, no stack of
+transient cards, nothing that arrives by itself and leaves by itself. The nearest thing it has — and the thing a
+reader actually sees after a save — is the server-rendered one-shot `.flash.ok` / `.flash.err` banner that
+`flashBanner(...)` (`Settings.kt:106`) puts on the page a redirect lands on. That is where the checklist's "toast"
+was answered, and the stylesheet's own comment says so, rather than leaving somebody to work out whether a bullet
+was quietly skipped.
+
+**Four tokens, and the two lengths are the two the app already ran.** `base.css` went 169 → 200 lines and 7,280 →
+9,509 bytes for `--dur-1: 120ms`, `--dur-2: 200ms`, `--ease-std: cubic-bezier(.4, 0, .2, 1)` and
+`--ease-out: cubic-bezier(.22, .61, .36, 1)`. The token table goes **44 → 48**: nothing that existed changed
+value and nothing disappeared. The claim that the two durations are the app's own is checkable, because before
+this stage `app.css` held exactly **five** motion declarations and **no animation at all** — `opacity 120ms ease`
+three times (a board dimming while a live region refreshes), the drawer's `transform .2s ease`, and a dead
+`background .12s, color .12s, border-color .12s` on `.kmove-btn`. So 120ms and 200ms are what the stylesheet was
+already running, and the two curves replace the bare `ease` keyword those four rules leaned on: `--ease-std` for a
+state answering a pointer, `--ease-out` for something arriving.
+
+**What the motion section adds.** `app.css` went 1,603 → 1,676 lines and 132,604 → 138,431 bytes, and its rule
+count **768 → 774**: six rules added, none removed, and 789 shared rule instances compared declaration by
+declaration. Five kinds of motion, ten declarations in all:
+
+* **a control under a pointer** — one rule with a 28-name selector list (`.nav-item`, `.ghost-btn`, `.modal-btn`,
+  `.kcard`, `.kmove-btn`, `.ftab`, `.row-link`, a team-table row's cells, and the rest) travelling
+  `background-color`, `border-color`, `color`, `box-shadow` and `transform` over `--dur-1` on `--ease-std`. One
+  rule rather than twenty-eight because every name in it already changes colour under a pointer, so the list is a
+  list of controls, not a list of new effects; `MotionTest` reads it back against the `:hover` rules that actually
+  exist, so a selector added without one is a failing test rather than a silent no-op. Controls that change
+  *nothing* under a pointer are left out on purpose — `.pin-btn` and `.icon-btn` have no hover state to travel
+  to — and `button.submit` is not in the list because it is styled in `base.css`, where Stage B put its own
+  transition and the one press rule (`button.submit:active:not(:disabled), a.submit:active { transform:
+  translateY(1px); }`).
+* **a popup arriving** — `.modal` fades while its scrim goes soft (`backdrop-filter: blur(3px)`) and
+  `.modal-content` rises into place; `.mpop`, which is a panel beside a row rather than an overlay over the page,
+  only fades.
+* **a banner a save earned** — `.flash` slides down into place instead of appearing.
+* **a card in the hand** — `.kcard.kcard-drag`, dimmed to `.85`, `translateY(-2px) rotate(.4deg)` and an 18px
+  shadow, with a darker twin for the dark theme so the lift does not disappear into the page.
+* **a page that has just changed** — `.content` fades in **once**, on load.
+
+**Entrances are `animation`, never `transition`, and closes stay instant.** The seven scripts that open a popup do
+it by saying `modal.style.display = 'block'`. A node going from `display: none` to laid out has no previous state
+for a transition to travel *from*, so an entrance has to be an animation — which runs every time the element
+becomes rendered again, exactly the beat those scripts are on. A close stays instant for the same reason in
+reverse: the scripts hide the node the moment they are asked to, and an exit animation would mean each of them
+waiting on an `animationend` before it was allowed to.
+
+**"Not on every render" is the whole of that bullet, and `[data-live-region]` is how it is honoured.** A board
+re-rendering inside a page is not a view change, so the live region keeps the dimming Stage 39 gave a refresh and
+is given no animation at all. The fade animates **opacity alone**: a transform would make `.content` the
+containing block of every fixed element inside it for the length of the fade. Nothing fixed lives in there today —
+the reopen tab and the drawer's backdrop are siblings of `main`, not descendants — but the first one that ever
+does would spend 200ms sliding on every page load, which is precisely what a reader calls broken. Opacity also
+moves no text, which is what let the geometry pass compare computed boxes before and after and find them equal to
+the pixel.
+
+**The lift is a class, added before the drag image is taken.** `kanban.js` went 197 → 205 lines and 13,127 →
+13,537 bytes for two lines that matter: `dragstart` puts `.kcard-drag` on the card **before** it calls
+`e.dataTransfer.setData(...)`, and `dragend` takes it off. The order is the point — the browser paints the drag
+image from that node the instant the `dragstart` handler returns, so a lift added afterwards is left behind in the
+column and the thing in the hand is an unlifted card. `dragend` falls back to the remembered `dragging` node
+(`cardOf(e.target) || dragging`) because the browser fires it on whatever node the drag started from, which in
+practice is the card's own title text and sometimes a column.
+
+**Reduced motion is one block, in the file every page loads, and it is `base.css`'s only `!important`.** The
+stylesheet had none before this stage and has exactly three now, all inside
+`@media (prefers-reduced-motion: reduce) { *, *::before, *::after { … } }` — the last rule in the file, so it
+outranks by source order as well. The durations are **`.01ms`, not `0s`**, so a `transitionend` or
+`animationend` still fires and no script that ever waits on one can hang; `animation-iteration-count: 1` is there
+beside them because a short duration does not stop a looping animation, it only makes each loop short. It lives in
+`base.css` because the login page links that file alone, so a reader who asked for less motion gets it on the one
+page that never sees `app.css`.
+
+**Verified: 765 tests / 53 classes / 0 failures, errors or skipped** (from 757 / 52). `MotionTest` is the new
+class and brings the eight cases: the table is one table and its two lengths are the two the app already ran; no
+rule writes out a length of time the table names; a popup comes over a page that has gone soft and still hides
+the way the scripts say; a card being dragged is lifted *and the script is what lifts it*; the one-shot banner
+arrives rather than appearing; a page fades in once and a board re-rendered inside it does not; reduced motion
+takes the time out in the file every page loads; and every control that answers a pointer answers it over time.
+Three proof passes beside the suite, each against the shipped files rather than a retyped copy:
+
+* `scratch/stageB-resolve.py` parses both stylesheets before and after, expands **every** `var()` against its own
+  snapshot's `:root`, and diffs geometry from motion: **44 → 48 tokens** (the four gained, none changed, none
+  lost), **768 → 774 rules** with the six additions all planned and nothing gone, **789 shared rule instances**
+  compared, eleven rules whose *motion* declarations differ — and its verdict is that every rule that existed
+  before computes the same box, the same ink and the same sizes it did.
+* `scratch/stageB-js-harness.cjs` drives the shipped `kanban.js` against a synthetic DOM and reports
+  `"liftWasOnWhenTheDragImageWasTaken": true`, the lift coming off when `dragend` fires on the card, on its title
+  child and on a column, two starts leaving one lift, and both board writes still going out — a status drop
+  posting `/app/tasks/status` and reloading, a lane drop posting `/app/tasks/bucket`, filing the card above the
+  column's empty line and rewriting both counts with no reload. Run with `--before` against the pre-stage script,
+  every lift assertion is false and every write assertion is identical, which is what makes the difference this
+  stage's.
+* A headless-Chrome pass over one 50-element fixture of the app's own classes — shell and nav, page head,
+  `.content` with both banners, the detail strip, a board with a plain card and a lifted one, the team table, a
+  form, a popup and an open modal — linked once to the pre-stage stylesheets and once to the current ones and
+  measured in two same-size iframes at **1200, 901, 900, 899, 520, 519 and 360px**. Every page box and every
+  element's rect and computed style is equal across the two, with exactly two intended exceptions: the dragged
+  card (`.85` opacity, `rotate(.4deg) translateY(-2px)`, `rgba(0,0,0,.22) 0 8px 18px`, and a rect that follows
+  the transform) and `.modal`'s `backdrop-filter: blur(3px)`.
+
+A second browser pass asked the engine what the tokens resolve to rather than reading the text: controls compute
+`0.12s` on `cubic-bezier(0.4, 0, 0.2, 1)`, entrances compute `0.2s` / `0.12s` on `cubic-bezier(0.22, 0.61, 0.36,
+1)` and start at opacity 0 with their intended first-frame transforms, and the reduced-motion declarations
+collapse `transitionDuration` 0.12s → 1e-05s and `animationDuration` 0.2s → 1e-05s. **Said plainly, because it is
+a limit on the evidence and not a formality: this machine's `matchMedia('(prefers-reduced-motion: reduce)')` is
+`false`, so what was proven is the block's declarations and that they win, not the operating-system-level match
+that switches it on.**
+
+**Deployed 2026-11-11.** Stopped PID **21024** (its command line read first) with 8080 confirmed free;
+`data/pts.db` backed up **in place** as `data/pts.pre-stageB-20261111-122844.db` (**471040** bytes) — no `-wal`
+or `-shm` partner existed to copy this time — with `logs/pts.log`'s offset (16,421,993) recorded beside it; one
+`test installDist` with the JVM down; jar **1976964 → 1980015** bytes; detached relaunch → **PID 16420**, one
+listener on 8080; **69 live read-back checks** (`scratch/stageB-live-check.py`) green, reading only served bytes,
+the packaged jar and a read-only *copy* of the real database — no sign-in, no credential touched. Served == disk
+== packaged for `base.css`, `app.css` and `kanban.js`, with `base.css` LF and `app.css` pure CRLF *as packaged*;
+the four tokens, the five keyframes, the 28-name pointer rule, the lift, the blur, the view fade and all three
+reduced-motion declarations present in what a browser receives; no literal duration left anywhere in `app.css`'s
+motion; the pinned invariants intact — one `@media` in each file (*app.css's count became two in **[Stage 134](#stage-134)** —
+900px and 520px — and `MotionTest` now pins both widths by name; base.css still has one*), app.css's being the 900px fold, base.css's
+being the reduced-motion block and the last rule in the file, three `!important` in `base.css` and none in
+`app.css`, the login page still linking `base.css` alone — and the Stages 119–131 drawer and fold still named by
+`.nav-toggle`, `.nav-backdrop`, `.nav-close`, `.sidebar-tab`, `nav-open` and `sidebar-hidden`. Schema still **22**,
+22 migrations validated and none applied, every count unchanged (22 users · 1 project · 2 tasks · 4 roles · 36
+role-permission rows · 42 notifications · 7 buckets · 2 app_settings). **Both stylesheets and `kanban.js` changed,
+so Ctrl+F5 once.** **No commit, no push.**
+
+The stage was built, proved and deployed in one pass, with one correction on the way: the first `installDist`
+shipped a comment that said `.btn-sm` "only ever rides on `submit` or `ghost-btn`, which are both here" — and
+`submit` is not in that list at all, because `button.submit` is written in `base.css`. The sentence was patched,
+the JVM stopped again (PID 21304, the interim instance), rebuilt and relaunched, so what is live is what the file
+says. An untrue caption is a typo to fix and ship, not a drift to document.
+
+**Traps this stage stepped over.** *`logs/pts.log` is not the live instance's alone* — the Gradle test run writes
+to the same file through the same Logback config — so a byte offset recorded before a stop is not a reliable
+"since boot" marker: the file can be smaller than it (rolled) or much larger (a suite ran over it). What does
+identify a line's author is its thread, and this stage's live check filters on that instead, which is also why it
+ignores the one `ERROR` line a `Test worker` wrote on purpose. *A greedy `@keyframes` capture quietly widens the
+claim*: `frames()` originally matched "everything up to the last two braces", and since `pts-view-in` is the last
+block in the file, an assertion that the view fade carries no `transform` was really an assertion about the drawer
+and the fold as well — it now walks braces. *Two of the stage's own test assertions could never have passed*: an
+offender condition written `|| v.contains("var(--ease-")` instead of `!…`, and a check for
+`animation-iteration-count: .01ms !important` when the CSS says `1 !important`. *`indexOf` returning −1 is a
+passing test if nothing looks*: `base.indexOf("@media (prefers-reduced-motion)")` never matched, because the real
+text ends `reduce)`, and the range check it fed was satisfied by accident. *A synthetic DOM needs a shared
+per-drag data store*, or every synthesised event gets a fresh `dataTransfer` and a drop posts nothing. *Finished
+animations are discarded*: `document.getAnimations()` returns an empty list 200ms after an entrance ran, so the
+measurement pass restarts each animation, forces a reflow, pins `currentTime = 0` and pauses before reading the
+first frame.
+
+**Still the reader's eyes on:** whether 120ms and 200ms are the right *feel* on a real board with real cards,
+which no measurement can answer; whether a `.4deg` tilt and an `.85` dim read as a thing in the hand or as a card
+going wrong; whether the view fade is noticed at all, which is the hope, or noticed as a flicker, which is not;
+whether `backdrop-filter: blur(3px)` costs anything on the office's machines; and whether reduced motion actually
+does what the block says on a machine whose setting is on — this one's is off.
+
+**Never re-propose:** a literal duration or a bare `ease` keyword in either stylesheet, which `MotionTest` fails
+on sight; a `transition` for an entrance, which cannot fire on a node arriving from `display: none`; an exit
+animation on a popup, which would make all seven opener scripts wait on an event; a `transform` in `pts-view-in`,
+which makes `.content` the containing block of every fixed descendant for the length of the fade; `0s` in the
+reduced-motion block instead of `.01ms`, which stops the end events firing; `animation-iteration-count` left out
+of it, which leaves a spinner spinning; the lift added after `setData` in `dragstart`, which leaves the drag image
+unlifted; a second table of times inside `app.css`, which turns `base.css`'s into decoration; or toast work
+proposed as a new subsystem, when the banner is the thing the checklist's bullet was about and now arrives.
+
+<a id="stage-134"></a>
+
+## Stage 134 — A phone gets its own row of tabs, a search page, a board it can swipe, and a KPI row that folds (2026-11-13, live, no migration, Kotlin + CSS + JS + test)
+
+**The ask:** the last of the fifteen-bullet design checklist's three kinds of work, which the reader's **"Three
+stages, tokens first"** made Stage C. The checklist's own words are *"under 900px, turn the sidebar into a slide-in
+drawer opened by a ☰ button injected into every topbar, with a scrim; make Kanban buckets swipeable with scroll snap;
+wrap wide tables in `overflow-x:auto` containers; make the KPI row 2 columns, then 1 column below 520px; add a mobile
+bottom tab bar (Home, My tasks, To-do, Search, Menu) with the active tab highlighted and safe-area padding."* Two of
+the five bullets were already shipped — the drawer is [Stage 119](#stage-119)'s and the table wrappers are
+[Stage 120](#stage-120)'s — so this stage is the three that were not, plus the one wide sheet Stage 120's
+`:has(table.grid)` never saw. Two of the checklist's words were the reader's to define, and both were put back as
+multiple choice with the recommended answer taken: the *Search* tab opens **a new `/app/search` page**, and *"the KPI
+row"* is **the project page's detail strip** (`.detail-strip`), the only row of measured figures the shell prints.
+[Stage 132](#stage-132) gave the app one table for sizes and [Stage 133](#stage-133) one for time; this stage spends
+neither — no new token, no new duration — and Flyway stays **v22**.
+
+**The bar is four links and one button.** `MOBILE_TABS` holds the four destinations in the order the checklist names
+them — *Home* → `/app/projects`, *My tasks* → `/app/assigned-tasks`, *To-do* → `/app/todo`, *Search* → `/app/search` —
+and `mobileTabsFor` filters them through the same gate the sidebar reads ([NAV_PERMISSIONS]): a tab whose section is a
+permission is offered only to a role holding one of its chips, so the bar can never hand a reader a door the sidebar
+has already taken off the wall. The four tabs today are everybody's pages, which makes the filter a no-op — and the
+reason it is here anyway is the fifth tab anybody adds later. `mobileTabBar` prints them as `nav#mobileTabs`
+(*Quick navigation*), the active tab named by the page's own `section` — the same word the sidebar's `.nav-item active`
+is chosen by, so the two can never disagree about where the reader is — wearing `mtab active` and `aria-current="page"`.
+*Menu* is a `<button>` (`#mtabMenu`, `aria-controls="appSidebar"`, `aria-expanded="false"`) rather than a link: it has
+no destination, it opens the drawer Stage 119 built.
+
+**Printed on every page, hidden by width and not by redraw.** `appPage` prints the bar after `sidebarTab()`, and
+`.mtabbar { display: none; }` sits *outside* the breakpoint with the block showing it — exactly like the hamburger,
+and for the same reason: the shell is drawn by one function, so a control that came and went with the window's width
+would have to be redrawn to appear, and a reader who turns their phone sideways would watch the bar vanish from under
+their thumb.
+
+**Menu is the same disclosure seen from the other end of the screen, not a second one.** `app.js` wires `mtabMenu`
+into the one `setNav` / `openNav(from)` / `closeNav` the hamburger already uses; `openedBy` remembers which control
+opened the drawer so focus returns to the one that was pressed, and both controls' `aria-expanded` and label are kept
+in step by that one function — two controls on one state with one of them lying is the defect the attribute exists to
+prevent. The bar sits at `z-index: 54`, *under* the drawer's scrim (55): when the menu is up the whole page is dimmed
+and the way down is [Stage 128](#stage-128)'s one close path — the scrim, the panel's own ✕, Escape — not a fourth
+variant of it offered by a fifth tab.
+
+**The bar's geometry is measured, not guessed.** `position: fixed` at the foot of the page, because a bar that scrolls
+away with the sheet is not a bar; `padding: 6px 6px calc(6px + env(safe-area-inset-bottom))` — the gesture strip is
+padding and not height, so a phone that has not one gets `env()` resolving to 0 and the row is exactly the 6px it looks
+like. `.main` takes the same distance back as `padding-bottom: calc(76px + env(safe-area-inset-bottom))`: a fixed bar
+is out of the flow, so without it the bar would sit on the last row of every sheet — and the row it hid would be the
+one a reader scrolled to the bottom to find. 76px is the bar's own height (6px of padding twice, a 20px glyph, a
+caption line and the tab's own `--sp-2`), and `env()` is added to it rather than folded in so the two move together.
+The active tab wears `--accent-ink` on `--accent-soft` — the ink [Stage 132](#stage-132) measured clear of AA on every
+surface an accent can be painted on, never `--accent-strong`, whose job is a fill with white on it. `.mtab` joined
+Stage 133's one pointer rule — its 28 names became 29 — and Stage 132's `:focus-visible` ring reaches all five tabs
+without being asked. No new duration was invented for any of it.
+
+**The search page: the query *is* the page.** `get("/app/search")` is deliberately not a `sectionRoute`: that helper
+hands its view a `DIV.(UserSession)` and never sees the query, and here the query is the whole content. The route
+requires a session, trims `q` and hands it on as it arrived; matching, the two-letter floor and the decision about
+which groups this role is offered at all are `searchGroups`' job, so the route stays the one place that reads the
+address and the renderer stays testable without one. The form is a plain GET onto the same path, so the words a reader
+typed are in the address, a shared link opens the same results, and a browser with no script gets the same page — the
+one difference being that nothing focuses the box for them. `autofocus` is printed only when the query is non-blank:
+arriving from a tab press with an empty box is not arriving from a submit with a word in it, and only the second is
+worth taking focus back to.
+
+**Six groups, and the reader's own rights are the only filter.** Projects (by code, name, manager, client or status);
+project cards (by title, project, assignee, status or bucket, archived left out — the boards they were archived off do
+not print them either); Other-tasks cards, gated; lessons through `LessonService.board().active` — the sheet's own
+reading, because a search that went around it would be a second place to keep the "what is a lesson everybody can see"
+rule true; the reader's **own** to-do and nobody else's (`owner == employeeNumber` — a second person's list is not this
+page's business); and people through `teamByDepartment()` and `departmentLabel`, so a result reads the department the
+Team sheet files that person under rather than the blank the roster carries for somebody added without one.
+`SEARCH_MIN = 2`: one letter is the letter *a*, and a phone keyboard offers its results as they are typed, where the
+cost of a too-eager search is a screen of noise after every keystroke. `SEARCH_PERMISSIONS` reads
+`NAV_PERMISSIONS["other-tasks"]` — a list of *which* groups are gated, with the sidebar the only place the chips
+themselves are named — so the shared backlog's rows are offered only to the roles whose sidebar carries that link.
+The gate is about whose *board* the rows belong to, not about a door that would refuse: `/app/other-tasks` answers
+**200** for every signed-in reader, an ordinary account on their own slice (Stage 51), and the throwaway pass read
+that status back rather than taking the first draft's word for it. What such a reader does not get is the shared
+board's Bucket picker, which is the marker of management's view — so withholding the group keeps the whole backlog
+out of a search whose reader may only see their own corner of it.
+
+**Nothing here is a new way into a row.** Every result is a link to the page the row already lives on:
+`/app/projects/{id}` for a project; `?edit={id}` on that page for one of its cards — the key the page has always read —
+with a card whose project has gone linking to `/app/assigned-tasks` instead, because a row with nowhere to be opened is
+still a row worth reporting; `/app/other-tasks?edit=`, `/app/lessons?edit=`, `/app/todo` and `/app/team` for the rest.
+
+**The page says what it did, in all three of its states.** Under the two-letter floor — the empty box and one letter
+alike: *"Type two letters or more. One box looks across projects, tasks, lessons, your own to-do and people, and every
+result opens the page that row lives on."* A word with no answer: *"Nothing matches \"…\"."* A word with one:
+*"\"…\" — N results in M places."* (result/place singular when either is one). A search page that stays silent on an
+empty result is indistinguishable from a search page that broke. The floor and the sentence are one branch
+(`trimmed.length < SEARCH_MIN`), because the first draft let one letter fall through to *nothing matches* — a word the
+page never looked for, reported as searched and found wanting. The throwaway pass caught it by asking for `q=h` and
+reading the sentence back. Titles are cut at `TITLE_MAX = 90` on the one boundary that matters — a word is never cut in half, and the cut
+keeps at least half the budget rather than orphaning a syllable. The furniture is the house's: `.board-results`,
+`.board-toolbar` and `.board-search` — the same three classes the Projects sheet's filter wears, so this search looks
+like every other search the app has rather than like a new idea — `.card-panel` and `.panel-caption` per group, and
+`.row-link` holding two spans, `.search-title` and `.search-detail`. A list and not a table, on the one page whose
+whole job is being readable on a phone: a list of links wraps at any width, while a sheet of them would need Stage
+120's horizontal scroll to stay legible. At 375px the second line is the only thing that tells one task called
+"Delivery" apart from the four others called "Delivery".
+
+**The board is a swipe now.** [Stage 119](#stage-119)'s two-up wrap is gone, for the reason Stage 119 itself gave: a
+phone is narrow enough that two columns print a card at a phone's text size, and the checklist's answer is a board the
+thumb pages through rather than one it squints at. `flex` rather than the grid the board is built as, because a grid
+that scrolls sideways has to be told its own width twice — an `auto` track and `grid-auto-flow: column` — where a flex
+row with a fixed basis is one declaration, and `.kanban-lanes`' fixed 288px tracks are neutralised by the same
+`grid-template-columns: none` that stops the desktop board's five from being read here. `overflow-x: auto` with
+`scroll-snap-type: x mandatory` is what makes a flick settle instead of stopping between columns, and `start` is the
+alignment that puts the next column's own left edge where the thumb left off. The basis is **88% and not 100%**: the
+sliver of the next column showing is the only affordance a swipeable row has, and a board that exactly filled the
+width would give a reader nothing to tell them there is more of it. The dashed `.lane-add-box` rides the same basis
+because it is a child of the same row — at its own content width it would read as a footnote under the board rather
+than as a column not there yet. Both boards keep their own `gap` (`--sp-3` on the status board, `--sp-4` on the lane
+board), which a flex row honours exactly as a grid did, so the distance between two columns is unchanged.
+
+**The KPI row folds, and the cascade is why nine selectors.** The checklist's "KPI row" is the project page's nine-cell
+detail strip — the reader named it. Every one of the nine weight rules is answered in each block rather than
+`.detail-strip .ef` alone, and that is a cascade fact rather than belt-and-braces: `.detail-strip .ef.cat-ef` is (0,3,0)
+and would outrank a (0,2,0) `.detail-strip .ef` however late in the file the latter sat, so a two-per-row strip written
+against `.ef` only would still be wearing the desktop's 2.75 against 1.1 and come out ragged. The basis is
+`calc(50% - 7px)` and not 50% because the strip's own column gap is 14px and half of it is what a cell gives up to
+share a row; the weights drop to `1 1` for the same reason — at two to a row a share of 2.75 is not a share of
+anything, it is a promise the row cannot keep. The ellipsis stays: a field that wrapped would make its row two lines
+tall, which is the bug the desktop rule was written against and is still the bug here. Below 520px the same nine
+selectors answer `flex: 1 1 100%` — one field a row, because two no longer fit side by side at a size a reader can read.
+
+**The second breakpoint is a block, not a line.** 900px is where the shell folds — the sidebar becomes a drawer, the
+hamburger appears, the board becomes a swipe and the bottom bar is printed. 520px is narrower than any of that and is
+about one row of fields: two different questions, and writing the second inside the first would have needed a nested
+query — one more level of cascade for a rule whose whole content is a basis. Both are `max-width`, so a window at
+480px is matched by the two of them and the narrower one wins by source order, which is why the 520px block is **last
+in the file**, after even Stage 129's theme rules, which are not widths either and do not care. Stage 120's floors are
+deliberately in neither block: a sheet's readable minimum is not a phone's problem to solve by shrinking, so
+`table.projects-table` still asks for 1040px and still gets it, inside the wrapper that lets a thumb scroll sideways to
+see the rest. `MotionTest`'s pin moved with the count: no longer "one breakpoint" but *"exactly the widths this app
+has, and both of them named"* — a count alone would pass on a stylesheet that had traded the drawer's 900px for
+somebody's 768px. `base.css` still has exactly one `@media`, the reduced-motion block.
+
+**The calendar's month grid joins the scroll container.** It is the one wide sheet Stage 120's `:has(table.grid)`
+never saw: `table.calendar-grid` carries no `grid` class of its own, so a phone got seven day-columns squeezed into
+375px instead of a sheet it could scroll. `.card-panel:has(table.calendar-grid)` joins the rule beside the two that
+were there; the wrapper is the container rather than a new `<div>`, for the reason Stage 120 chose it — the panel is
+already there, already holds nothing but the caption and the sheet, and a second element between them is a second
+thing to keep in step.
+
+**Tests: 778 / 54 classes / 0 failures** (from 765/53). `SearchRenderTest` is new, nine cases: the sentence in all
+three states; a card is a result, an archived card is not, and a backlog card needs the board's own chips; the result
+list is a column of two-line rows and the stylesheet says so; the page is one box over a list of links and every link
+is a page the row already lives on; a long title cut on a word boundary and never in the middle of a word; a lesson
+found by its own words opening the sheet's popup; a project found by any word on its row, in any case; a to-do item
+found only by the account that owns it; people found by name, position, department or number, under the department the
+roster files them in. `ShellRenderTest` grew four (14 → 18): every page prints the phone's row of five tabs with the
+page's own tab lit; a viewer gets the same four tabs the manager gets; the bar is hidden above 900px and fixed to the
+foot of the page below it — the inset in exactly the two declarations that need it, the bar at `z-index: 54` under the
+scrim, and the active tab wearing the ink rather than the fill; the detail strip takes two fields to a row at 900px
+and one at 520px, nine selectors in each block, one rule per block, and the narrower breakpoint below the wider one.
+`MotionTest`'s width pin was rewritten as above, and `.mtab` is read back against the pointer rule's hover contract
+like every other name in it.
+
+**Traps this stage stepped over.** The suite's own results machinery failed three times without a single test
+failing: stale daemons left behind by a crashed session printed four phantom failures and a `java.io.EOFException`;
+then two full runs lost `build/test-results/test/binary/in-progress-results-generic.bin`
+(`NoSuchFileException`) after all 778 had printed PASSED, and a third plain run on a fresh daemon died with
+`EOFException` at the same flush — so no XML ever arrived. `./gradlew --stop` and a fresh daemon is the first move
+(it cured the phantom failures), and when the XML never arrives the console's own PASSED count is the evidence:
+**778 PASSED / 0 test FAILED across 54 classes, three runs running**. One more: a `--stop` chained in the same
+breath as the next build can hand the *new* daemon the stop command ("Gradle build daemon has been stopped: stop
+command received") — the stop and the run are separate calls.
+
+**Verified:** the full suite green on 2026-11-13 — every one of the 778 tests PASSED in each of three full runs;
+only Gradle's report flush died (see Traps). The evidence layer is the render tests, the CSS
+parsed back out of the file it ships from, and the synthetic-DOM drawer cases — none of it is a signed-in page.
+**Still the reader's eyes on:** whether the bar's 76px is the right height at the thumb; whether a flick settles on one
+bucket or overshoots; whether the sliver of the next column reads as "there is more of it" on a real board; whether
+the search page's six groups are the right six on real data; and whether the strip at 520px reads as a column of
+figures rather than a form.
+
+**Deploy: live since 2026-11-13 11:23.** No migration — Flyway stays **v22**. The instance had already stopped
+(8080 free, no PTS JVM in the process list), so the run was the SOP's own order: `data/pts.db`, `-wal` and `-shm`
+copied in place to `data/pts.pre-stage134-20261113-112344.db*` with the JVM down, one `installDist`
+(`murray-pts-2.0.0.jar` **1,980,015 → 2,009,972** bytes), a detached relaunch through
+`deploy\run.bat`, and the login page polled to 200 — **PID 15388** on 8080. The served bytes were read
+back against disk and are identical: `base.css` 9,509, `app.css` 149,357, `app.js` 32,789, `kanban.js` 13,537.
+`/app/search` answers a signed-out reader with the sign-in page, not a result list. **Ctrl+F5 once**, because both
+stylesheets, `app.js`, `kanban.js` and the Kotlin all changed.
+
+**Commit and push.** This close-out serves the reader's explicit *"push to github"*: the whole uncommitted run —
+Stages 127–134 — goes to `github` (MurrayPTS) as one commit, with `scratch/` left out. `origin`/MMS is not touched:
+commit `69397ad`'s plaintext passwords are the reader's call, not this run's.
+
+**Never re-propose:** a search popup opened from a tab — a tab has to land somewhere, and a popup opened from one has
+nothing to be the back button's answer to; a second close implementation for the Menu tab, or per-tab aria kept
+anywhere but the one `setNav`; a sideways-scrolling grid instead of the flex row, which needs its width told twice; a
+100% basis that hides the next column's sliver, which is the affordance; a tenth desktop weight rule the phone blocks
+do not answer, which goes ragged at exactly one width; a search group whose page the reader's role cannot open, or a
+second opinion of who may see the backlog — `NAV_PERMISSIONS` is the only place the chips are named; somebody else's
+to-do in the results, or an archived card as a result; a table of results, which would need Stage 120's scroll on the
+one page whose whole job is being readable on a phone; a third `@media`, or the narrower block anywhere but last,
+which would leave a 480px window keeping two fields to a row; or a new token or duration for any of it — the bar rides
+Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.

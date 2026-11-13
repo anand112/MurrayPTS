@@ -93,9 +93,17 @@ document.addEventListener('dragstart', function(e){
   var card = cardOf(e.target);
   if (!card) return;
   dragging = card;
+  // Stage B: the lift is a class, not a style, because the browser paints the drag image from this node
+  // the instant this handler returns — `app.css`'s `.kcard-drag` is what the card looks like in the hand,
+  // and the column it left is still there to be read behind it.
+  card.classList.add('kcard-drag');
   e.dataTransfer.setData('text/plain', card.getAttribute('data-id'));
 });
-document.addEventListener('dragend', function(){ dragging = null; });
+document.addEventListener('dragend', function(e){
+  var card = cardOf(e.target) || dragging;
+  if (card) card.classList.remove('kcard-drag');
+  dragging = null;
+});
 
 document.addEventListener('dragover', function(e){
   var col = laneOf(e.target);

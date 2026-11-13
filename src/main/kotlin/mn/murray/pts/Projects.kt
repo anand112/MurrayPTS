@@ -1014,9 +1014,16 @@ fun DIV.projectDetailContent(
     // was the only way into it — while the archived rows themselves are untouched in the database and the two
     // routes behind them still answer a hand-built POST.
     // **Stage 110: the two buttons on the right of this row answer to different chips.** *Edit project details*
-    // draws the breadcrumb strip, the pin and the field row beneath; *Delete projects* draws only its own button,
+    // draws the breadcrumb strip and the editable field row beneath; *Delete projects* draws only its own button,
     // so an account whose role holds the destructive chip and not the editing one still gets a head — and the
-    // else-branch's plain back link is what a reader with neither is shown.
+    // else-branch's read-only card is what a reader with neither is shown.
+    // **Stage 127 took the pin off both chips.** A pin is one reader's own list — `pins` is keyed by the account's
+    // own employee number, and the route writes only that pair — so every reader is handed **☆ Pin for me**, and it
+    // does what it looks like it does. It is drawn once: the editable head below prints it, and the read-only card
+    // that stands in for the editable strip prints the same control for anybody whose role holds neither chip —
+    // which is why the head's copy is gated on [canEdit] alone and not on the same condition as its row. An account
+    // that may delete but not edit gets a head with the destructive button in it and the card's pin beneath, rather
+    // than two pins.
     if (canEdit || canDelete) {
         div("detail-head crumb-row") {
             div("crumb") {
@@ -1192,10 +1199,12 @@ fun DIV.projectDetailContent(
                 span("chip ${typeChipClass(project.type)}") { +project.type }
                 span("code") { +project.code }
                 span("chip ${chipClass(project.status)}") { +project.status }
+                // Stage 127: the read-only head keeps its pin, and says the same thing the editable head's does —
+                // this list is the reader's own, not a change to the project.
                 form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
                     val pinned = pinnedIds(session.employeeNumber).contains(project.id)
                     button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
-                        +(if (pinned) "★ Pinned" else "☆ Pin")
+                        +(if (pinned) "★ Pinned" else "☆ Pin for me")
                     }
                 }
             }

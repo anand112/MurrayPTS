@@ -53,6 +53,18 @@
   // flow instead — a smaller shell, but one that still navigates.
   document.documentElement.classList.add('js');
 
+  // The remembered sidebar state (Stage 130) goes on in the same breath, for the same reason: a reader who chose
+  // to fold the column away must not be shown it for a frame on every page load, which is what a class applied
+  // once the paint has happened would do — this file is the parser's last work, so both classes are on the page
+  // before the browser has drawn anything. Only the class is applied here; the controls that read it, and the
+  // storage that keeps it, are with everything else they touch at the bottom of this file.
+  try {
+    if (localStorage.getItem('pts-sidebar') === 'hidden') document.body.classList.add('sidebar-hidden');
+  } catch (err) {
+    // Storage blocked (private window, cleared site data) costs the memory, not the control: the fold still
+    // works on the page it was pressed on, and the reopen tab is still there on the next one.
+  }
+
   function liveBox() { return document.querySelector('[data-livefilter]'); }
   function liveRegion() { return document.querySelector('[data-live-region]'); }
 
@@ -398,42 +410,67 @@
   });
 
   /* ------------------------------------------------------------------ *
-   *  Small-screen navigation — the page head's hamburger
+   *  Small-screen navigation — the hamburger and the drawer's own close button
    * ------------------------------------------------------------------ */
 
   /* Below 900px `app.css` turns the sidebar into an off-canvas drawer and prints `#navToggle`; above
      it the button is display:none and the sidebar is simply the sidebar. The whole state is one class
      on <body> — `nav-open` — so the slide is a CSS transition and the script only decides when it is
      on. The drawer is full width there (the breakpoint's rule), the backdrop closes it, Escape closes
-     it, and a keyboard reader gets focus moved into the drawer on opening and back to the button on
-     closing. A window that grows past the breakpoint closes it quietly, without moving focus away from
-     the desktop layout the reader has just been handed. */
+     it, and since Stage 128 the panel's own top-right `#navClose` button closes it the same way, so
+     there is one close path, not four variants of one. A keyboard reader gets focus moved into the
+     drawer on opening and back to the button on closing — from whichever control ended the session. A
+     window that grows past the breakpoint closes it quietly, without moving focus away from the desktop
+     layout the reader has just been handed. */
   var navToggle = document.getElementById('navToggle');
   var navDrawer = document.getElementById('appSidebar');
   var navBackdrop = document.getElementById('navBackdrop');
+  // The drawer's own close button (Stage 128), printed inside #appSidebar and shown there only while the
+  // drawer is open. It is the same action as the backdrop, Escape and the hamburger, so it calls the same
+  // function — including the focus move back to the hamburger, which is where a reader who just closed the
+  // menu is standing. It is deliberately *not* the drawer's first focusable element: opening moves focus to
+  // the logo link, and a close button in that seat would greet a keyboard reader with an offer to leave.
+  var navClose = document.getElementById('navClose');
+  // The bottom bar's *Menu* tab (Stage 134): the same disclosure printed where a thumb already rests, at the
+  // other end of the screen from the hamburger. It carries no state of its own and no second copy of this code —
+  // it calls the same `setNav`, so the drawer, the backdrop, Escape and the panel's own close button all answer
+  // a press on it exactly as they answer the hamburger. Its `aria-expanded` is kept in step for the same reason
+  // the hamburger's is: two controls on one state, one of them lying, is the defect the attribute exists to
+  // prevent. `openedBy` is what a close returns focus to, so a keyboard reader who opened the drawer from the
+  // bottom of the screen is not teleported to its top when they shut it.
+  var mtabMenu = document.getElementById('mtabMenu');
   if (navToggle && navDrawer) {
+    var openedBy = navToggle;
     function navOpen() { return document.body.classList.contains('nav-open'); }
     function setNav(open) {
       document.body.classList.toggle('nav-open', open);
       navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
       navToggle.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+      if (mtabMenu) {
+        mtabMenu.setAttribute('aria-expanded', open ? 'true' : 'false');
+        mtabMenu.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+      }
+    }
+    function openNav(from) {
+      openedBy = from || navToggle;
+      setNav(true);
+      // The drawer's first link, not the panel: the thing a reader wants next is where to go.
+      var first = navDrawer.querySelector('a, button');
+      if (first) first.focus();
     }
     function closeNav() {
       if (!navOpen()) return;
       setNav(false);
-      navToggle.focus();
+      openedBy.focus();
     }
     navToggle.addEventListener('click', function () {
-      if (navOpen()) {
-        closeNav();
-      } else {
-        setNav(true);
-        // The drawer's first link, not the panel: the thing a reader wants next is where to go.
-        var first = navDrawer.querySelector('a, button');
-        if (first) first.focus();
-      }
+      if (navOpen()) closeNav(); else openNav(navToggle);
+    });
+    if (mtabMenu) mtabMenu.addEventListener('click', function () {
+      if (navOpen()) closeNav(); else openNav(mtabMenu);
     });
     if (navBackdrop) navBackdrop.addEventListener('click', closeNav);
+    if (navClose) navClose.addEventListener('click', closeNav);
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' || e.key === 'Esc') closeNav();
     });
@@ -449,6 +486,76 @@
       if (wide.addEventListener) wide.addEventListener('change', leave);
       else if (wide.addListener) wide.addListener(leave);
     }
+  }
+
+  /* ------------------------------------------------------------------ *
+   *  The desktop sidebar — hidden by choice, remembered by this browser
+   * ------------------------------------------------------------------ */
+
+  /* Above 900px there is no drawer and the sidebar is 240px of the page's width, so the corner button that shuts
+     the drawer (Stage 128) does something else here: it hides the column, and the page takes the whole row. The
+     state is one class on <body> — `sidebar-hidden` — which `app.css` reads at both widths, and the way back is
+     the slim `#sidebarTab` fixed to the page's left edge, because the button that hid the panel is *in* the panel
+     and left with it.
+     Nothing is folded by accident: only a press changes this, never a resize, a reload or somebody else's
+     settings. The choice lives in `localStorage` under `pts-sidebar`, per browser rather than per account, beside
+     `pts-theme` and `pts-accent` — no route posts it, no table holds it, and a colleague signing in as the same
+     person somewhere else gets the sidebar they left. With scripting off the two controls stay hidden exactly as
+     every disclosure in the shell does, because there would be no script to bring the panel back.
+     One button, two meanings, split by the width and not by the markup: this is already the file that knows which
+     layout the window is in — it is what closes a drawer that grew into a desktop page — so it is also the file
+     that says what the button does, and what a screen reader is told it is called. */
+  if (navClose && navDrawer) {
+    var sidebarTab = document.getElementById('sidebarTab');
+    var SIDEBAR_KEY = 'pts-sidebar';
+
+    function isWide() { return !!(window.matchMedia && window.matchMedia('(min-width: 901px)').matches); }
+    function sidebarHidden() { return document.body.classList.contains('sidebar-hidden'); }
+
+    // Names follow the layout, and the reopen tab is the one control always on the page to report the state, so
+    // its `aria-expanded` — which the markup prints true, the panel being there until asked to leave — is kept
+    // honest here rather than in the shell that cannot see the window.
+    function nameSidebarControls() {
+      navClose.setAttribute('aria-label', isWide() ? 'Hide sidebar' : 'Close navigation');
+      if (sidebarTab) sidebarTab.setAttribute('aria-expanded', sidebarHidden() ? 'false' : 'true');
+    }
+
+    function setSidebar(hidden) {
+      document.body.classList.toggle('sidebar-hidden', hidden);
+      nameSidebarControls();
+      try {
+        if (hidden) localStorage.setItem(SIDEBAR_KEY, 'hidden');
+        else localStorage.removeItem(SIDEBAR_KEY);  // the default is absence, not a second value to remember
+      } catch (err) {
+        // Storage blocked, so this page forgets the choice. The controls still work while it is open.
+      }
+    }
+
+    // Both controls are the same press seen from either side of the fold. `navClose` already runs `closeNav`
+    // above, which does nothing on a wide page — there is no drawer up — and this half keeps out of the drawer's
+    // way by answering only where the drawer cannot be.
+    function toggleSidebar() {
+      if (!isWide()) return;
+      setSidebar(!sidebarHidden());
+      // Focus follows the panel it belongs to: the tab that reopened it is the control a reader was last at,
+      // and a hidden panel cannot hold focus, so hiding moves it to the tab instead of leaving it on nothing.
+      if (sidebarHidden()) {
+        if (sidebarTab) sidebarTab.focus();
+      } else {
+        var first = navDrawer.querySelector('a, button');
+        if (first) first.focus();
+      }
+    }
+    navClose.addEventListener('click', toggleSidebar);
+    if (sidebarTab) sidebarTab.addEventListener('click', toggleSidebar);
+
+    if (window.matchMedia) {
+      var desktop = window.matchMedia('(min-width: 901px)');
+      var rename = function () { nameSidebarControls(); };
+      if (desktop.addEventListener) desktop.addEventListener('change', rename);
+      else if (desktop.addListener) desktop.addListener(rename);
+    }
+    nameSidebarControls();
   }
 
 })();
