@@ -675,6 +675,10 @@ class ShellRenderTest {
      * `.detail-strip .ef` alone: `.detail-strip .ef.cat-ef` is (0,3,0) and would outrank a (0,2,0) rule however
      * late in the file it sat, so a two-per-row strip written against `.ef` only would still be wearing the
      * desktop's 2.75 against 1.1 and come out ragged.
+     *
+     * This is the read-only copy. Management's editable copy of the same row does not carry `detail-strip`,
+     * and the test below pins its fold — a row that folds for one reader and not for the other is the defect
+     * that pair exists to prevent.
      */
     @Test
     fun `the detail strip takes two fields to a row at 900px and one at 520px`() {
@@ -701,6 +705,52 @@ class ShellRenderTest {
         // The last block is the narrowest one, so it wins by source order on a 480px window that matches both.
         assertTrue(css.indexOf("@media (max-width: 520px)") > css.indexOf("@media (max-width: 900px)"),
             "the narrower breakpoint is above the wider one, so a phone keeps two fields to a row")
+    }
+
+    /**
+     * The same row, management's copy of it. The project page draws its field row twice — editable for a reader
+     * who may write the project, read-only for everybody else — and only the read-only copy carries
+     * `detail-strip`. A fold written against that class alone therefore never reaches management, which is what
+     * Stage 134's first pass did: measured at 375px, the ten editable cells came out 7–20px apiece, because
+     * `flex: 1.3 1 0` is a *zero* basis and every cell fits one line at any width and simply divides it. The
+     * controls inside them then pushed the document 19px past its own width. This pins the fold that answers
+     * the copy with the controls in it, and the source order that lets the read-only copy keep its narrower gap.
+     */
+    @Test
+    fun `management's editable field row folds at the same two widths`() {
+        // Comments out first, for the reason the test above gives: the prose names these selectors to explain
+        // them, and a count taken over the prose would count the explanation as rules.
+        val css = appCss().replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+        val wide = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
+        val phone = css.substringAfter("@media (max-width: 520px)")
+        val folded = Regex("\\.edit-strip \\.ef[^{]*\\{\\s*flex: 1 1 ([^;]+);\\s*\\}")
+        listOf(wide to "900px", phone to "520px").forEach { (block, width) ->
+            val bases = folded.findAll(block).map { it.groupValues[1] }.toList()
+            assertEquals(1, bases.size, "the $width block does not answer the editable row in one rule: $bases")
+            assertEquals(
+                if (width == "900px") "calc(50% - 9px)" else "100%", bases[0],
+                "the $width fold gives the editable row the wrong basis",
+            )
+            // One rule, five selectors — one per desktop weight rule, counted below rather than assumed here.
+            val selectors = Regex("\\.edit-strip \\.ef[^{}]*\\{").findAll(block).map { it.value }.toList()
+            assertEquals(1, selectors.size, "the $width block grew a second rule against the editable row")
+            assertEquals(5, Regex("\\.edit-strip \\.ef").findAll(selectors[0]).count(),
+                "the $width block does not answer all five of the editable row's weight selectors")
+            // The read-only copy carries both classes and has the narrower gap, so it has to come second:
+            // equal specificity, later source is the whole of what decides 7px against 9px on that element.
+            assertTrue(block.indexOf(".edit-strip .ef,") < block.indexOf(".detail-strip .ef,"),
+                "the $width block folds the read-only copy first, so its 14px gap is answered with 9px")
+        }
+        // The five desktop shares this answers, counted where they live: a sixth weight rule added up there is
+        // a rule both phone blocks have to answer too, or the row goes ragged at exactly one width.
+        val desktop = css.substringBefore("@media (max-width: 900px)")
+        assertEquals(5, Regex("\\.edit-strip \\.ef[^{]*\\{[^}]*flex: [\\d.]+ 1 0;").findAll(desktop).count(),
+            "the editable row's desktop weight rules moved, and the fold answers a count that is no longer true")
+        // And the gap arithmetic the two bases are half of: 18px on the editable row, 14px on the read-only one.
+        assertTrue(css.contains("gap: var(--sp-3) 18px;"),
+            "the editable row's column gap is no longer 18px, so 9px is not half of it")
+        assertTrue(css.contains(".detail-strip { margin-top: 2px; gap: var(--sp-3) 14px; }"),
+            "the read-only row's column gap is no longer 14px, so 7px is not half of it")
     }
 
     @Test

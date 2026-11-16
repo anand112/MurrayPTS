@@ -301,8 +301,8 @@ sidebar becomes a full-width off-canvas drawer opened by the hamburger beside th
 boards — the five status columns and a project's lane board — become a row the thumb swipes, one bucket at a
 time with the next column's sliver showing (**Stage 134**, replacing Stage 119's two-up wrap); and a fixed bar
 of five tabs — *Home, My tasks, To-do, Search, Menu* — sits at the foot of the page, the active one lit, *Menu*
-opening the same drawer the hamburger does. Below 520px the project page's detail strip takes one field to a
-row instead of two. Above 900px there is no hamburger and no
+opening the same drawer the hamburger does. Below 520px the project page's field row takes one field to a
+row instead of two — both copies of it, management's editable strip and the read-only one everybody else gets. Above 900px there is no hamburger and no
 backdrop — both are `display: none`, as is the bottom bar — and the sidebar is the 240px column it has always been, which since
 **Stage 130** is a column you may fold away from its own top-right corner and bring back from a tab at the top of
 the window's left edge — **[Stage 131](STAGE-HISTORY.md#stage-131)** moved it out of the middle of that edge, so the two
@@ -421,12 +421,13 @@ for you alone, archived cards are not results, and the backlog group is offered 
 already carries it.
 
 The boards are a swipe now: one bucket at a time, the next column's sliver showing there is more of it, and a
-flick settles on a column instead of stopping between two. The project page's detail strip — the checklist's
-"KPI row" — takes two fields to a row below 900px and one below 520px, and the calendar's month grid scrolls
+flick settles on a column instead of stopping between two. The project page's field row — the checklist's
+"KPI row", which the page draws twice, editable for management and read-only for everybody else — takes two fields
+to a row below 900px and one below 520px, and the calendar's month grid scrolls
 sideways like the other wide sheets instead of crushing its seven days into a phone's width.
 
-The suite is green at **778 tests in 54 classes**, and this is live since 2026-11-13 (PID **15388**, jar
-**2,009,972** bytes). An open tab needs **Ctrl+F5** once — both stylesheets, `app.js`, `kanban.js` and the
+The suite is green at **779 tests in 54 classes**, and this is live since 2026-11-16 (PID **12248**, jar
+**2,010,630** bytes). An open tab needs **Ctrl+F5** once — both stylesheets, `app.js`, `kanban.js` and the
 Kotlin all changed.
 
 ## Projects and categories
@@ -2444,7 +2445,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (778 tests in 54 classes), on schema v22.
+2. `./gradlew test installDist` is green (779 tests in 54 classes), on schema v22.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -2881,15 +2882,17 @@ configuration, and it is the one to settle first: it decides what you can safely
    should fade, because a board re-rendering inside a page is not a page arriving. Then ask Windows for **Show animations
    in Windows** off (Settings › Accessibility › Visual effects) and reload: every one of those effects should simply
    stop taking time, the drawer's slide included, with nothing stuck half-faded and no control needing a second click.
-   **Stage 134 walkthrough — deployed 2026-11-13; Ctrl+F5 once, because both stylesheets, `app.js`,
+   **Stage 134 walkthrough — deployed 2026-11-13, the field row's fold corrected and redeployed
+   2026-11-16; Ctrl+F5 once, because both stylesheets, `app.js`,
    `kanban.js` and the Kotlin changed.** Narrow the window below 900px: a bar of five tabs
    should sit at the foot of the page — Home, My tasks, To-do, Search, Menu — with the page's own tab lit, and the
    last row of the sheet should be reachable above it, not hidden under it. Press **Menu**: the same drawer should
    slide in, and every way of closing it should return focus to the tab you pressed, not to the hamburger. On a
    project board, flick sideways: one bucket at a time, the next column's sliver showing, and the flick should
    settle on a column rather than stop between two; the dashed add-a-column box should ride the same width. Narrow
-   past 520px and open a project: the detail strip under its heading should take one field to a row, two between
-   520px and 900px. Press **Search** and type two letters: results should arrive grouped — projects, tasks, lessons,
+   past 520px and open a project: the field row under its heading should take one field to a row, two between
+   520px and 900px — and it should do that whether you can edit the project or only read it, because the page draws
+   that row twice and both copies fold. Press **Search** and type two letters: results should arrive grouped — projects, tasks, lessons,
    your own to-do, people — each opening the page that row lives on, a card opening its own popup; type a word
    nothing matches and the page should say so rather than go quiet; sign in as the `Viewer` and the Other-tasks
    group should not be searched at all. Open **Calendar** at the same narrow width: the month grid should scroll
@@ -3096,7 +3099,7 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-778 tests in 54 classes — 112 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+779 tests in 54 classes — 113 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
 (**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**) and the dense sheets' readable-width case (**Stage 120**), the login password toggle's case (**Stage 121**) and
@@ -3141,11 +3144,14 @@ chips; the result list is a column of two-line rows and the stylesheet says so; 
 links and every link is a page the row already lives on; a long title cut on a word boundary and never in the middle
 of a word; a lesson found by its own words opening the sheet's popup; a project found by any word on its row, in any
 case; a to-do item found only by the account that owns it; and people found by name, position, department or number,
-under the department the roster files them in. `ShellRenderTest` grows four more (14 → 18): the phone's row of five
+under the department the roster files them in. `ShellRenderTest` grows five more (14 → 19): the phone's row of five
 tabs with the page's own tab lit on every page; a viewer getting the same four tabs the manager gets; the bar hidden
 above 900px and fixed to the foot of the page below it, the safe-area inset in exactly the two declarations that need
-it and the bar under the drawer's scrim; and the detail strip taking two fields to a row at 900px and one at 520px,
-all nine weight selectors answered in each block and the narrower breakpoint last in the file. `MotionTest`'s width
+it and the bar under the drawer's scrim; the read-only detail strip taking two fields to a row at 900px and one at
+520px, all nine weight selectors answered in each block and the narrower breakpoint last in the file; and
+management's editable copy of that row folding at the same two widths — its five weight selectors answered with the
+9px half of its own 18px gap, ahead of the read-only rule, the desktop's five zero-basis weights still intact above
+the block. `MotionTest`'s width
 pin changed shape rather than being left behind: the count of one became both widths named — 900px and 520px —
 because a count alone would pass on a stylesheet that had traded the drawer's width for somebody else's.
 `db/RoleMigrationTest` (5, on temp databases built to V20 and then migrated) is the migration's own proof: the seeded

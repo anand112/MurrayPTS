@@ -319,9 +319,11 @@ Kotlin, CSS and JS all changed, so **Ctrl+F5** once. Verified at the time by **7
 HTTP checks** across all ten authenticated pages plus the login page, and **19 synthetic-DOM JS checks**; the shell as
 it now stands — with **Stage 129**'s redraw, **Stage 130**'s desktop fold and **Stage 131**'s placement of the
 way back, with **Stage 132**'s scale, ink and ring, **Stage 133**'s table of times and **Stage 134**'s phone
-close-out written over all of it — is at **778 tests / 54 classes**. The last deploy is Stage 134's (2026-11-13,
-PID **15388**, jar **2009972** bytes), live on 8080 with `data/pts.db*` copied in place to
-`data/pts.pre-stage134-20261113-112344.db*` before the JVM came back up.
+close-out written over all of it — is at **779 tests / 54 classes**. The last deploy is Stage 134's follow-up
+(2026-11-16, PID **12248**, jar **2010630** bytes), live on 8080 with `data/pts.db*` copied in place to
+`data/pts.pre-stage134b-20261116-091223.db*` before the JVM came back up. The stage's first deploy (2026-11-13,
+PID 15388, jar 2009972, backup `pts.pre-stage134-20261113-112344.db*`) shipped a fold that reached only one of the
+project page's two copies of the row; the follow-up is what corrected it.
 
 ### The drawer closer's two drawings, and the theme that picks between them (Stage 129)
 
@@ -379,7 +381,7 @@ Inside the single `@media (max-width: 900px)` block each of those three is answe
 — the sidebar back to `display: flex`, the desktop closer box stood down before the drawer's own rule shows it, the tab
 hidden — so a phone page is Stage 119's shell whatever this browser remembered from a wider window, and there is still
 exactly one `@media` rule in the file (*the count became two in **[Stage 134](STAGE-HISTORY.md#stage-134)** — a 520px
-block for the detail strip alone; the fold's rules are still answered inside the 900px block*). Both controls sit inside `html.js`, and the default `display: none` line carries
+block for the project page's field row; the fold's rules are still answered inside the 900px block*). Both controls sit inside `html.js`, and the default `display: none` line carries
 four names now: the hamburger, the backdrop, the closer and the tab.
 
 `app.js` owns the state, in `localStorage.pts-sidebar` — the third per-browser key beside `pts-theme` and `pts-accent`,
@@ -420,7 +422,7 @@ sibling after the `<aside>` with one stroke glyph, the same single `toggleSideba
 first paint, the same three desktop rules above the one breakpoint and their three identical replies inside it. CSS and
 one test case changed; no Kotlin, no route, no table, no schema (Flyway stays **v22**), and no second breakpoint — the
 fold has one width to be true at and the tab now has one height to be read at. (*[Stage 134](STAGE-HISTORY.md#stage-134)
-added a second breakpoint — 520px, for the detail strip alone; the fold still has one width to be true at.*)
+added a second breakpoint — 520px, for the project page's field row; the fold still has one width to be true at.*)
 
 **Verified: 749 tests / 51 classes / 0 failures** (the same 14 `ShellRenderTest` cases, with the fold's geometry
 assertions rewritten rather than a fifteenth added), **252 throwaway HTTP checks**, **41 synthetic-DOM JS checks**
@@ -457,7 +459,7 @@ else reachable by Tab gains one. It is in `base.css` because the login page load
 reason the ring token has a literal value there.
 
 Nothing else moved: no Kotlin, no route, no table, no schema (Flyway stays **v22**), no second `@media`
-(*[Stage 134](STAGE-HISTORY.md#stage-134) later added one — 520px, for the detail strip*), and the `app.js`
+(*[Stage 134](STAGE-HISTORY.md#stage-134) later added one — 520px, for the project page's field row*), and the `app.js`
 that drives the fold of Stages 119–131 is byte-identical to what Stage 131 shipped. **Verified: 757 tests / 52 classes**
 (eight new `DesignTokensTest` cases, five rewritten CSS pins), **92 throwaway HTTP checks**, and a headless-Chrome
 before/after pass over 56 element states × 23 properties that finds **no geometry difference at all** — the only two
@@ -511,7 +513,7 @@ waits on one can hang; the iteration count is there because a short duration doe
 it only makes each loop short. It is in `base.css` because the login page links that file alone.
 
 Nothing else moved: no Kotlin, no route, no table, no schema (Flyway stays **v22**), no second `@media` in
-`app.css` (*[Stage 134](STAGE-HISTORY.md#stage-134) added the 520px detail-strip block and moved `MotionTest`'s pin to
+`app.css` (*[Stage 134](STAGE-HISTORY.md#stage-134) added the 520px field-row block and moved `MotionTest`'s pin to
 name both widths*), and the six rules this stage added are the only ones — 768 → 774, with 789 shared rule instances
 compared declaration by declaration against the pre-stage stylesheets and every non-motion value equal.
 **Verified: 765 tests / 53 classes** (eight new `MotionTest` cases), a `var()`-expanding geometry diff, a
@@ -535,8 +537,11 @@ the same word the sidebar's `.nav-item active` is chosen by, and wears `aria-cur
 `app.js` wires it into the one `setNav` / `openNav(from)` / `closeNav` the hamburger uses — `openedBy` returns focus
 to whichever control opened the drawer, and both controls' `aria-expanded` is kept in step by that one function.
 The bar sits at `z-index: 54`, under the scrim's 55, so an open drawer still has exactly one close path (Stage
-128's). `env(safe-area-inset-bottom)` is padding on the bar and on `.main`'s `padding-bottom: calc(76px + …)` — the
-76px is the bar's measured height — so the fixed bar never sits on the last row of a sheet, and a phone without a
+128's). `env(safe-area-inset-bottom)` is padding on the bar and on `.main`'s `padding-bottom: calc(76px + …)`.
+The 76px is *clearance*, not the bar's height: measured at 375px the bar is 65px — 6px of its own padding twice, a
+1px top border and a 51.6px tab (a 20px glyph, a 3px gap, a 12.6px caption line at `--fs-4` over 1.2, and `--sp-2`
+above and below it) — and the 11px left over is room, so the fixed bar never sits on the last row of a sheet and
+that row is never flush against it. A phone without a
 gesture strip gets `env()` resolving to 0. The active tab's word is `--accent-ink` on `--accent-soft` (Stage 132's
 ink, never the fill), and `.mtab` rides Stage 133's one pointer rule — its 28 names became 29.
 
@@ -564,19 +569,36 @@ add-a-column box on `flex: 0 0 88%` with `scroll-snap-align: start`. 88% rather 
 next column is the only affordance a swipeable row has. This replaces Stage 119's two-up wrap; both boards keep
 their own gaps, which flex honours exactly as grid did.
 
-The project page's detail strip — the checklist's "KPI row", the reader's naming — takes two fields to a row at
-900px (`flex: 1 1 calc(50% - 7px)`, half the strip's 14px gap) and one below 520px (`flex: 1 1 100%`). All nine
-weight selectors are answered in each block, because `.detail-strip .ef.cat-ef` is (0,3,0) and would outrank a bare
-`.ef` rule however late it sat. The 520px block is `app.css`'s second `@media` and the last rule in the file: both
-queries are `max-width`, so the narrower wins by source order at 480px. `MotionTest` pins both widths by name rather
-than a count. The calendar's month grid — `table.calendar-grid`, which carries no `grid` class — joins Stage 120's
-scroll rule as `.card-panel:has(table.calendar-grid)`; the floors themselves are untouched.
+The project page's field row — the checklist's "KPI row", the reader's naming — takes two fields to a row at
+900px and one below 520px (`flex: 1 1 100%`), and **both copies of it fold**: management's editable `.edit-strip`
+(ten cells, `flex: 1 1 calc(50% - 9px)`, half its 18px column gap) and the read-only `edit-strip detail-strip` every
+other reader gets (nine cells, `calc(50% - 7px)`, half its 14px gap). The editable rule comes first in each block,
+so the read-only one — equal in specificity, later in source — is what decides the 7px on the element carrying both
+classes. Every weight selector is answered rather than a bare `.ef`, because `.detail-strip .ef.cat-ef` is (0,3,0)
+and would outrank a (0,2,0) rule however late it sat: five selectors for the editable copy, nine for the read-only
+one, each count pinned against the desktop rules it answers. Naming only `.detail-strip` was this stage's first
+pass, and a browser measurement caught it — at 375px management's ten cells came out 7–20px apiece, because
+`flex: 1.3 1 0` is a *zero* basis, so every cell fits one line at any width and simply divides it, and the controls
+inside them pushed the document 19px past its own width. The read-only copy was never at risk: its values
+ellipsize, where an input has an intrinsic size it will not give up. The 520px block is `app.css`'s second `@media`
+and the last rule in the file: both queries are `max-width`, so the narrower wins by source order at 480px.
+`MotionTest` pins both widths by name rather than a count. The calendar's month grid — `table.calendar-grid`,
+which carries no `grid` class — joins Stage 120's scroll rule as `.card-panel:has(table.calendar-grid)`; the floors
+themselves are untouched.
 
-**Verified: 778 tests / 54 classes / 0 failures** — `SearchRenderTest` new (nine cases), `ShellRenderTest` 14 → 18,
-`MotionTest`'s width pin rewritten. Suite green 2026-11-13 and **live** since 11:23 (PID **15388**, jar
-**2,009,972** bytes, up from Stage 133's 1,980,015). No migration (Flyway stays **v22**). Both
-stylesheets, `app.js`, `kanban.js` and the Kotlin changed, so **Ctrl+F5 once**. Whether the bar's height, the
-swipe's settle and the search page's six groups read right on real data is the reader's to see.
+**Verified: 779 tests / 54 classes / 0 failures** — `SearchRenderTest` new (nine cases), `ShellRenderTest` 14 → 19,
+`MotionTest`'s width pin rewritten. Five full runs: the first four printed every test PASSED and then died flushing
+Gradle's binary results, so the console count was the evidence; the fifth (2026-11-16) finished `BUILD SUCCESSFUL`
+and left 54 XML files whose own totals agree — 779 tests, 0 failures, 0 errors, 0 skipped. **Live** since
+2026-11-16 09:12 (PID **12248**, jar **2,010,630** bytes, up from the stage's first deploy at 2,009,972 and Stage
+133's 1,980,015). No migration (Flyway stays **v22**). Both stylesheets, `app.js`, `kanban.js` and the Kotlin
+changed, so **Ctrl+F5 once**.
+
+The phone's geometry was measured in a browser as well as parsed: both copies of the field row folding at
+375/520/700/900 with the document's `scrollWidth` equal to its `clientWidth` at every one, the desktop at 1280
+unmoved, both boards snapping, the drawer opening and closing, and the bar 65px tall under 76px of clearance.
+Whether the bar reads right at the thumb, the swipe's settle and the search page's groups on real data is still the
+reader's to see.
 
 ## Testing strategy (Stage 9)
 

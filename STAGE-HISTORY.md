@@ -9955,7 +9955,7 @@ stage.
 **Deploy.** No migration, schema **21**. Stopped PID 12764 (force) and confirmed the port free; backed up in place with the JVM stopped — `data/pts.pre-stage120-20261103-1439.db` (471,040 bytes, `-wal` 0, `-shm` 32,768); `installDist` jar **1,935,072 bytes**; relaunched detached through `deploy/run.bat` → **PID 6788**, `/` **200**, and the served `/static/css/app.css` carries the `:has` rule and `table.projects-table { min-width: 1040px; }`. Read-back on the real data (metadata only): schema 21, 22 accounts, 22 roster rows, 1 project, 2 tasks, 4 roles and 36 role-permission rows — the board held 15 projects at Stage 119 and one at this deploy, and the roster 21 → 22; both are the operator's own data, read only. CSS and the test changed, so every open tab needs **Ctrl+F5**. **No commit, no push.**
 
 **Never re-propose:** letting a dense sheet shrink until `overflow-wrap: anywhere` splits words into letters; a second `@media` rule for the floors (they apply at every width, and the one breakpoint is the shell's — *a count
-**[Stage 134](#stage-134)** raised to two, the second block for the detail strip alone; the floors are still outside both*); applying `overflow-x` to every `.card-panel` rather than the ones holding a `table.grid`; hiding columns or shrinking the font instead of scrolling; or replacing the percentage shares with fixed pixel columns (the shares are what keeps every category panel lined up).
+**[Stage 134](#stage-134)** raised to two, the second block for the project page's field row; the floors are still outside both*); applying `overflow-x` to every `.card-panel` rather than the ones holding a `table.grid`; hiding columns or shrinking the font instead of scrolling; or replacing the percentage shares with fixed pixel columns (the shares are what keeps every category panel lined up).
 
 <a id="stage-121"></a>
 
@@ -10345,7 +10345,7 @@ relaunch → PID **24848**, `/` **200**, boot *"No migration necessary"*. Read-b
 `position 0`. Packaged-byte probes over every `DashboardCommonKt*.class` — the glyph strings live in the synthetic lambda
 class, per Stage 128's lesson — confirm both drawings, the solid box, the even-odd attribute, both class names, all four
 theme rules in order after the block, one `@media` still (*two since **[Stage 134](#stage-134)**: the 900px fold and a
-520px detail-strip block*), and the JS and `theme.js` wiring. **CSS and Kotlin both
+520px field-row block*), and the JS and `theme.js` wiring. **CSS and Kotlin both
 changed, so Ctrl+F5 once.** **No commit, no push.**
 
 **Never re-propose:** the server knowing the theme — it does not, `localStorage` does, and re-rendering to find out would
@@ -10385,7 +10385,7 @@ drawer whatever this browser remembered from a wider window. Adding a second bre
 future in the hands of a window resize; answering inside the one that exists puts it in the cascade, where a rule that
 stops applying cannot take the drawer with it. *(**Superseded by [Stage 134](#stage-134)**: the count is now two —
 900px and 520px — but the reasoning stands. The fold's rules are still answered inside the 900px block, and the newer
-block only narrows the detail strip to one field a row; it never touches the drawer or the fold. The second breakpoint
+block only narrows the project page's field row to one field a row; it never touches the drawer or the fold. The second breakpoint
 was added where the first had nothing left to say, not where the fold lives.)*
 
 **The tab cannot live in the panel it opens.** `sidebarTab()` prints `button#sidebarTab` in `appPage` as a sibling
@@ -10532,7 +10532,7 @@ validated 22 migrations"* and *"No migration necessary"*. **48 live read-back ch
 `app.css` is byte-for-byte what the server hands out and carries `top: 10px` with no `transform` in the tab's rule, the
 packaged `app.js` is unchanged, the compiled shell still carries the tab's id, class, name and chevron beside the
 closer's two drawings and the hamburger, the fold's three rules and three replies are still in the shipped order with
-one `@media` in the file (*[Stage 134](#stage-134) later added a second — 520px, for the detail strip; the fold's own
+one `@media` in the file (*[Stage 134](#stage-134) later added a second — 520px, for the project page's field row; the fold's own
 rules are untouched*), schema is still **22**, and **22** accounts, **22** roster rows, **1** project, **2** tasks,
 **4** roles, **36** role-permission rows, **9** project types, **39** notifications and the one pin at `position 0` are
 all exactly as they were. That read-back also stopped reading the whole `logs/pts.log`: it now slices from the byte
@@ -10553,7 +10553,7 @@ sidebar's head so it is level with the closer *in spirit*, when a hidden panel c
 Stage 130's whole argument; writing the offset from `app.js`, which puts a script between the reader and a number the
 stylesheet already knows; or a second breakpoint to place a control at the top of a window, when the fold, the drawer
 and the theme have all been kept to exactly one. *(**[Stage 134](#stage-134)** added a second breakpoint — 520px, for
-the detail strip alone — so the count is two; the fold, the drawer and the theme still live in the one 900px block, and
+the project page's field row — so the count is two; the fold, the drawer and the theme still live in the one 900px block, and
 the prohibition stands: no breakpoint was added to place a control.)*
 
 <a id="stage-132"></a>
@@ -10872,7 +10872,9 @@ the five bullets were already shipped — the drawer is [Stage 119](#stage-119)'
 [Stage 120](#stage-120)'s — so this stage is the three that were not, plus the one wide sheet Stage 120's
 `:has(table.grid)` never saw. Two of the checklist's words were the reader's to define, and both were put back as
 multiple choice with the recommended answer taken: the *Search* tab opens **a new `/app/search` page**, and *"the KPI
-row"* is **the project page's detail strip** (`.detail-strip`), the only row of measured figures the shell prints.
+row"* is **the project page's field row** — the strip under a project's heading, the only row of measured figures
+the shell prints. That row is drawn twice, editable `.edit-strip` for a reader who may write the project and
+read-only `edit-strip detail-strip` for everybody else, and the fold has to reach both (see below).
 [Stage 132](#stage-132) gave the app one table for sizes and [Stage 133](#stage-133) one for time; this stage spends
 neither — no new token, no new duration — and Flyway stays **v22**.
 
@@ -10906,8 +10908,10 @@ away with the sheet is not a bar; `padding: 6px 6px calc(6px + env(safe-area-ins
 padding and not height, so a phone that has not one gets `env()` resolving to 0 and the row is exactly the 6px it looks
 like. `.main` takes the same distance back as `padding-bottom: calc(76px + env(safe-area-inset-bottom))`: a fixed bar
 is out of the flow, so without it the bar would sit on the last row of every sheet — and the row it hid would be the
-one a reader scrolled to the bottom to find. 76px is the bar's own height (6px of padding twice, a 20px glyph, a
-caption line and the tab's own `--sp-2`), and `env()` is added to it rather than folded in so the two move together.
+one a reader scrolled to the bottom to find. 76px is *clearance*, not the bar's height: measured at 375px the bar
+is 65px — 6px of its own padding twice, a 1px top border and a 51.6px tab (a 20px glyph, a 3px gap, a 12.6px caption
+line at `--fs-4` over 1.2, and `--sp-2` above and below it) — and the 11px left over is room, so the last row is
+never flush against the bar. `env()` is added to the clearance rather than folded in so the two move together.
 The active tab wears `--accent-ink` on `--accent-soft` — the ink [Stage 132](#stage-132) measured clear of AA on every
 surface an accent can be painted on, never `--accent-strong`, whose job is a fill with white on it. `.mtab` joined
 Stage 133's one pointer rule — its 28 names became 29 — and Stage 132's `:focus-visible` ring reaches all five tabs
@@ -10975,16 +10979,31 @@ because it is a child of the same row — at its own content width it would read
 than as a column not there yet. Both boards keep their own `gap` (`--sp-3` on the status board, `--sp-4` on the lane
 board), which a flex row honours exactly as a grid did, so the distance between two columns is unchanged.
 
-**The KPI row folds, and the cascade is why nine selectors.** The checklist's "KPI row" is the project page's nine-cell
-detail strip — the reader named it. Every one of the nine weight rules is answered in each block rather than
-`.detail-strip .ef` alone, and that is a cascade fact rather than belt-and-braces: `.detail-strip .ef.cat-ef` is (0,3,0)
-and would outrank a (0,2,0) `.detail-strip .ef` however late in the file the latter sat, so a two-per-row strip written
-against `.ef` only would still be wearing the desktop's 2.75 against 1.1 and come out ragged. The basis is
-`calc(50% - 7px)` and not 50% because the strip's own column gap is 14px and half of it is what a cell gives up to
-share a row; the weights drop to `1 1` for the same reason — at two to a row a share of 2.75 is not a share of
-anything, it is a promise the row cannot keep. The ellipsis stays: a field that wrapped would make its row two lines
-tall, which is the bug the desktop rule was written against and is still the bug here. Below 520px the same nine
-selectors answer `flex: 1 1 100%` — one field a row, because two no longer fit side by side at a size a reader can read.
+**The KPI row folds, and the cascade is why every weight is named.** The checklist's "KPI row" is the project page's
+field row — the reader named it — and the page draws it **twice**: management gets the editable `.edit-strip` (ten
+cells, each holding a control) and every other reader gets the same row read-only as `edit-strip detail-strip`
+(nine cells, each holding a value). Both fold, in both blocks. Every weight rule is answered rather than `.ef`
+alone, and that is a cascade fact rather than belt-and-braces: `.detail-strip .ef.cat-ef` is (0,3,0) and would
+outrank a (0,2,0) `.detail-strip .ef` however late in the file the latter sat, so a two-per-row strip written
+against `.ef` only would still be wearing the desktop's 2.75 against 1.1 and come out ragged. Five selectors for
+the editable copy, nine for the read-only one, and each count is pinned against the desktop rules it answers.
+The bases are `calc(50% - 9px)` and `calc(50% - 7px)` and not 50%, because the two copies' column gaps are 18px and
+14px and half of it is what a cell gives up to share a row; the editable rule comes **first** in each block so the
+read-only one, equal in specificity and later in source, decides the 7px on the element carrying both classes. The
+weights drop to `1 1` for the same reason — at two to a row a share of 2.75 is not a share of anything, it is a
+promise the row cannot keep. The ellipsis stays: a field that wrapped would make its row two lines tall, which is
+the bug the desktop rule was written against and is still the bug here. Below 520px both copies answer
+`flex: 1 1 100%` — one field a row, because two no longer fit side by side at a size a reader can read.
+
+**Naming one copy of the row was this stage's own defect, and a browser caught it.** The first pass folded
+`.detail-strip` only, which management's copy does not carry — so the reader who can edit a project was the one
+reader whose row did not fold. Measured at 375px on the local layout bench, its ten cells came out **7–20px
+apiece**: `flex: 1.3 1 0` is a *zero* basis, so all ten fit one line at any width and simply divide it, and the
+controls inside them pushed `documentElement.scrollWidth` to 379 against a 360px `clientWidth`. Hiding that one
+row dropped it to 375, which is how the 19px of horizontal overflow was traced to it rather than to the board or
+the bar. The read-only copy was never at risk — its values ellipsize, where an input has an intrinsic size it will
+not give up. After the fix: ten cells at 290px, one a row, the first input a usable 290×23 box, and `scrollWidth`
+equal to `clientWidth` at 375 and 520 alike.
 
 **The second breakpoint is a block, not a line.** 900px is where the shell folds — the sidebar becomes a drawer, the
 hamburger appears, the board becomes a swipe and the bottom bar is printed. 520px is narrower than any of that and is
@@ -11005,37 +11024,73 @@ were there; the wrapper is the container rather than a new `<div>`, for the reas
 already there, already holds nothing but the caption and the sheet, and a second element between them is a second
 thing to keep in step.
 
-**Tests: 778 / 54 classes / 0 failures** (from 765/53). `SearchRenderTest` is new, nine cases: the sentence in all
+**Measured in a browser, at five widths.** The render tests read CSS as text; they cannot tell you that ten cells
+came out 7px wide. So the saved signed-in pages — a project, a board, a backlog, a roster — were served on a local
+bench (port 8096) beside the working tree's own `static/` bytes, which are the same bytes the JVM serves, and
+measured at 375, 520, 700, 900 and 1280. Nothing on the bench posts anywhere: the forms' actions are left alone and
+never submitted, so it is a layout bench and not a second instance of the app. After the fold reached both copies,
+at 375 the ten cells are 290px apiece, one a row, the first input a usable 290×23 box, and `scrollWidth` 360 against
+`clientWidth` 360; at 520, 435px cells and 505 against 505; at 700, 306px and 700 against 700; at 900, five rows of
+two at 406px and 900 against 900; at 1280 nothing moved — ten cells on one row on the desktop weights, the board a
+grid, the bar `display: none`, the sidebar sticky at 240px. The other pages at 375 are clean too: the team sheet is
+1102px wide and scrolls *inside* its `overflow-x: auto` panel rather than widening the document, the calendar has
+the same wrapper, the search box is a usable 273×36 with its results grouped and its own tab lit, and both boards
+swipe with `scroll-snap-type: x mandatory` on 88%-wide columns — 302px of a 343px viewport, so the next column's
+sliver shows. The drawer opens (transform none, x 0, 375px wide, `z-index: 60` over the scrim's 55, the closer
+visible, `aria-expanded="true"`, the body's overflow hidden) and closes (transform −360px, scrim and closer
+`display: none`, `aria-expanded="false"`). The bar measures **65px**, which is what corrected the clearance claim
+above.
+
+**Tests: 779 / 54 classes / 0 failures** (from 765/53). `SearchRenderTest` is new, nine cases: the sentence in all
 three states; a card is a result, an archived card is not, and a backlog card needs the board's own chips; the result
 list is a column of two-line rows and the stylesheet says so; the page is one box over a list of links and every link
 is a page the row already lives on; a long title cut on a word boundary and never in the middle of a word; a lesson
 found by its own words opening the sheet's popup; a project found by any word on its row, in any case; a to-do item
 found only by the account that owns it; people found by name, position, department or number, under the department the
-roster files them in. `ShellRenderTest` grew four (14 → 18): every page prints the phone's row of five tabs with the
+roster files them in. `ShellRenderTest` grew five (14 → 19): every page prints the phone's row of five tabs with the
 page's own tab lit; a viewer gets the same four tabs the manager gets; the bar is hidden above 900px and fixed to the
 foot of the page below it — the inset in exactly the two declarations that need it, the bar at `z-index: 54` under the
-scrim, and the active tab wearing the ink rather than the fill; the detail strip takes two fields to a row at 900px
-and one at 520px, nine selectors in each block, one rule per block, and the narrower breakpoint below the wider one.
+scrim, and the active tab wearing the ink rather than the fill; the read-only detail strip takes two fields to a row
+at 900px and one at 520px, nine selectors in each block, one rule per block, and the narrower breakpoint below the
+wider one; and **management's editable copy of the same row folds at the same two widths** — five selectors, the 9px
+half of its own 18px column gap, ahead of the read-only rule in both blocks, with the five desktop zero-basis weights
+still intact above them. That fifth case is the defect's own pin: a row that folds for one reader and not for the
+other is what the pair exists to prevent.
 `MotionTest`'s width pin was rewritten as above, and `.mtab` is read back against the pointer rule's hover contract
 like every other name in it.
 
-**Traps this stage stepped over.** The suite's own results machinery failed three times without a single test
+**Traps this stage stepped over.** The suite's own results machinery failed four times without a single test
 failing: stale daemons left behind by a crashed session printed four phantom failures and a `java.io.EOFException`;
 then two full runs lost `build/test-results/test/binary/in-progress-results-generic.bin`
-(`NoSuchFileException`) after all 778 had printed PASSED, and a third plain run on a fresh daemon died with
-`EOFException` at the same flush — so no XML ever arrived. `./gradlew --stop` and a fresh daemon is the first move
-(it cured the phantom failures), and when the XML never arrives the console's own PASSED count is the evidence:
-**778 PASSED / 0 test FAILED across 54 classes, three runs running**. One more: a `--stop` chained in the same
-breath as the next build can hand the *new* daemon the stop command ("Gradle build daemon has been stopped: stop
-command received") — the stop and the run are separate calls.
+(`NoSuchFileException`) after every test had printed PASSED, and a third plain run on a fresh daemon died with
+`EOFException` at the same flush — so no XML arrived from any of them. `./gradlew --stop` and a fresh daemon is the
+first move (it cured the phantom failures), and when the XML never arrives the console's own PASSED count is the
+evidence. The fifth run, launched detached so the shell could not reap it, finished `BUILD SUCCESSFUL` and left all
+54 XML files. One more: a `--stop` chained in the same breath as the next build can hand the *new* daemon the stop
+command ("Gradle build daemon has been stopped: stop command received") — the stop and the run are separate calls.
 
-**Verified:** the full suite green on 2026-11-13 — every one of the 778 tests PASSED in each of three full runs;
-only Gradle's report flush died (see Traps). The evidence layer is the render tests, the CSS
-parsed back out of the file it ships from, and the synthetic-DOM drawer cases — none of it is a signed-in page.
-**Still the reader's eyes on:** whether the bar's 76px is the right height at the thumb; whether a flick settles on one
-bucket or overshoots; whether the sliver of the next column reads as "there is more of it" on a real board; whether
-the search page's six groups are the right six on real data; and whether the strip at 520px reads as a column of
-figures rather than a form.
+**Two traps in the measuring, not in the app.** A measurement iframe whose document reports
+`visibilityState: "hidden"` — which is what a host window of zero height gives it — has a *frozen animation clock*:
+the drawer's 200ms `CSSTransition` sat at `currentTime: 0` forever, so `getComputedStyle` kept returning the
+transition's start value and the panel looked like it never slid in. That was the harness, not the CSS; with motion
+disabled before measuring, the same page opens and closes correctly, and a suspected drawer defect was retired
+without touching a line of it. And walking a stylesheet for a selector must test `r.selectorText` **first**: in
+current Chrome a `CSSStyleRule` also exposes a `cssRules` list (CSS nesting) and it is empty, so the usual
+`if (r.cssRules) { recurse; continue; }` guard skips every style rule in the file and reports that the rule you are
+looking for does not exist. A third, smaller one: `align-items: flex-end` gives cells on the same row different
+`top` values, so counting columns by `top` reads a tidy two-per-row as ragged wrapping — group by `bottom`.
+
+**Verified:** five full runs. The first four each printed every test PASSED and then died at Gradle's report flush
+(see Traps), so the console's count was the evidence of record; the fifth, on 2026-11-16 after the fold's second copy
+earned its own test, printed **779 PASSED / 0 test FAILED across 54 classes** and finished `BUILD SUCCESSFUL` — the
+first of the five to leave XML behind, and the 54 files' own totals agree: 779 tests, 0 failures, 0 errors, 0 skipped.
+The evidence layer is the render tests, the CSS parsed back out of the file it ships from, the synthetic-DOM drawer
+cases, and — new in this pass — a browser measuring the saved pages at five widths. What is still not a signed-in
+page on real data is the reader's own.
+**Still the reader's eyes on:** whether the bar's 65px reads right at the thumb under its 76px of clearance; whether
+a flick settles on one bucket or overshoots; whether the sliver of the next column reads as "there is more of it" on
+a real board; whether the search page's groups are the right ones on real data; and whether the strip at 520px reads
+as a column of figures rather than a form.
 
 **Deploy: live since 2026-11-13 11:23.** No migration — Flyway stays **v22**. The instance had already stopped
 (8080 free, no PTS JVM in the process list), so the run was the SOP's own order: `data/pts.db`, `-wal` and `-shm`
@@ -11045,6 +11100,16 @@ copied in place to `data/pts.pre-stage134-20261113-112344.db*` with the JVM down
 back against disk and are identical: `base.css` 9,509, `app.css` 149,357, `app.js` 32,789, `kanban.js` 13,537.
 `/app/search` answers a signed-out reader with the sign-in page, not a result list. **Ctrl+F5 once**, because both
 stylesheets, `app.js`, `kanban.js` and the Kotlin all changed.
+
+**Deploy, the follow-up: live since 2026-11-16 09:12.** The geometry pass changed `app.css` and the caption fix
+changed `Search.kt`, so the jar the stage first shipped was stale — it served the fold that missed management's copy
+of the row. 8080 was free again and no PTS JVM was in the process list, so the same SOP order ran a second time:
+`data/pts.db`, `-wal` and `-shm` copied in place to `data/pts.pre-stage134b-20261116-091223.db*` (471,040 / 0 / 32,768
+bytes) with the JVM down, one `installDist` (`murray-pts-2.0.0.jar` **2,009,972 → 2,010,630** bytes), a detached
+relaunch through `deploy\run.bat`, and the login page polled to 200 — **PID 12248** on 8080. The served bytes were
+read back against disk and are identical: `base.css` 9,509, `app.css` **152,015**, `app.js` 32,789, `kanban.js`
+13,537. The caption fix is Kotlin, so it was checked where it lives rather than in a static file: all three fragments
+of the under-the-floor sentence are in the installed jar's `mn/murray/pts/SearchKt.class`. **Ctrl+F5 once** again.
 
 **Commit and push.** This close-out serves the reader's explicit *"push to github"*: the whole uncommitted run —
 Stages 127–134 — goes to `github` (MurrayPTS) as one commit, with `scratch/` left out. `origin`/MMS is not touched:
