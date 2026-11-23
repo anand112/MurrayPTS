@@ -246,6 +246,7 @@
         // Companions come from the same response and the same token, so the block and the numbers that
         // describe it are never from two different moments. Missing ones are simply not swapped.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
+        landed = true;
         // A block that is the board itself is not a popup but a view: the reader's next reload has to
         // land on what they are looking at, so the URL the response was fetched for takes the place of
         // the one they came from — a filter it dropped does not survive in the address bar.
