@@ -232,7 +232,7 @@ fun HTML.appPage(
 ) {
     head {
         meta { charset = "utf-8" }
-        meta { name = "viewport"; content = "width=device-width, initial-scale=1" }
+        meta { name = "viewport"; content = "width=device-width, initial-scale=1, viewport-fit=cover" }
         // The tab is one name on every page (Stage 115): the page's own name is the on-screen heading, not the tab.
         title("MPTS")
         unsafe {

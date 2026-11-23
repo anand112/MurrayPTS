@@ -300,7 +300,7 @@ class ShellRenderTest {
         val box = block.substringAfter("html.js body.nav-open .nav-close {").substringBefore("}")
         listOf(
             "display: inline-flex", "position: fixed", "top: 12px", "right: 12px",
-            "z-index: 61", "width: 40px", "height: 40px", "border-radius: var(--r-md)",
+            "z-index: 61", "width: 44px", "height: 44px", "border-radius: var(--r-md)",
         ).forEach {
             assertTrue(box.contains(it), "the closer is not the hamburger's box in the drawer's top-right: missing $it")
         }
@@ -662,8 +662,9 @@ class ShellRenderTest {
         // The gesture strip is a phone's problem: nothing above the breakpoint pads for one, because nothing
         // above it is fixed to the foot of the page.
         assertFalse("safe-area-inset" in above, "a desktop rule is padding for a gesture strip it cannot have")
-        assertEquals(2, Regex("calc\\([^)]*env\\(safe-area-inset-bottom\\)").findAll(block).count(),
-            "the inset is not in exactly the two declarations that need it: the bar's own padding and the page's")
+        assertEquals(4, Regex("calc\\([^)]*env\\(safe-area-inset-bottom\\)").findAll(block).count(),
+            "the inset is not in exactly the four declarations that clear the bar: its own padding, the page's, " +
+                "the scroll padding that keeps a focused field above it, and the toast's offset")
         // The active tab wears the accent word Stage 132 measured clear of AA, not the fill colour.
         assertFalse(block.contains(".mtab.active { color: var(--accent-strong)"),
             "the active tab is back to the accent that fails its own contrast on a pale surface")

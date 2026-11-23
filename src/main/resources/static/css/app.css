@@ -1746,7 +1746,7 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
 
     html.js .nav-toggle {
         display: inline-flex; align-items: center; justify-content: center; flex-direction: column;
-        gap: var(--sp-1); width: 40px; height: 40px; flex: 0 0 40px; padding: 0;
+        gap: var(--sp-1); width: 44px; height: 44px; flex: 0 0 44px; padding: 0;
         border: 1px solid var(--input-border); border-radius: var(--r-md);
         background: var(--card-bg); cursor: pointer;
     }
@@ -1764,7 +1764,7 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
     html.js body.nav-open .nav-close {
         display: inline-flex; align-items: center; justify-content: center;
         position: fixed; top: 12px; right: 12px; z-index: 61;
-        width: 40px; height: 40px; padding: 0;
+        width: 44px; height: 44px; padding: 0;
         border: 1px solid var(--input-border); border-radius: var(--r-md);
         background: var(--card-bg); color: var(--title); cursor: pointer;
     }
@@ -1799,6 +1799,9 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
     .kanban > .kcol, .kanban > .lane-add-box {
         flex: 0 0 88%; scroll-snap-align: start; min-width: 0;
     }
+    .kanban, .kanban-lanes, .todo-board { overscroll-behavior-x: contain; }
+    .todo-board { scroll-snap-type: x mandatory; }
+    .todo-board .todo-list { flex-basis: 88%; scroll-snap-align: start; }
 
     /* The project page's field row takes two fields to a row here (Stage 134), and one below 520px in the
        block at the end of this file. This is the checklist's "KPI row", which on this app is the strip under
@@ -1878,6 +1881,20 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
     .mtab:hover { color: var(--title); }
     .mtab.active { color: var(--accent-ink); background: var(--accent-soft); }
     .main { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+    /* Touch (375px and 768px audit). Every control a finger presses is at least 44px each way; wide sheets
+       scroll inside their own panel; nothing pushes the page sideways; a focused field or the toast is never
+       hidden under the fixed tab bar. */
+    .icon-btn, .x-btn, .todo-del, .pin-btn, .kmove-btn, .count-btn, .kdone-btn, .kcol-add-btn,
+    .ghost-btn, button.submit, a.submit, .modal-btn, .delete-btn, .filter-tabs > *, .mtab, .close {
+        min-height: 44px; min-width: 44px;
+    }
+    .icon-btn, .x-btn, .todo-del, .close { display: inline-flex; align-items: center; justify-content: center; }
+    input:not([type="checkbox"]):not([type="radio"]), select { min-height: 44px; }
+    .card-panel:has(table), .board-results:has(table) { overflow-x: auto; }
+    body.app-body { overflow-x: clip; }
+    .main { overflow-wrap: break-word; }
+    html { scroll-padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+    .pts-toast { bottom: calc(76px + env(safe-area-inset-bottom)); }
 }
 
 /* The drawer's closer (Stage 128) carries two drawings of one glyph (Stage 129), and the theme decides which
@@ -1924,6 +1941,15 @@ html[data-theme="dark"] .nav-close .glyph-filled { display: block; }
   }
   .modal.is-closing > .modal-content { animation-name: pts-sheet-out; }
   .modal-actions .submit, .modal-actions .ghost-btn { min-height: 44px; }
+  /* The sheet's buttons stay under the thumb while a long form scrolls above them. */
+  .modal-actions { position: sticky; bottom: 0; z-index: 1; background: var(--card-bg); padding-bottom: var(--sp-2); }
+  /* The page's own actions drop under the title and share a full row, within reach of either thumb. */
+  .page-head { flex-wrap: wrap; }
+  .page-right { flex: 1 1 100%; display: flex; align-items: center; gap: var(--sp-2); }
+  .page-actions { flex: 1; display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .page-actions > * { flex: 1 1 auto; }
+  /* 16px text keeps iOS from zooming the page when a field takes focus. */
+  input, select, textarea { font-size: var(--fs-13); }
     /* Both copies, in the same order as the 900px block: management's editable cells first, the read-only
        copy after them. One field to a row needs no gap arithmetic — the basis is the whole row either way. */
     .edit-strip .ef,
