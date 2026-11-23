@@ -1374,7 +1374,7 @@ class ProjectsPageRenderTest {
         // pinned in the same breath because base.css writes `button.submit`, which a lone `.danger-btn` loses to.
         val css = File("src/main/resources/static/css/app.css").readText()
         assertTrue(
-            css.contains(".submit.danger-btn { border-color: #d93025; color: #fff; background: #d93025; }"),
+            css.contains(".submit.danger-btn { border-color: var(--danger); color: #fff; background: var(--danger); }"),
             "the destructive button is not coloured, so it reads as a save",
         )
         assertTrue(
