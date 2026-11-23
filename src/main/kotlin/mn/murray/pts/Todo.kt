@@ -112,6 +112,7 @@ fun DIV.todoContent(session: UserSession) {
                 form(action = "/app/todo", method = FormMethod.post, classes = "todo-add") {
                     input(type = InputType.hidden, name = "list") { value = "${list.id}" }
                     input(type = InputType.text, name = "title") {
+                        attributes["autocomplete"] = "off"
                         placeholder = "+ Add a task to ${list.name}"
                         required = true
                     }
@@ -133,6 +134,7 @@ fun DIV.todoContent(session: UserSession) {
         h3 { +"New list" }
         form(action = "/app/todo/lists", method = FormMethod.post, classes = "todo-add") {
             input(type = InputType.text, name = "name") {
+                attributes["autocomplete"] = "off"
                 placeholder = "e.g. This week"
                 required = true
             }

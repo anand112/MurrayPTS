@@ -1270,6 +1270,61 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 .currency-line select { padding: 7px 10px; font-size: var(--fs-8); font-weight: 600; color: var(--muted); }
 .modal-wide .modal-actions { display: flex; align-items: center; gap: 10px; }
 .modal-wide .modal-actions .submit { flex: 1; margin-top: 0; padding: 11px; font-size: var(--fs-10); }
+
+/* Every popup's footer reads the same way (dialog.js gives them all the same behaviour; this gives them the
+   same look): the primary action fills the row, Cancel sits beside it as a quiet ghost, and a destructive
+   action stands apart — its own row behind a red rule, sized to its words, never the widest thing there. */
+.modal-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.modal-actions .submit { flex: 1; margin-top: 0; }
+.modal-actions .ghost-btn { margin-top: 0; }
+.modal-actions:has(.danger-btn) { margin-top: var(--sp-6); border-top: 1px dashed #f5c6c0; }
+.modal-actions .submit.danger-btn { flex: 0 0 auto; padding-left: var(--sp-5); padding-right: var(--sp-5); }
+
+/* The page behind an open popup holds still; dialog.js sets the class for as long as one is up. */
+body.pts-modal-open { overflow: hidden; }
+
+/* The exit: shorter than the entrance (--dur-1 against --dur-2) and on the standard curve, so a close
+   feels like an answer rather than a second animation to wait through. dialog.js presses the popup's
+   own close marker when it ends. */
+.modal.is-closing { animation: pts-overlay-out var(--dur-1) var(--ease-std) forwards; }
+.modal.is-closing .modal-content { animation: pts-card-out var(--dur-1) var(--ease-std) forwards; }
+@keyframes pts-overlay-out { from { opacity: 1 } to { opacity: 0 } }
+@keyframes pts-card-out {
+  from { opacity: 1; transform: none }
+  to { opacity: 0; transform: translateY(6px) scale(.98) }
+}
+@keyframes pts-sheet-in { from { transform: translateY(100%) } to { transform: none } }
+@keyframes pts-sheet-out { from { transform: none } to { transform: translateY(100%) } }
+
+/* A field the form cannot be sent without says so beside its label, not only to a screen reader. */
+.field:has(> input[required], > select[required], > textarea[required], > .password-wrap > input[required]) > label::after {
+  content: " *";
+  color: #c92a3d;
+  font-weight: 700;
+}
+
+/* A sent form's buttons wait for the answer (forms.js); they look it. */
+[data-pts-sending] { cursor: progress; opacity: .7; }
+
+/* "Saved." — the one-line answer to a save that closed its popup or reloaded the page. */
+.pts-toast {
+  position: fixed;
+  left: 50%;
+  bottom: var(--sp-6);
+  z-index: 1100;
+  padding: 10px var(--sp-5);
+  border-radius: var(--r-pill);
+  background: var(--accent-ink);
+  color: #fff;
+  font-size: var(--fs-9);
+  font-weight: 700;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, var(--sp-3));
+  transition: opacity var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+.pts-toast.on { opacity: 1; transform: translate(-50%, 0); }
 .ghost-btn {
     flex: 0 0 auto; padding: 11px 18px; border: 1px solid var(--input-border); border-radius: var(--r-md);
     background: transparent; color: var(--muted); font-family: inherit; font-size: var(--fs-10);
@@ -1833,6 +1888,24 @@ html[data-theme="dark"] .nav-close .glyph-filled { display: block; }
    width is not a phone's problem to solve by shrinking, so `table.projects-table` still asks for 1040px
    and still gets it, inside the wrapper that lets a thumb scroll sideways to see the rest. */
 @media (max-width: 520px) {
+  /* Popups become bottom sheets: full width, anchored to the bottom edge, rounded only on top, rising in
+     on the same --dur-2 entrance and dropping out on the same --dur-1 exit as the centred card. */
+  .modal > .modal-content {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    max-height: 92vh;
+    margin: 0;
+    overflow-y: auto;
+    border-radius: var(--r-xl) var(--r-xl) 0 0;
+    padding-bottom: calc(var(--sp-6) + env(safe-area-inset-bottom, 0px));
+    animation-name: pts-sheet-in;
+  }
+  .modal.is-closing > .modal-content { animation-name: pts-sheet-out; }
+  .modal-actions .submit, .modal-actions .ghost-btn { min-height: 44px; }
     /* Both copies, in the same order as the 900px block: management's editable cells first, the read-only
        copy after them. One field to a row needs no gap arithmetic — the basis is the whole row either way. */
     .edit-strip .ef,

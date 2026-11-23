@@ -159,6 +159,7 @@
         // half-updated page `data-live-extra` exists to prevent. Ones the form does not name are
         // untouched, so every page written before this is unaffected.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
+        landed = true;
         // replaceState, not pushState: a back stack of half-typed phrases would trap the reader,
         // while the URL still stays shareable, bookmarkable and reloadable.
         window.history.replaceState(null, '', url.href);
@@ -234,6 +235,7 @@
     // to be added by hand — on the query string for a GET, which `boardUrl` already did, and on the body
     // for a post, which is what this line is for.
     if (submitter && submitter.name && init.body) init.body.set(submitter.name, submitter.value);
+    var landed = false;
     window.fetch(url, init)
       .then(function (response) {
         if (!response.ok) throw new Error('block load returned ' + response.status);
@@ -257,6 +259,9 @@
         if (token !== targetGenerations[id]) return;
         var again = document.getElementById(id);
         if (again) again.classList.remove('pts-busy');
+        // forms.js re-enables the sent form's buttons and confirms a save on this; a form swapped out of the
+        // page still dispatches it, so the listener can tell "landed and closed" from "came back refused".
+        form.dispatchEvent(new CustomEvent('pts:sent', { bubbles: true, detail: { ok: landed } }));
       });
   }
 

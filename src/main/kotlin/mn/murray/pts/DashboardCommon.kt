@@ -201,6 +201,8 @@ fun kotlinx.html.SELECT.optGroupPerMember(
 //   - /static/css/base.css + /static/css/app.css  — linked in appPage's <head>
 //   - /static/js/theme.js                         — emitted by themeScript() in Views.kt
 //   - /static/js/app.js                           — delegated [data-autosubmit] / [data-confirm]
+//   - /static/js/dialog.js                        — shared popup focus trap, close path, scroll lock, exit motion
+//   - /static/js/forms.js                         — inline browser checks, first-error focus, one-press sends, "Saved."
 //     behaviours, replacing the inline onchange/onclick attributes the legacy views emitted.
 // Per-page scripts are linked by the pages that need them (kanban.js, calendar-modal.js,
 // team.js, todo.js, settings-accounts.js, access-control.js). notifications.js is linked by
@@ -353,6 +355,8 @@ fun HTML.appPage(
         // Delegated handlers for [data-autosubmit] / [data-confirm]; must load on every
         // authenticated page because the sidebar pin forms and nav use them too.
         script(src = "/static/js/app.js") {}
+        script(src = "/static/js/dialog.js") {}
+        script(src = "/static/js/forms.js") {}
     }
 }
 

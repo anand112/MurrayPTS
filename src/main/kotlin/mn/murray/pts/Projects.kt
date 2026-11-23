@@ -365,6 +365,7 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                         // reader types only the number. The script keeps that lead in step with the category
                         // picker (S-07 -> G-07), and a rejected submit brings the whole code back as typed.
                         input(type = InputType.text, name = "code") {
+                            attributes["autocomplete"] = "off"
                             id = "projectCode"
                             value = v.code.ifBlank { if (letter.isEmpty()) "" else "$letter-" }
                             placeholder = suggested.ifEmpty { "$letter-01" }
@@ -381,6 +382,7 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                     div("field full") {
                         label { +"Description" }
                         input(type = InputType.text, name = "name") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "e.g. Dalanzadgad Depot construction"
                             required = true
                             value = v.name
@@ -390,6 +392,7 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                     div("field full") {
                         label { +"Client" }
                         input(type = InputType.text, name = "client") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "e.g. Oyu Tolgoi LLC"
                             value = v.client
                         }
@@ -432,6 +435,7 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                         // picker moves (project-modal.js). The server fills the same sign in, so a form with no
                         // scripts still says which money it is asking for.
                         input(type = InputType.text, name = "revenue") {
+                            attributes["autocomplete"] = "off"
                             id = "projectRevenue"
                             attributes["inputmode"] = "numeric"
                             maxLength = "32"
@@ -705,6 +709,7 @@ private fun DIV.laneAddBody(project: Project, state: LaneForm, canWidenBuckets: 
         div("field") {
             label { +"Bucket" }
             input(type = InputType.text, name = "new_bucket") {
+                attributes["autocomplete"] = "off"
                 id = "laneName"
                 placeholder = "e.g. QAQC"
                 required = true
@@ -805,6 +810,7 @@ private fun DIV.laneManageBody(
         div("field") {
             label { +"Name" }
             input(type = InputType.text, name = "name") {
+                attributes["autocomplete"] = "off"
                 id = "laneName"
                 required = true
                 attributes["maxlength"] = "$PROJECT_BUCKET_MAX"
@@ -1115,11 +1121,11 @@ fun DIV.projectDetailContent(
             form(action = "/app/projects/${project.id}", method = FormMethod.post) {
                 div("edit-strip") {
                     editField("Description") {
-                        input(type = InputType.text, name = "name") { value = v.name; required = true; maxLength = "255" }
+                        input(type = InputType.text, name = "name") { value = v.name; required = true; maxLength = "255"; attributes["autocomplete"] = "off" }
                         edit?.error(ProjectField.NAME)?.let { p("field-err") { +it } }
                     }
                     editField("Client") {
-                        input(type = InputType.text, name = "client") { value = v.client; maxLength = "255" }
+                        input(type = InputType.text, name = "client") { value = v.client; maxLength = "255"; attributes["autocomplete"] = "off" }
                         edit?.error(ProjectField.CLIENT)?.let { p("field-err") { +it } }
                     }
                     editField("Type", "wide-ef") {
@@ -1164,6 +1170,7 @@ fun DIV.projectDetailContent(
                         // parsing strips the sign, the non-breaking space and the commas before it reads the
                         // number, so the grouped and signed text round-trips.
                         input(type = InputType.text, name = "revenue") {
+                            attributes["autocomplete"] = "off"
                             attributes["inputmode"] = "numeric"
                             value = v.revenue
                             maxLength = "32"
@@ -1171,7 +1178,12 @@ fun DIV.projectDetailContent(
                         edit?.error(ProjectField.REVENUE)?.let { p("field-err") { +it } }
                     }
                     editField("Invoiced", "money-ef") {
-                        input(type = InputType.text, name = "invoiced") { value = v.invoiced; maxLength = "32" }
+                        input(type = InputType.text, name = "invoiced") {
+                            value = v.invoiced
+                            maxLength = "32"
+                            attributes["inputmode"] = "decimal"
+                            attributes["autocomplete"] = "off"
+                        }
                         edit?.error(ProjectField.INVOICED)?.let { p("field-err") { +it } }
                     }
                     // Progress is a read-only cell, not an input: it is derived from the board below and there is

@@ -247,6 +247,7 @@ fun DIV.teamContent(
                     div("field") {
                         label { +"Task" }
                         input(type = InputType.text, name = "title") {
+                            attributes["autocomplete"] = "off"
                             id = "assignTitle"
                             placeholder = "e.g. Prepare weekly progress report"
                             required = true
