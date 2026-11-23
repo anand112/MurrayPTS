@@ -227,7 +227,6 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { show(false); return; }
     if (e.key !== 'Enter' && e.key !== ' ') return;
     var here = document.activeElement;
     if (!here || !here.closest) return;

@@ -234,6 +234,7 @@
     // to be added by hand — on the query string for a GET, which `boardUrl` already did, and on the body
     // for a post, which is what this line is for.
     if (submitter && submitter.name && init.body) init.body.set(submitter.name, submitter.value);
+    var landed = false;
     window.fetch(url, init)
       .then(function (response) {
         if (!response.ok) throw new Error('block load returned ' + response.status);
@@ -245,6 +246,7 @@
         // Companions come from the same response and the same token, so the block and the numbers that
         // describe it are never from two different moments. Missing ones are simply not swapped.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
+        landed = true;
         // A block that is the board itself is not a popup but a view: the reader's next reload has to
         // land on what they are looking at, so the URL the response was fetched for takes the place of
         // the one they came from — a filter it dropped does not survive in the address bar.
@@ -257,6 +259,10 @@
         if (token !== targetGenerations[id]) return;
         var again = document.getElementById(id);
         if (again) again.classList.remove('pts-busy');
+        // forms.js re-enables the sent form's buttons and confirms a save on this. A form the swap took out of
+        // the page cannot bubble to a listener any more, so the document carries the event for it instead.
+        (form.isConnected ? form : document).dispatchEvent(
+          new CustomEvent('pts:sent', { bubbles: true, detail: { ok: landed, form: form } }));
       });
   }
 

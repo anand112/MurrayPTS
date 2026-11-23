@@ -1406,6 +1406,7 @@ fun DIV.taskFormModal(
                     div("field full") {
                         label { +"Task" }
                         input(type = InputType.text, name = "title") {
+                            attributes["autocomplete"] = "off"
                             id = "taskTitle"
                             placeholder = "e.g. Review blast vibration report"
                             required = true
@@ -1969,6 +1970,7 @@ private fun kotlinx.html.DIV.stepAddForm(
         input(type = InputType.hidden, name = "projectId") { value = "$projectId" }
         input(type = InputType.hidden, name = "edit") { value = "${task.id}" }
         input(type = InputType.text, name = "label") {
+            attributes["autocomplete"] = "off"
             id = "stepAdd-${task.id}"
             placeholder = "New step…"
             maxLength = "${TaskService.CHECKLIST_LABEL_MAX}"

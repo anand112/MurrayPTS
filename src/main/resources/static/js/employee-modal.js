@@ -67,10 +67,6 @@
     if (e.target.id === MODAL) show(false);
   });
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && isOpen(el(MODAL))) show(false);
-  });
-
   var modalNode = el(MODAL);
 
   function noticeSwap() {

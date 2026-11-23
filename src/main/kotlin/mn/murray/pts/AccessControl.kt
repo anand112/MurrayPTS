@@ -120,6 +120,7 @@ internal fun TR.positionRow(pos: Position, canEdit: Boolean) {
             form(action = "/app/positions/update", method = FormMethod.post, classes = "cell-edit") {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 input(type = InputType.text, name = "name") {
+                    attributes["autocomplete"] = "off"
                     value = pos.name
                     attributes["data-autosubmit"] = ""
                     attributes["title"] = "Edit position name and press Enter or click away to save"
@@ -134,6 +135,7 @@ internal fun TR.positionRow(pos: Position, canEdit: Boolean) {
             form(action = "/app/positions/update", method = FormMethod.post, classes = "cell-edit") {
                 input(type = InputType.hidden, name = "id") { value = pos.id.toString() }
                 input(type = InputType.text, name = "description") {
+                    attributes["autocomplete"] = "off"
                     value = pos.description
                     attributes["data-autosubmit"] = ""
                     attributes["title"] = "Edit description and press Enter or click away to save"
@@ -360,6 +362,9 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Employee number" }
                         input(type = InputType.text, name = "employeeNumber") {
+                            attributes["autocomplete"] = "off"
+                            attributes["autocapitalize"] = "none"
+                            attributes["spellcheck"] = "false"
                             placeholder = "EMP0023"
                             required = true
                         }
@@ -370,6 +375,7 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Full name" }
                         input(type = InputType.text, name = "name") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "First Last"
                             required = true
                         }
@@ -377,6 +383,7 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Email" }
                         input(type = InputType.email, name = "email") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "Auto: firstname.surname@murrays.mn"
                         }
                     }
@@ -461,6 +468,7 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Position name" }
                         input(type = InputType.text, name = "name") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "e.g. Senior Engineer"
                             required = true
                         }
@@ -468,6 +476,7 @@ fun DIV.accessContent(
                     div("field") {
                         label { +"Description" }
                         input(type = InputType.text, name = "description") {
+                            attributes["autocomplete"] = "off"
                             placeholder = "Brief description of responsibilities"
                         }
                     }

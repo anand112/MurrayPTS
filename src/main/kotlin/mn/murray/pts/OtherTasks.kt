@@ -480,6 +480,7 @@ private fun DIV.bucketAddBody(
         div("field") {
             label { +"Bucket" }
             input(type = InputType.text, name = "name") {
+                attributes["autocomplete"] = "off"
                 id = "bucketName"
                 placeholder = "e.g. Site works"
                 required = true
@@ -544,6 +545,7 @@ private fun DIV.bucketManageBody(
         div("field") {
             label { +"Name" }
             input(type = InputType.text, name = "name") {
+                attributes["autocomplete"] = "off"
                 id = "bucketName"
                 required = true
                 attributes["maxlength"] = "$BUCKET_NAME_MAX"

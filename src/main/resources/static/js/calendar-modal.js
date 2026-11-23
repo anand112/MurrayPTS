@@ -27,8 +27,6 @@
     var opener = e.target.closest ? e.target.closest('[data-modal-open]') : null;
     if (opener) { openModal(opener); return; }
     var closer = e.target.closest ? e.target.closest('[data-modal-close]') : null;
-    if (closer) { closeModal(); return; }
-    var modal = document.getElementById('taskModal');
-    if (modal && e.target === modal) closeModal();
+    if (closer) closeModal();
   });
 })();

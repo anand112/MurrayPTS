@@ -222,6 +222,8 @@ fun DIV.searchContent(session: UserSession, query: String) {
         form(action = "/app/search", method = FormMethod.get, classes = "board-toolbar search-toolbar") {
             div("board-search") {
                 input(type = InputType.text, name = "q") {
+                    attributes["inputmode"] = "search"
+                    attributes["enterkeyhint"] = "search"
                     id = "appSearch"
                     value = query
                     placeholder = "Search projects, tasks, lessons, to-do and people"

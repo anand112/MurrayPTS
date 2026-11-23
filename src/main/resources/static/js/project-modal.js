@@ -224,7 +224,6 @@
   });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { show(false); return; }
     // Enter inside the Add bucket box is a press of the button beside it. Left alone it would submit the whole
     // create form — and a create whose board is refused on a name the reader meant to add twice would be a
     // popup that came back with one column missing and no way to tell them so.
