@@ -129,7 +129,7 @@ label {
 }
 input {
     width: 100%;
-    padding: var(--sp-3) 14px;
+    padding: var(--sp-3) var(--sp-3);
     font-size: var(--fs-11);
     font-family: inherit;
     color: var(--input-text);
@@ -164,7 +164,7 @@ button.submit:hover, a.submit:hover { background: var(--btn-bg-hover); }
 button.submit:active:not(:disabled), a.submit:active { transform: translateY(1px); }
 .error {
     margin-bottom: var(--sp-4);
-    padding: 10px var(--sp-3);
+    padding: var(--sp-2) var(--sp-3);
     border: 1px solid var(--danger-line);
     border-radius: var(--r-md);
     background: var(--danger-soft);

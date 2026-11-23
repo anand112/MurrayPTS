@@ -2068,7 +2068,7 @@ class TaskBoardRenderTest {
         // Stage A named the sizes, so "the same size as the Add note button" is now a claim about two rules asking
         // for the same two tokens — plus the tokens still standing for the pixels they were drawn at, because two
         // buttons agreeing on `--sp-1` would agree and both be wrong.
-        val borrowed = listOf("padding: 5px var(--sp-3)", "font-size: var(--fs-8)")
+        val borrowed = listOf("padding: var(--sp-1) var(--sp-3)", "font-size: var(--fs-8)")
         borrowed.forEach {
             assertTrue(metrics.contains(it), "the delete is not the Add note button's size: missing $it")
             assertTrue(small.contains(it), "the note box's own Add button no longer measures $it")

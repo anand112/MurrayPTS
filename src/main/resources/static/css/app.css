@@ -25,15 +25,15 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
     width: 240px; flex: 0 0 240px;
     background: var(--card-bg); border-right: 1px solid var(--input-border);
     display: flex; flex-direction: column;
-    padding: var(--sp-5) 14px var(--sp-4);
+    padding: var(--sp-5) var(--sp-3) var(--sp-4);
     position: sticky; top: 0; height: 100vh; overflow-y: auto;
 }
 .sidebar .logo { width: 170px; margin: 0 auto var(--sp-1); }
 .sidebar .logo-img.side-logo { width: 168px; max-width: 100%; height: auto; display: block; margin: 0 0 var(--sp-1); }
-.side-caption { text-align: center; font-size: var(--fs-4); font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: var(--sp-1) 0 18px; }
+.side-caption { text-align: center; font-size: var(--fs-4); font-weight: 600; letter-spacing: .06em; color: var(--muted); margin: var(--sp-1) 0 var(--sp-4); }
 .side-caption .accent { color: var(--accent-ink); font-weight: 800; }
 .sidebar nav { display: flex; flex-direction: column; gap: 2px; }
-.nav-item { display: flex; align-items: center; gap: var(--sp-2); padding: 10px var(--sp-3); border-radius: var(--r-md); color: var(--title); text-decoration: none; font-size: var(--fs-11); font-weight: 500; }
+.nav-item { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); color: var(--title); text-decoration: none; font-size: var(--fs-11); font-weight: 500; }
 .nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; color: var(--muted); }
 .nav-item:hover { background: var(--input-bg); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
@@ -41,7 +41,7 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
 .nav-item .label { flex: 1; }
 .pill { background: var(--input-bg); border-radius: var(--r-md); padding: 2px var(--sp-2); font-size: var(--fs-5); font-weight: 600; color: var(--muted); }
 .nav-item.active .pill { background: var(--card-bg); color: var(--accent-ink); }
-.pinned { margin: 18px var(--sp-1) 0; }
+.pinned { margin: var(--sp-4) var(--sp-1) 0; }
 .pinned h2 { font-size: var(--fs-4); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: var(--sp-2); }
 .pinned .empty { font-size: var(--fs-7); line-height: 1.6; color: var(--note); }
 .pinned-row { display: flex; align-items: center; gap: var(--sp-1); margin-bottom: var(--sp-1); }
@@ -77,7 +77,7 @@ a.logout:hover { background: var(--input-border); }
 .page-head h1 .page-sub { font-size: var(--fs-7); font-weight: 600; color: var(--muted); margin-left: var(--sp-2); }
 .page-right { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
 .page-actions { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
-.card-panel { background: var(--card-bg); border: 1px solid var(--input-border); border-radius: var(--r-lg); padding: 18px var(--sp-5); margin-bottom: var(--sp-4); }
+.card-panel { background: var(--card-bg); border: 1px solid var(--input-border); border-radius: var(--r-lg); padding: var(--sp-4) var(--sp-5); margin-bottom: var(--sp-4); }
 .panel-caption { font-size: var(--fs-8); color: var(--muted); margin-bottom: var(--sp-3); }
 table.grid { width: 100%; border-collapse: collapse; font-size: var(--fs-10); }
 table.grid th { text-align: left; font-size: var(--fs-4); font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: var(--sp-1) var(--sp-2) var(--sp-2); border-bottom: 1px solid var(--input-border); }
@@ -138,7 +138,7 @@ table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { fon
 .progress { display: inline-block; width: 110px; height: 8px; border-radius: var(--r-xs); background: var(--input-bg); overflow: hidden; vertical-align: middle; }
 .progress .bar { height: 100%; background: var(--accent); }
 .pct { margin-left: var(--sp-2); font-size: var(--fs-7); color: var(--muted); }
-.pin-btn { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--muted); border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); cursor: pointer; white-space: nowrap; }
+.pin-btn { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--muted); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); cursor: pointer; white-space: nowrap; }
 .pin-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 .task-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--input-border); }
 .task-row:last-child { border-bottom: none; }
@@ -157,7 +157,7 @@ table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { fon
 form.cell-edit { margin: 0; }
 form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-8); }
 form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); font-weight: 600; cursor: pointer; }
-.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: var(--danger-ink); border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: var(--danger-ink); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .delete-btn:hover { background: rgba(220, 53, 69, .16); }
 .field-err { color: var(--danger-ink); font-size: var(--fs-8); font-weight: 600; margin: var(--sp-1) 0 0; }
 .kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
@@ -194,12 +194,12 @@ html[data-theme="dark"] .kcol { background: rgba(255, 255, 255, .05); }
    "Nothing here." do not read as somewhere to start. Printed only for somebody who can write the first
    card, so the block never promises a button this account would be refused. */
 .board-empty {
-    margin-top: var(--sp-3); padding: 18px var(--sp-4); text-align: center;
+    margin-top: var(--sp-3); padding: var(--sp-4) var(--sp-4); text-align: center;
     border: 1px dashed var(--input-border); border-radius: var(--r-lg); background: var(--input-bg);
 }
 html[data-theme="dark"] .board-empty { background: rgba(255, 255, 255, .04); }
 .board-empty-line { margin: 0; font-size: var(--fs-10); font-weight: 700; color: var(--title); }
-.board-empty-sub { margin: 5px 0 var(--sp-3); font-size: var(--fs-7); color: var(--muted); }
+.board-empty-sub { margin: var(--sp-1) 0 var(--sp-3); font-size: var(--fs-7); color: var(--muted); }
 /* The Assigned tasks page's second board (Stage 55): the reader's own Other tasks, below the projects board.
    The heading separates the two status boards that share one page and one popup, and the empty line is the honest
    answer when nothing is on them — not a board of "Nothing here." columns for a person who has no such work. */
@@ -230,7 +230,7 @@ form.other-bucket-filter .board-key select {
 .dot.d-orange { background: #e07000; }
 .dot.d-red { background: var(--danger); }
 .dot.d-green { background: #1e8e3e; }
-.kcard { background: var(--card-bg); border-radius: var(--r-md); border-left: 3px solid #8a9199; padding: 10px var(--sp-3); margin-top: var(--sp-2); box-shadow: var(--shadow-1); }
+.kcard { background: var(--card-bg); border-radius: var(--r-md); border-left: 3px solid #8a9199; padding: var(--sp-2) var(--sp-3); margin-top: var(--sp-2); box-shadow: var(--shadow-1); }
 .kcard[draggable="true"] { cursor: grab; }
 .kcard.s-notstarted { border-left-color: #8a9199; }
 .kcard.s-inprogress { border-left-color: #e0a800; background: #fdf6dd; }
@@ -272,7 +272,7 @@ html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
    the board happens to hold. A card no longer carries its plan (Stage 41 took the steps into the popup), so
    its height belongs to the card itself; there is nothing inside it that grows with the number of steps. */
 .kmove { display: flex; gap: var(--sp-1); margin-top: var(--sp-2); }
-.kmove-btn { flex: 1; cursor: pointer; font-size: var(--fs-4); font-weight: 600; padding: var(--sp-1) 6px; border-radius: var(--r-sm); border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.kmove-btn { flex: 1; cursor: pointer; font-size: var(--fs-4); font-weight: 600; padding: var(--sp-1) var(--sp-1); border-radius: var(--r-sm); border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .kmove-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-ink); background: rgba(0, 0, 0, .04); }
 html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
 .kmove-btn.next { color: var(--accent-ink); border-color: var(--accent); }
@@ -309,7 +309,7 @@ html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 
 /* The card's own plan bar, on the line between the section head and the rows it measures. `.progress` and
    `.bar` are used exactly as the Projects board and a project page use them — one control, one size, no
    second style of bar in the app — so all that is added here is the block it sits on. */
-.kprog { margin: 5px 0 var(--sp-2); }
+.kprog { margin: var(--sp-1) 0 var(--sp-2); }
 .tcode { display: inline-block; background: var(--ok-soft); color: var(--ok-ink); border-radius: var(--r-sm); font-size: var(--fs-4); font-weight: 700; padding: 2px var(--sp-2); margin-bottom: var(--sp-1); }
 html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
 /* An Other-task card's chip names a bucket, not a project (Stage 88), so it wears the board's own neutral tint
@@ -394,7 +394,7 @@ a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 .count.planning { background: var(--plan-soft); color: var(--plan-ink); }
 .count.onhold { background: var(--warn-soft); color: var(--warn-ink); }
 .count-total { font-size: var(--fs-9); font-weight: 800; color: var(--title); }
-.card-panel h3, .fc-completed-head h3 { font-size: var(--fs-12); font-weight: 700; color: var(--title); margin: var(--sp-1) 0 6px; }
+.card-panel h3, .fc-completed-head h3 { font-size: var(--fs-12); font-weight: 700; color: var(--title); margin: var(--sp-1) 0 var(--sp-1); }
 /* ---- The forecast sheet (V8) -------------------------------------------------------------
    One line per project per month, read as a spreadsheet: eleven columns on the running half,
    eight on the completed one, and three states printed as a row colour rather than as a word,
@@ -455,7 +455,7 @@ html[data-theme="dark"] tr.fc-full > td { background: rgba(139, 195, 74, .12); }
 /* The legend in the toolbar is the key to those three colours, and it is built from the same
    class names as the rows so the two cannot drift apart. */
 .fc-legend { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
-.fc-key { display: inline-block; padding: var(--sp-1) 10px; border-radius: var(--r-md); font-size: var(--fs-6); font-weight: 600; color: var(--title); border: 1px solid var(--input-border); }
+.fc-key { display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-md); font-size: var(--fs-6); font-weight: 600; color: var(--title); border: 1px solid var(--input-border); }
 .fc-key.fc-entered { background: #fff8e1; }
 .fc-key.fc-partial { background: #ffe8d1; }
 .fc-key.fc-full { background: var(--ok-soft); }
@@ -472,7 +472,7 @@ html[data-theme="dark"] .fc-key.fc-full { background: rgba(139, 195, 74, .20); }
    picker undoes them the way a board toolbar's picker does, and the strip wraps rather than squeezes. */
 .cal-strip { flex-wrap: wrap; }
 .cal-pick { display: inline-flex; align-items: center; gap: var(--sp-1); margin: 0; font-size: var(--fs-5); color: var(--muted); }
-.cal-pick input { width: auto; min-width: 132px; padding: 5px var(--sp-2); font-size: var(--fs-8); }
+.cal-pick input { width: auto; min-width: 132px; padding: var(--sp-1) var(--sp-2); font-size: var(--fs-8); }
 /* Said once, under the grid, when the month on screen holds none of the reader's dates. */
 .cal-empty { margin: var(--sp-2) 2px 0; }
 /* The type letter, the category's initial in a square — the projects board spells the category out
@@ -481,7 +481,7 @@ html[data-theme="dark"] .fc-key.fc-full { background: rgba(139, 195, 74, .20); }
 /* The three writers. Each is the width of its column, so the sheet reads as cells and not as a
    form: no visible box until the cell is entered. */
 .fc-num { width: 100%; min-width: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; font-size: var(--fs-9);
-    padding: 6px var(--sp-2); border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--title); }
+    padding: var(--sp-1) var(--sp-2); border: 1px solid transparent; border-radius: var(--r-sm); background: transparent; color: var(--title); }
 .fc-num:hover, .fc-num:focus { border-color: var(--input-border); background: var(--input-bg); }
 .fc-month-field, .fc-status-field { width: 100%; min-width: 0; font-size: var(--fs-8); padding: var(--sp-1) var(--sp-1);
     border: 1px solid var(--input-border); border-radius: var(--r-sm); background: var(--input-bg); color: var(--title); }
@@ -499,10 +499,10 @@ html[data-theme="dark"] .fc-key.fc-full { background: rgba(139, 195, 74, .20); }
 html[data-theme="dark"] .fc-covered { color: #a5d6a7; }
 /* The two totals lines: bold, ruled off the rows above, and labelled in the cell that spans the
    columns its figure belongs to. */
-tr.fc-totals > td { border-top: 2px solid var(--input-border); border-bottom: none; background: var(--input-bg); font-weight: 800; padding: 10px var(--sp-2); }
+tr.fc-totals > td { border-top: 2px solid var(--input-border); border-bottom: none; background: var(--input-bg); font-weight: 800; padding: var(--sp-2) var(--sp-2); }
 .fc-total-label { font-size: var(--fs-8); color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .fc-total-num { text-align: right; }
-.fc-completed-head { display: flex; align-items: center; gap: var(--sp-2); margin: 22px 0 var(--sp-2); }
+.fc-completed-head { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-5) 0 var(--sp-2); }
 .fc-completed-head h3 { margin: 0; }
 /* ---- The Lesson learnt sheet (V9) ---------------------------------------------------------
    One row per lesson, read down the sheet: when, who, on which project, from which card, what
@@ -679,7 +679,7 @@ h3.set-section:first-child { margin-top: 0; }
 .todo-due { margin: 0 0 var(--sp-2); }
 .todo-due-form { margin: 0; display: flex; align-items: center; gap: var(--sp-1); }
 .todo-due-label { font-size: var(--fs-7); font-weight: 600; color: var(--muted); }
-.todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: 5px var(--sp-2); font-size: var(--fs-7); }
+.todo-due input[type="date"] { flex: 0 0 auto; width: 110px; padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); }
 .todo-del-form { margin: 0 0 0 auto; }
 /* Stage 66: `table-layout: fixed` so the seven columns are seven equal sevenths. Under the old auto layout a
    bar's nowrap title was a minimum content width, so a long card name pushed its column wider than 14.28% and
@@ -689,9 +689,9 @@ h3.set-section:first-child { margin-top: 0; }
 .calendar-grid th { text-align: center; font-size: var(--fs-5); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); padding: var(--sp-2) var(--sp-1); border-bottom: 1px solid var(--input-border); }
 .calendar-grid td { padding: 0; border: 1px solid var(--input-border); vertical-align: top; min-height: 100px; }
 .calendar-cell { width: 14.28%; min-height: 100px; position: relative; }
-.calendar-day { padding: 6px var(--sp-2); font-weight: 600; font-size: var(--fs-7); color: var(--title); }
+.calendar-day { padding: var(--sp-1) var(--sp-2); font-weight: 600; font-size: var(--fs-7); color: var(--title); }
 .calendar-day.today { background: var(--accent-soft); color: var(--accent-ink); }
-.calendar-task-bar { color: #fff; padding: var(--sp-1) 6px; margin-top: var(--sp-1); font-size: var(--fs-5); font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
+.calendar-task-bar { color: #fff; padding: var(--sp-1) var(--sp-1); margin-top: var(--sp-1); font-size: var(--fs-5); font-weight: 600; min-height: 24px; display: flex; align-items: center; gap: var(--sp-1); cursor: pointer; }
 .calendar-task-bar:hover { opacity: 0.9; }
 .calendar-task-link { color: #fff; text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .calendar-task-link:hover { text-decoration: underline; }
@@ -699,7 +699,7 @@ h3.set-section:first-child { margin-top: 0; }
 /* Stage 66 — a bar's hue now says WHICH work it is (its project, or the Other-tasks bucket it sits in) rather
    than its priority, so the month needs a key, and priority needs a mark of its own that reads on any hue.
    The dots are bright fills with an inset ring: the ring keeps them legible on a pale page and on a dark bar. */
-.cal-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) 14px; margin: 2px 2px var(--sp-2); font-size: var(--fs-6); color: var(--muted); }
+.cal-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); margin: 2px 2px var(--sp-2); font-size: var(--fs-6); color: var(--muted); }
 .cal-key-item, .cal-group { display: inline-flex; align-items: center; gap: var(--sp-1); }
 .cal-key-prio { display: inline-flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
 .cal-swatch { width: 10px; height: 10px; border-radius: var(--r-xs); flex-shrink: 0; display: inline-block; }
@@ -732,15 +732,15 @@ h3.set-section:first-child { margin-top: 0; }
 .todo-add { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
 .todo-add input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-md); padding: var(--sp-3) var(--sp-3); font-size: var(--fs-11); }
 .todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: var(--sp-2) var(--sp-2); font-size: var(--fs-9); }
-.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: var(--sp-2) 6px; font-size: var(--fs-6); }
-.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: var(--sp-1) 6px; font-size: var(--fs-6); }
+.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: var(--sp-2) var(--sp-1); font-size: var(--fs-6); }
+.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: var(--sp-1) var(--sp-1); font-size: var(--fs-6); }
 .todo-due-form input[type="date"]::-webkit-calendar-picker-indicator,
 .todo-add input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
 .todo-due-form input[type="date"],
 .todo-add input[type="date"] { background: transparent; border-color: transparent; }
 .todo-due-form input[type="date"]:focus,
 .todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--input-border); }
-.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: 5px var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5; }
+.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: var(--sp-1) var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5; }
 .todo-board { display: flex; gap: var(--sp-4); align-items: flex-start; overflow-x: auto; padding-bottom: var(--sp-1); }
 .todo-board .todo-list { flex: 0 0 330px; max-width: 330px; }
 .todo-check { margin: 0; display: flex; align-items: center; }
@@ -748,7 +748,7 @@ h3.set-section:first-child { margin-top: 0; }
 .todo-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .todo-head-actions .todo-del-form { margin: 0; }
 .todo-move-form { margin: 0; display: flex; gap: 2px; }
-.todo-move { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: var(--fs-7); line-height: 1; padding: var(--sp-1) 7px; border-radius: var(--r-sm); }
+.todo-move { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: var(--fs-7); line-height: 1; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm); }
 .todo-move:hover:not([disabled]) { color: var(--accent-ink); background: var(--accent-soft); }
 .todo-move[disabled] { opacity: .3; cursor: default; }
 .todo-list.done { opacity: .72; }
@@ -866,7 +866,7 @@ html[data-theme="dark"] .bucket-preset { background: #1c222b; color: #9aa7b8; }
 .bucket-pending { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .bucket-pending:empty { display: none; }
 .bucket-pending-chip { display: inline-flex; align-items: center; gap: var(--sp-1); background: var(--ok-soft); color: var(--ok-ink);
-    border-radius: var(--r-pill); font-size: var(--fs-5); font-weight: 700; padding: 2px var(--sp-1) 2px 9px; }
+    border-radius: var(--r-pill); font-size: var(--fs-5); font-weight: 700; padding: 2px var(--sp-1) 2px var(--sp-2); }
 html[data-theme="dark"] .bucket-pending-chip { background: #24341a; color: #b7e08a; }
 .bucket-pending-drop { border: 0; background: none; color: inherit; cursor: pointer; font-size: var(--fs-9);
     line-height: 1; padding: 0 var(--sp-1); opacity: .7; }
@@ -903,12 +903,12 @@ form.mail-switch { display: flex; flex-direction: column; align-items: flex-star
 label.check-row { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-10); font-weight: 600;
     letter-spacing: normal; text-transform: none; color: var(--title); cursor: pointer; }
 .check-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.flash { padding: 10px var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-9); margin-bottom: var(--sp-3); animation: pts-flash-in var(--dur-2) var(--ease-out); }
+.flash { padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-9); margin-bottom: var(--sp-3); animation: pts-flash-in var(--dur-2) var(--ease-out); }
 .flash.ok { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent); }
 .flash.err { background: var(--danger-soft); color: var(--danger-strong); border: 1px solid var(--danger-line); }
 select {
     width: 100%;
-    padding: 11px var(--sp-3);
+    padding: var(--sp-3) var(--sp-3);
     font-size: var(--fs-11);
     font-family: inherit;
     color: var(--input-text);
@@ -939,7 +939,7 @@ select {
     margin-bottom: 0; font-size: var(--fs-5); color: var(--muted);
 }
 .board-toolbar .board-key select {
-    width: auto; min-width: 140px; padding: var(--sp-2) 10px;
+    width: auto; min-width: 140px; padding: var(--sp-2) var(--sp-2);
     font-size: var(--fs-9); color: var(--title);
 }
 .board-toolbar .board-reset { font-size: var(--fs-8); color: var(--muted); white-space: nowrap; }
@@ -1005,7 +1005,7 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .crumb-code { color: var(--title); }
 .head-actions { display: flex; align-items: center; gap: var(--sp-2); }
 .head-actions .opener-form { margin: 0; }
-.edit-panel { padding: var(--sp-4) 18px; }
+.edit-panel { padding: var(--sp-4) var(--sp-4); }
 /* One row, fields spread edge to edge like the screenshot. Every cell uses a ZERO flex-basis with a content
    weight, so the ten of them always divide the panel between themselves and never push a later cell onto a
    second line — which is exactly what happened with the old `1 1 120px` bases (9×120 + 220 + gaps overflowed a
@@ -1082,7 +1082,7 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 /* base.css writes `button.submit { display:block; width:100% }`, which turned "Save changes" into a full-width
    green bar spanning the panel — the screenshot shows no such bar. Compact it back to a right-aligned button
    that hugs its own label. */
-.edit-actions .submit { display: inline-block; width: auto; padding: var(--sp-2) 18px; font-size: var(--fs-9); }
+.edit-actions .submit { display: inline-block; width: auto; padding: var(--sp-2) var(--sp-4); font-size: var(--fs-9); }
 /* A destructive action styled as a small ghost button that reddens on hover — it sits in the header row
    beside the pin, not as a filled danger block, so it never outweighs the page. */
 .ghost-btn.btn-sm.danger { color: var(--danger); }
@@ -1092,21 +1092,21 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
    rules went with the markup rather than staying as a vocabulary nothing speaks. */
 .assignee.none { color: var(--muted); font-style: italic; }
 .pw-edit { display: flex; gap: var(--sp-1); align-items: center; }
-.pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: 5px var(--sp-2); font-size: var(--fs-8); }
+.pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-8); }
 .team-table tbody tr[data-emp] { cursor: pointer; }
 .team-table tbody tr[data-emp]:hover td { background: var(--input-bg); }
 .mhint { color: var(--muted); font-size: var(--fs-12); font-weight: 700; }
 .team-table tbody tr[data-emp]:hover .mhint { color: var(--accent-ink); }
 .mpop { position: absolute; z-index: 900; width: 400px; max-width: calc(100vw - 24px); background: var(--card-bg); border: 1px solid var(--input-border); border-radius: var(--r-lg); box-shadow: var(--shadow-1); overflow: hidden; animation: pts-pop-in var(--dur-1) var(--ease-out); }
 .mpop[hidden] { display: none; }
-.mpop-head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) 14px; background: var(--accent-soft); }
+.mpop-head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-3); background: var(--accent-soft); }
 .mpop-head .avatar.sm { background: var(--accent-strong); }
 .mpop-id { flex: 1; min-width: 0; }
 .mpop-name { font-size: var(--fs-11); font-weight: 700; color: var(--title); }
 .mpop-sub { font-size: var(--fs-6); color: var(--muted); margin-top: 1px; }
 .mpop-x { border: none; background: transparent; color: var(--muted); font-size: var(--fs-14); line-height: 1; cursor: pointer; padding: 2px var(--sp-2); border-radius: var(--r-sm); }
 .mpop-x:hover { color: var(--title); background: rgba(0, 0, 0, .07); }
-.mpop-body { padding: var(--sp-1) 14px var(--sp-3); max-height: min(60vh, 480px); overflow-y: auto; }
+.mpop-body { padding: var(--sp-1) var(--sp-3) var(--sp-3); max-height: min(60vh, 480px); overflow-y: auto; }
 .mpop-sechead { font-size: var(--fs-4); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: var(--sp-3) 0 var(--sp-1); }
 .mpop-empty { font-size: var(--fs-8); color: var(--note); font-style: italic; padding: var(--sp-1) 0 2px; }
 .mpop-row { display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px solid var(--input-border); }
@@ -1147,10 +1147,10 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
    and flips with the dark theme with no hardcoded value and no [data-theme] override. The count rides
    on --card-bg, which is how .nav-item.active .pill stays legible inside the same soft fill. */
 tr.dept-row > td { padding: var(--sp-2) 0 var(--sp-1); background: transparent; }
-.dept-cell { display: flex; align-items: baseline; gap: var(--sp-2); padding: 7px var(--sp-3); background: var(--accent-soft); border-left: 3px solid var(--accent-ink); border-radius: 0 var(--r-md) var(--r-md) 0; }
+.dept-cell { display: flex; align-items: baseline; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); background: var(--accent-soft); border-left: 3px solid var(--accent-ink); border-radius: 0 var(--r-md) var(--r-md) 0; }
 .dept-name { font-size: var(--fs-8); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink); }
 .dept-count { font-size: var(--fs-5); font-weight: 700; color: var(--accent-ink); background: var(--card-bg); border-radius: var(--r-md); padding: 1px var(--sp-2); }
-tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: var(--sp-2) 14px 10px; }
+tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: var(--sp-2) var(--sp-3) var(--sp-2); }
 tr.member-tasks[hidden] { display: none; }
 tr.member-tasks .mpop-row { padding: var(--sp-2) 0; }
 .mtd-empty { font-size: var(--fs-8); color: var(--note); font-style: italic; }
@@ -1165,7 +1165,7 @@ table.grid td.num { text-align: center; width: 1%; white-space: nowrap; }
 .count-btn:hover { border-color: var(--accent-ink); background: var(--accent-soft); }
 .count-btn.open { background: var(--accent-soft); border-color: var(--accent-ink); }
 .count-zero { font-size: var(--fs-9); color: var(--muted); opacity: 0.55; }
-tr.acct-detail > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: var(--sp-2) 14px 10px; }
+tr.acct-detail > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: var(--sp-2) var(--sp-3) var(--sp-2); }
 tr.acct-detail[hidden] { display: none; }
 tr.acct-detail .mpop-row { padding: var(--sp-2) 0; }
 .acct-pane[hidden] { display: none; }
@@ -1186,7 +1186,7 @@ tr.acct-detail .mpop-row { padding: var(--sp-2) 0; }
    The selector is .submit.btn-sm, not .btn-sm: base.css writes `button.submit`, which is
    (0,1,1) and would outrank a bare class, leaving the button full-width and 13px padded. */
 .submit.btn-sm, .btn-sm {
-    width: auto; display: inline-block; margin-top: 0; padding: 5px var(--sp-3);
+    width: auto; display: inline-block; margin-top: 0; padding: var(--sp-1) var(--sp-3);
     font-size: var(--fs-8); font-weight: 600; line-height: 1.5;
 }
 .new-project-btn, .new-task-btn { white-space: nowrap; }
@@ -1316,7 +1316,7 @@ body.pts-modal-open { overflow: hidden; }
   left: 50%;
   bottom: var(--sp-6);
   z-index: 1100;
-  padding: 10px var(--sp-5);
+  padding: var(--sp-2) var(--sp-5);
   border-radius: var(--r-pill);
   background: var(--accent-ink);
   color: #fff;
@@ -1360,7 +1360,7 @@ body.pts-modal-open { overflow: hidden; }
 }
 html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes { border-top-color: rgba(255, 255, 255, .12); }
 .modal-checklist.pts-busy, .modal-notes.pts-busy { opacity: .55; }
-.section-empty { font-size: var(--fs-7); font-style: italic; color: var(--muted); margin: var(--sp-1) 0 6px; }
+.section-empty { font-size: var(--fs-7); font-style: italic; color: var(--muted); margin: var(--sp-1) 0 var(--sp-1); }
 
 /* A step row is a `.chk-row` whether it is read on a project board's popup or anywhere else — the read-only
    ✓/· spelling of a step went out with the card's own list (Stage 41), so `.step-row` and `.step-mark` are
@@ -1403,7 +1403,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 .note-foot .note-add { flex: 1 1 auto; min-width: 0; }
 .note-foot .task-del { flex: 0 0 auto; }
 .note-foot .task-del .ghost-btn {
-    padding: 5px var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5;
+    padding: var(--sp-1) var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5;
 }
 
 /* --- notification bell, top-right of every page -------------------------------------------
@@ -1432,7 +1432,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 .notif-panel[hidden] { display: none; }
 .notif-head {
     display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
-    padding: 10px var(--sp-3); border-bottom: 1px solid var(--input-border);
+    padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--input-border);
 }
 .notif-head-title { font-size: var(--fs-8); font-weight: 800; color: var(--title); }
 .notif-head form { margin: 0; }
@@ -1440,7 +1440,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 .notif-empty { padding: var(--sp-4) var(--sp-3); font-size: var(--fs-8); color: var(--muted); line-height: 1.45; }
 .notif-text { min-width: 0; }
 a.notif-item {
-    display: flex; gap: var(--sp-2); align-items: flex-start; padding: 10px var(--sp-3);
+    display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3);
     border-bottom: 1px solid var(--input-border); text-decoration: none; color: inherit;
 }
 a.notif-item:last-child { border-bottom: none; }
@@ -1487,7 +1487,7 @@ td.role-count { font-variant-numeric: tabular-nums; font-weight: 700; color: var
    and the question is "which of these may it do", so every row should be scannable without reading a
    heading twice. */
 .perm-picks {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 9px var(--sp-4);
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--sp-2) var(--sp-4);
     margin-top: var(--sp-1);
 }
 label.perm-pick {
