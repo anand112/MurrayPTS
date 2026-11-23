@@ -248,6 +248,8 @@ private fun DIV.projectBoardToolbar(filter: ProjectBoardFilter, typeFilter: Stri
         if (typeFilter != null) input(type = InputType.hidden, name = "type") { value = typeFilter }
         div("board-search") {
             input(type = InputType.text, name = "q") {
+                attributes["inputmode"] = "search"
+                attributes["enterkeyhint"] = "search"
                 id = "projectSearch"
                 value = filter.text
                 placeholder = "Search projects — number, description, client, manager"

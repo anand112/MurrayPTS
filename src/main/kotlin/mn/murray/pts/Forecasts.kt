@@ -160,6 +160,8 @@ private fun DIV.forecastToolbar(filter: ForecastFilter, month: String) {
         if (filter.type.isNotEmpty()) input(type = InputType.hidden, name = "type") { value = filter.type }
         div("board-search") {
             input(type = InputType.text, name = "q") {
+                attributes["inputmode"] = "search"
+                attributes["enterkeyhint"] = "search"
                 id = "forecastSearch"
                 value = filter.text
                 placeholder = "Search project, client…"

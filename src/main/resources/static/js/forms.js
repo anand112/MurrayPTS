@@ -138,11 +138,13 @@
     if (!form || !form.getAttribute) return;
     release(form);
     if (!e.detail || !e.detail.ok || !isRealForm(form)) return;
-    var modal = form.closest('.modal');
-    var shut = !form.isConnected || (modal && modal.style.display !== 'block') ||
-      (modal && !modal.isConnected);
-    var refused = form.isConnected && form.querySelector('.field-err');
-    if (shut && !refused) announce('Saved.');
+    // A refusal swaps in a fresh copy of the popup, open, with its message — so "the sent form is gone" is not
+    // enough: a save that landed leaves no popup open and no server error on the page it came back to.
+    var inModal = !!form.closest('.modal');
+    var openNow = document.querySelector('.modal[style*="block"]');
+    if (inModal ? openNow : form.isConnected) return;
+    if (document.querySelector('.field-err:not([data-client-err])')) return;
+    announce('Saved.');
   });
 
   // The back-forward cache hands a page back exactly as it was left, disabled buttons included.
@@ -188,13 +190,17 @@
       if ((forms[i].getAttribute('action') || '') === sent.action) { form = forms[i]; break; }
     }
     if (!form) return;
-    // Only boxes the server left empty: a value it printed back is the server's answer and wins.
+    // A form the server drew back blank lost everything, pickers included; one it refilled keeps its own
+    // answer, and only boxes it left empty take the typed copy.
+    var blank = Array.prototype.every.call(form.elements, function (el) {
+      return !el.name || el.tagName === 'SELECT' || NO_KEEP.test(el.type) || !el.value;
+    });
     Object.keys(sent.values || {}).forEach(function (name) {
       var el = form.elements[name];
       if (!el || el.length > 1 && !el.tagName) return;
       if (NO_KEEP.test(el.type) || el.readOnly || el.disabled) return;
       if (el.tagName === 'SELECT') {
-        if (el.selectedIndex <= 0 && sent.values[name]) el.value = sent.values[name];
+        if ((blank || el.selectedIndex <= 0) && sent.values[name]) el.value = sent.values[name];
       } else if (!el.value) {
         el.value = sent.values[name];
       }

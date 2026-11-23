@@ -273,6 +273,8 @@ private fun DIV.teamToolbar(filter: EmployeeFilter, sheet: EmployeeSheet, bucket
         }
         div("board-search") {
             input(type = InputType.text, name = "q") {
+                attributes["inputmode"] = "search"
+                attributes["enterkeyhint"] = "search"
                 id = "teamSearch"
                 value = filter.text
                 placeholder = "Search name, email, employee #…"

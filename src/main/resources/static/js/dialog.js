@@ -116,7 +116,9 @@
     if (here && here !== document.body && here.isConnected && !here.closest('.modal')) return;
     var back = opener && opener.isConnected ? opener : (openerId ? document.getElementById(openerId) : null);
     opener = null;
-    if (back && back.focus) back.focus({ preventScroll: true });
+    if (!back || !back.focus) return;
+    if (!back.matches(FOCUSABLE) && !back.hasAttribute('tabindex')) back.setAttribute('tabindex', '-1');
+    back.focus({ preventScroll: true });
   }
 
   function sync() {
@@ -158,7 +160,8 @@
     if (current && isOpen(current) && t && !current.contains(t)) focusInside(current);
   });
   document.addEventListener('pointerdown', function (e) {
-    var t = e.target && e.target.closest ? e.target.closest(FOCUSABLE) : null;
+    // A calendar bar opens its popup but is a plain element, so the opener is whatever was pressed.
+    var t = e.target && e.target.closest ? (e.target.closest(FOCUSABLE) || e.target.closest('[data-modal-open]')) : null;
     if (t && !t.closest('.modal')) lastOutside = t;
   }, true);
 
