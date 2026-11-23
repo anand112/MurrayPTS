@@ -1080,7 +1080,10 @@ private fun DIV.taskCard(
                 }
             }
         }
-        div("ktitle") { +task.title }
+        div("ktitle") {
+            attributes["title"] = task.title
+            +task.title
+        }
         // The card's live region: its meta line, swapped on its own. A step ticked in the popup moves the
         // percentage printed here, and one response carrying both blocks is what keeps the number from
         // sitting on the value from before the click.

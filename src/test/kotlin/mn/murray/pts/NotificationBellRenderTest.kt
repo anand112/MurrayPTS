@@ -111,6 +111,7 @@ class NotificationBellRenderTest {
         val html = bell()
         assertTrue("class=\"notif-badge\">2<" in html, html)
         assertTrue("action=\"/app/notifications/read-all\"" in html, html)
+        assertTrue("data-live-target=\"#notif\"" in html, html)
         assertEquals(2, occurrences(html, "class=\"notif-item unread\""))
     }
 

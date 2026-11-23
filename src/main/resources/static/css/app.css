@@ -323,8 +323,12 @@ html[data-theme="dark"] .tcode.bucket-chip { background: #1e2a38; color: #a9c6e2
 a.tcode { text-decoration: none; cursor: pointer; }
 a.tcode:hover { text-decoration: underline; }
 a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.ktitle { font-size: var(--fs-9); font-weight: 600; color: var(--title); line-height: 1.35; }
-.kmeta { display: flex; align-items: center; gap: 10px; margin-top: 7px; font-size: var(--fs-6); color: var(--muted); }
+.ktitle {
+    display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+    -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    font-size: var(--fs-9); font-weight: 600; color: var(--title); line-height: 1.35;
+}
+.kmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; margin-top: 7px; font-size: var(--fs-6); color: var(--muted); }
 .kmeta.kfoot { justify-content: space-between; }
 .prio { font-weight: 600; }
 .prio::before { content: "● "; font-size: var(--fs-1); }

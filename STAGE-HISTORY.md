@@ -11125,3 +11125,43 @@ to-do in the results, or an archived card as a result; a table of results, which
 one page whose whole job is being readable on a phone; a third `@media`, or the narrower block anywhere but last,
 which would leave a 480px window keeping two fields to a row; or a new token or duration for any of it — the bar rides
 Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
+
+## Stage 135 — Kanban cards keep long titles and wrap their metadata (2026-11-16, no migration, Kotlin + CSS + test)
+
+**Audit.** Long task titles could overflow narrow cards, while card metadata and the footer were single flex rows.
+
+**What changed.** `.ktitle` now breaks long words, clamps the visible title to two lines, and exposes the full title through its native hover text. `.kmeta` wraps and can shrink inside the card. The CSS continues to use the destination's existing type token; card heights remain content-driven and no breakpoint was added.
+
+**Verified.** `.\gradlew.bat test` passed **782 tests / 55 classes / 0 failures**. `TaskBoardRenderTest` pins title wrapping and clamping, metadata wrapping, and the full-title attribute. `DesignTokensTest` and `MotionTest` also passed. No distribution was installed.
+
+**Never re-propose:** restoring fixed or equal card heights; applying word-breaking to dense tables or sheets; or adding a media query for this card behavior.
+
+## Stage 136 — To-do ticks update their own list in place (2026-11-16, no migration, Kotlin + test)
+
+**Audit.** List and item checkboxes submitted automatically, but each tick still navigated away and reloaded the page.
+
+**What changed.** Each list now has a stable block id. Its list-done and item-done forms target that block through the existing `app.js` fetch-and-swap behavior, so only the affected list is refreshed. Checkbox ids let the shared swap helper return focus after replacement. A failed fetch still falls back to the existing full request.
+
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins the list target, form actions, autosubmit markers and focus-restoration ids. No distribution was installed.
+
+**Never re-propose:** reloading the To-do page for a single list or item tick when the existing live-block request can update that list; a failed fetch retains the full-request fallback.
+
+## Stage 137 — Mark-all-read refreshes the notification bell in place (2026-11-16, no migration, Kotlin + test)
+
+**Audit.** The bell already handled opening, closing, Escape and outside-click, but “Mark all read” redirected to the page and reloaded the full view.
+
+**What changed.** The form now targets the existing `#notif` block. `app.js` follows the route's redirect and swaps the updated bell and inbox into the page; the existing `back` field is preserved, and delegated listeners keep the refreshed bell interactive.
+
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `NotificationBellRenderTest`, which pins the live target. No distribution was installed.
+
+**Never re-propose:** reloading the full page solely to refresh the bell after “Mark all read”; the existing block response can update it while retaining the originating page.
+
+## Stage 138 — To-do deletion asks before removing data (2026-11-16, no migration, Kotlin + test)
+
+**Audit.** To-do lists and their tasks are hard-deleted with no restore path; their delete controls had no confirmation.
+
+**What changed.** List deletion asks for confirmation naming the list and its tasks; item deletion names the task. Both use the shared `data-confirm` listener in `app.js`, with the existing POST as the confirmed action.
+
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins both prompts. No distribution was installed.
+
+**Never re-propose:** presenting delete as reversible or offering undo for To-do data while deletion is a hard delete with no restore capability.

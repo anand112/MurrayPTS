@@ -2084,4 +2084,26 @@ class TaskBoardRenderTest {
             "Delete task is not beside the note box",
         )
     }
+
+    @Test
+    fun `long card titles and metadata stay within narrow cards`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        val title = css.substringAfter(".ktitle {").substringBefore("}")
+        listOf(
+            "min-width: 0",
+            "overflow-wrap: anywhere",
+            "-webkit-line-clamp: 2",
+            "overflow: hidden",
+        ).forEach { assertTrue(title.contains(it), "card title is missing $it") }
+
+        val meta = css.substringAfter(".kmeta {").substringBefore("}")
+        assertTrue(meta.contains("flex-wrap: wrap"), "card metadata cannot wrap")
+        assertTrue(meta.contains("min-width: 0"), "card metadata can force its column wider")
+
+        val html = render { taskKanban(TaskService.assigned(), manager, canManage = true, BACK_ASSIGNED) }
+        assertTrue(
+            html.contains("<div class=\"ktitle\" title=\"Spread base course\">Spread base course</div>"),
+            "the full title is not available on hover",
+        )
+    }
 }

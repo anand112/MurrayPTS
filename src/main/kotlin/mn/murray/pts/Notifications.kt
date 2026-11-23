@@ -60,6 +60,7 @@ fun DIV.notificationBell(session: UserSession, section: String) {
                 span("notif-head-title") { +"Notifications" }
                 if (unread > 0) {
                     form(action = "/app/notifications/read-all", method = FormMethod.post) {
+                        attributes["data-live-target"] = "#notif"
                         input(type = InputType.hidden, name = "back") { value = back }
                         button(type = ButtonType.submit, classes = "submit btn-sm") {
                             +"Mark all read"
