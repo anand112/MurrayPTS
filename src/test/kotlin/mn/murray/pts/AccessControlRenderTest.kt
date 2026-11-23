@@ -263,7 +263,7 @@ class AccessControlRenderTest {
 
         assertEquals(rows, roleNames(table), "the table is not the catalogue in the catalogue's own order")
         assertTrue(
-            table.contains("<h3 class=\"set-section\">Roles &amp; permissions</h3>"),
+            table.contains("<h2 class=\"set-section\">Roles &amp; permissions</h2>"),
             "the panel does not carry the picture's heading",
         )
         assertTrue(table.contains("<th>Role</th>"), "the first column lost its heading")

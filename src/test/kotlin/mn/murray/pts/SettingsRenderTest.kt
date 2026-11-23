@@ -395,9 +395,9 @@ class SettingsRenderTest {
         // sections. A manager's page carries five: Team and Your account, plus the three settings *of the
         // app* that only management sees (Project types, Email notifications, Bucket defaults). The viewer's
         // page keeps the first two and nothing else — the password box was the third until Stage 99.
-        assertTrue(html.contains("<h3 class=\"set-section\">Team</h3>"))
+        assertTrue(html.contains("<h2 class=\"set-section\">Team</h2>"))
         assertEquals(5, occurrences(html, "class=\"set-section\""), "the page gained or lost a section")
-        assertTrue(html.indexOf(">Team</h3>") < html.indexOf(">Your account</h3>"), "Team is not the page's first section")
+        assertTrue(html.indexOf(">Team</h2>") < html.indexOf(">Your account</h2>"), "Team is not the page's first section")
         assertEquals(1, occurrences(html, "<table class=\"grid team-sheet\">"), "the roster printed a second table")
         columns.forEach { (klass, text) ->
             assertEquals(1, occurrences(html, "<th class=\"$klass\""), "$klass printed twice")
@@ -1071,7 +1071,7 @@ class SettingsRenderTest {
         // panels — the password form lives inside the account card rather than between them (Stage 123).
         assertTrue(html.indexOf("id=\"team-board\"") < html.indexOf(">Your account<"), "the sheet is not the first section")
         assertTrue(html.indexOf(">Your account<") < html.indexOf(">Project types<"), "the app panels jumped above the account card")
-        assertTrue(html.contains("<h3 class=\"set-section\">Your account</h3>"))
+        assertTrue(html.contains("<h2 class=\"set-section\">Your account</h2>"))
         assertEquals(manager, setRow(html, "Employee number").substringAfter(">").substringBefore("<"))
         assertEquals("Munkhtsetseg Otchontoor", setRow(html, "Display name").substringAfter(">").substringBefore("<"))
         assertEquals("Project Manager", setRow(html, "Position").substringAfter(">").substringBefore("<"))

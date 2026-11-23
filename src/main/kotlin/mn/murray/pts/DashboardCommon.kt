@@ -258,6 +258,7 @@ fun HTML.appPage(
                 }
                 navCloseButton()
                 nav {
+                    attributes["aria-label"] = "Main"
                     navItemsFor(session.employeeNumber).forEach { item ->
                         a(classes = if (item.id == section) "nav-item active" else "nav-item") {
                             href = item.path
@@ -284,7 +285,10 @@ fun HTML.appPage(
                                 span("code") { +project.code }
                                 a(href = "/app/projects/${project.id}") { +project.name }
                                 form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
-                                    button(type = ButtonType.submit, classes = "pin-btn on") { +"×" }
+                                    button(type = ButtonType.submit, classes = "pin-btn on") {
+                                        attributes["aria-label"] = "Unpin ${project.name}"
+                                        +"×"
+                                    }
                                 }
                             }
                         }

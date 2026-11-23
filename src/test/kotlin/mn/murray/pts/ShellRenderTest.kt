@@ -214,7 +214,7 @@ class ShellRenderTest {
         // Its place in the drawer's own order, not just its presence: the logo link before it, the nav after it.
         val logo = aside.indexOf("mms-logo.png")
         val close = aside.indexOf("id=\"navClose\"")
-        val nav = aside.indexOf("<nav>")
+        val nav = aside.indexOf("<nav aria-label=\"Main\">")
         assertTrue(logo in 0 until close, "the close button came before the logo, so it is what a reader is focused on")
         assertTrue(close < nav, "the close button left the top of the drawer and sits among the links")
         // And it is the drawer's control, not a second hamburger: the page head still carries exactly one button.

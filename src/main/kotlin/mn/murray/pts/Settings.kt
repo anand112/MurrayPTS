@@ -18,6 +18,7 @@ import kotlinx.html.col
 import kotlinx.html.colGroup
 import kotlinx.html.div
 import kotlinx.html.form
+import kotlinx.html.h2
 import kotlinx.html.h3
 import kotlinx.html.id
 import kotlinx.html.input
@@ -177,7 +178,7 @@ fun DIV.settingsContent(
     // and a reader without the people chip sees only the account card below. The write routes refuse a
     // non-manager again through mayAdd/mayEdit; this only stops printing it.
     if (canManage) {
-        h3("set-section") { +"Team" }
+        h2("set-section") { +"Team" }
         flashBanner(note)
         if (form.mayAdd) addEmployeeCard(filter)
         teamToolbar(filter, sheet, bucketDefaultsType)
@@ -540,7 +541,7 @@ private fun DIV.teamEmpty(filter: EmployeeFilter) {
  */
 private fun DIV.accountCard(session: UserSession, status: PasswordStatus? = null) {
     val user = DemoData.userFor(session.employeeNumber)
-    h3("set-section") { +"Your account" }
+    h2("set-section") { +"Your account" }
     div("card-panel") {
         div("set-row") {
             span("set-key") { +"Employee number" }
@@ -635,7 +636,7 @@ private fun DIV.passwordForm(status: PasswordStatus?) {
  * above it never moves. A refusal comes back as the card's own flash line, beside the reason.
  */
 private fun DIV.projectTypesPanel(note: PasswordStatus?, detail: String?, beingEdited: String) {
-    h3("set-section") { +"Project types" }
+    h2("set-section") { +"Project types" }
     div("card-panel") {
         id = "projectTypes"
         p("panel-caption") {
@@ -797,7 +798,7 @@ private fun DIV.emailPanel(
     val mode = DueDateAlertService.currentMode()
     val address = DueDateAlertService.emailFor(empNo)
     val sending = MailSwitch.enabled()
-    h3("set-section") { +"Email notifications" }
+    h2("set-section") { +"Email notifications" }
     div("card-panel") {
         id = "emailBoard"
         p("panel-caption") {
@@ -913,7 +914,7 @@ private fun DIV.bucketDefaultsPanel(
     filter: EmployeeFilter = EmployeeFilter(),
 ) {
     val entries = BucketDefaultsService.bucketsOf(type)
-    h3("set-section") { +"Project bucket settings" }
+    h2("set-section") { +"Project bucket settings" }
     div("card-panel") {
         id = "bucketDefaults"
         p("panel-caption") {
