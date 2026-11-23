@@ -1282,6 +1282,7 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 /* A note between two forms in one popup (the column popup's "Deleting this column…") clears the row above it;
    its pull-up margin is meant for sitting under a heading, not under a row of buttons. */
 form + .modal-scope { margin-top: var(--sp-4); }
+.modal-content > h3 + .modal-scope { margin-top: 0; }
 
 /* The page behind an open popup holds still; dialog.js sets the class for as long as one is up. */
 body.pts-modal-open { overflow: hidden; }
@@ -1908,7 +1909,6 @@ html[data-theme="dark"] .nav-close .glyph-filled { display: block; }
     animation-name: pts-sheet-in;
   }
   .modal.is-closing > .modal-content { animation-name: pts-sheet-out; }
-  .modal-content > h3 + .modal-scope { margin-top: 0; }
   .modal-actions .submit, .modal-actions .ghost-btn { min-height: 44px; }
     /* Both copies, in the same order as the 900px block: management's editable cells first, the read-only
        copy after them. One field to a row needs no gap arithmetic — the basis is the whole row either way. */
