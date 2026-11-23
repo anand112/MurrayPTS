@@ -11165,3 +11165,13 @@ Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
 **Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins both prompts. No distribution was installed.
 
 **Never re-propose:** presenting delete as reversible or offering undo for To-do data while deletion is a hard delete with no restore capability.
+
+## Stage 139 — Dashboard landing page highlights urgent work (2026-11-17, no migration, Kotlin + CSS + tests)
+
+**Audit.** The app had no dashboard landing page; `/app` redirected to Projects, so there was no at-a-glance view of overdue work, tasks due this week, or project progress.
+
+**What changed.** `/app` now renders a dashboard with personal overdue and due-this-week task cards, positive empty states, links into the matching filtered Assigned tasks view, and project progress links/bars using the progress values already shown elsewhere. The sidebar Dashboard and mobile Home links now lead to `/app`. Due filters persist through the Assigned page's pickers, task openers/actions and bucket popup. The layout uses existing tokens and fluid grids without adding a breakpoint or motion rule. `ARCHITECTURE.md` documents the landing route and mobile destination.
+
+**Verified.** The full `.\gradlew.bat test` suite passed **786 tests / 56 classes / 0 failures**. `DashboardRenderTest` covers urgency, personal scope, empty states, progress links and responsive styling; Assigned-task and shell tests cover filter persistence and navigation. `git diff --check` passed. No distribution was installed, and no signed-in manual browser pass was performed.
+
+**Never re-propose:** redirecting `/app` to Projects instead of a Dashboard; losing overdue or due-this-week filters when opening or updating a task from the filtered Assigned board; or adding a third media query, a new motion rule, or new design tokens for the dashboard.

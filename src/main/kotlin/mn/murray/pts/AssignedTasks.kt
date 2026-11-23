@@ -78,6 +78,7 @@ fun DIV.assignedTasksContent(
     state: TaskForm? = null,
     otherBucketId: Int = 0,
     projectFilter: Int = 0,
+    dueFilter: TaskDueFilter? = null,
     canAddBuckets: Boolean = false,
     bucket: BucketForm = BucketForm(),
 ) {
@@ -85,7 +86,10 @@ fun DIV.assignedTasksContent(
     // create, the full editor, the drag — not who appears). This is the one place the personal-scoping is applied;
     // `assignedFor` and `assignedOtherFor` still answer management's wider read for the Calendar, the project
     // boards and the Team drill-down that need it.
-    val allCards = TaskService.assignedFor(session.employeeNumber, canManage = false)
+    val allCards = tasksForDueFilter(
+        TaskService.assignedFor(session.employeeNumber, canManage = false),
+        dueFilter,
+    )
     // The projects board is cut by **project** as well as by status since **Stage 107**: the reader picks one of
     // the board's projects (`S-01 · Haul road widening`, …) and sees the cards of their own filed under it, still
     // standing in the five status columns they are used to. The picker only narrows; it never moves a card.
@@ -94,7 +98,7 @@ fun DIV.assignedTasksContent(
     // rather than an empty board under a picker with nothing selected in it.
     val chosenProject = projects.firstOrNull { it.id == projectFilter }
     val cards = chosenProject?.let { chosen -> allCards.filter { it.projectId == chosen.id } } ?: allCards
-    val allOther = TaskService.assignedOtherFor(session.employeeNumber)
+    val allOther = tasksForDueFilter(TaskService.assignedOtherFor(session.employeeNumber), dueFilter)
     // The Other-task half is cut by **bucket** as well as by status since **Stage 88**: the reader picks one of
     // the board's own columns (`Finance`, `HR`, …) and sees the cards filed in it, still standing in the five
     // status columns they are used to. The picker only narrows; it never moves a card between columns.
@@ -107,7 +111,12 @@ fun DIV.assignedTasksContent(
     // reader chose are still the page they return to: opening a card, saving it, ticking a step, writing a note,
     // deleting or answering a refusal all land on the same narrowed board (Stage 88, and Stage 107 for the
     // projects board above).
-    val back = backForFilters(chosenBucket?.id ?: 0, chosenProject?.id ?: 0)
+    val back = backForFilters(chosenBucket?.id ?: 0, chosenProject?.id ?: 0, dueFilter)
+    val assignedFilters = listOfNotNull(
+        chosenBucket?.id?.takeIf { it > 0 }?.let { "bucket" to "$it" },
+        chosenProject?.id?.takeIf { it > 0 }?.let { "project" to "$it" },
+        dueFilter?.let { "due" to it.key },
+    )
     // Stated on the page for the same reason the sidebar count is scoped: two cards out of nine,
     // with nothing saying why, reads as work that went missing. Since Stage 53 it is true of every reader, and
     // since Stage 107 the line also names the project when the board is narrowed, so five empty columns are not
@@ -116,11 +125,12 @@ fun DIV.assignedTasksContent(
         +(if (chosenProject != null)
             "Only the cards assigned to you on ${projectLabel(chosenProject)} are on this board."
         else "Only the cards assigned to you are on this board.")
+        dueFilter?.let { +" Showing: ${it.title}." }
     }
     // Drawn whenever there is a project to choose, whether or not this reader has a card on one yet: it is the
     // board's only filter, and a reader with nothing would otherwise have no way to ask "what is on me here".
     if (projects.isNotEmpty()) {
-        assignedProjectFilter(projects, chosenProject, chosenBucket)
+        assignedProjectFilter(projects, chosenProject, chosenBucket, dueFilter)
     }
     // The projects board has no one project to grant on, so writing the first *project* card here stays
     // management's — [mn.murray.pts.service.TaskService.mayAddTasks] takes a project for a reason. The Other-task
@@ -138,9 +148,9 @@ fun DIV.assignedTasksContent(
         canAdd = canManage,
         drawOpener = ownOther.isEmpty(),
         emptyOffer = if (canAddBuckets) {
-            { it.newBucketButton(chosenBucket, chosenProject) }
+            { it.newBucketButton(chosenBucket, chosenProject, dueFilter) }
         } else {
-            { it.newTaskButton() }
+            { it.newTaskButton(assignedFilters = assignedFilters) }
         },
         emptyHint = if (canAddBuckets) {
             "Write the first card from the page head, or name a bucket for work that is not on a project."
@@ -163,7 +173,7 @@ fun DIV.assignedTasksContent(
         // it so there is a way back to *All buckets*. The projects filter above rides along as a hidden field, so
         // choosing a bucket does not quietly widen the board over it.
         if (buckets.isNotEmpty()) {
-            otherBucketFilter(buckets, chosenBucket, chosenProject?.id ?: 0)
+            otherBucketFilter(buckets, chosenBucket, chosenProject?.id ?: 0, dueFilter)
         }
         if (ownOther.isEmpty()) {
             p("assigned-other-empty") {
@@ -184,7 +194,7 @@ fun DIV.assignedTasksContent(
         // management writes the same form with the roster and the status picker. The project filter rides along like
         // the bucket does, so a card written from a narrowed page answers on that same page.
         if (buckets.isNotEmpty()) {
-            otherAddTaskForm(buckets, chosenBucket, chosenProject?.id ?: 0)
+            otherAddTaskForm(buckets, chosenBucket, chosenProject?.id ?: 0, dueFilter)
         }
     }
     // The column popup the empty panel's `+ New bucket` opens (**Stage 124**): the Other tasks board's own add-a-bucket
@@ -196,6 +206,7 @@ fun DIV.assignedTasksContent(
         bucketModal(
             bucket, emptyList(), canManage = true, target = "#assignedOther", from = "assigned-tasks",
             assignedBucketId = chosenBucket?.id ?: 0, projectFilter = chosenProject?.id ?: 0,
+            dueFilter = dueFilter,
         )
     }
 
@@ -227,7 +238,12 @@ fun DIV.assignedTasksContent(
  * The select sits **inside** its label, the shape Stage 89 settled on for the Bucket picker: the pair is what
  * the field styling keys on, so a one-dropdown filter stays one small field rather than a page-wide toolbar.
  */
-private fun DIV.assignedProjectFilter(projects: List<Project>, chosen: Project?, chosenBucket: Bucket?) {
+private fun DIV.assignedProjectFilter(
+    projects: List<Project>,
+    chosen: Project?,
+    chosenBucket: Bucket?,
+    dueFilter: TaskDueFilter?,
+) {
     form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "board-toolbar assigned-project-filter") {
         label("board-key") {
             +"Project"
@@ -252,6 +268,7 @@ private fun DIV.assignedProjectFilter(projects: List<Project>, chosen: Project?,
         if (chosenBucket != null) {
             input(type = InputType.hidden, name = "bucket") { value = "${chosenBucket.id}" }
         }
+        dueFilter?.let { input(type = InputType.hidden, name = "due") { value = it.key } }
         button(type = ButtonType.submit, classes = "submit btn-sm") { +"Show" }
     }
 }
@@ -282,7 +299,12 @@ private fun projectLabel(project: Project): String =
  * pickers narrow two boards on one page, and pressing Show on one must not widen the other. Only a live choice
  * rides along, so the form's URL is the reader's view and nothing more.
  */
-private fun DIV.otherBucketFilter(buckets: List<Bucket>, chosen: Bucket?, chosenProjectId: Int) {
+private fun DIV.otherBucketFilter(
+    buckets: List<Bucket>,
+    chosen: Bucket?,
+    chosenProjectId: Int,
+    dueFilter: TaskDueFilter?,
+) {
     form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "board-toolbar other-bucket-filter") {
         label("board-key") {
             +"Bucket"
@@ -307,6 +329,7 @@ private fun DIV.otherBucketFilter(buckets: List<Bucket>, chosen: Bucket?, chosen
         if (chosenProjectId > 0) {
             input(type = InputType.hidden, name = "project") { value = "$chosenProjectId" }
         }
+        dueFilter?.let { input(type = InputType.hidden, name = "due") { value = it.key } }
         button(type = ButtonType.submit, classes = "submit btn-sm") { +"Show" }
     }
 }
@@ -326,7 +349,12 @@ private fun DIV.otherBucketFilter(buckets: List<Bucket>, chosen: Bucket?, chosen
  * is what brings the save back to the same narrowed board; [chosenProjectId] rides the same way so a save made
  * while the projects board above is narrowed answers on that same view (Stage 107).
  */
-private fun DIV.otherAddTaskForm(buckets: List<Bucket>, chosen: Bucket?, chosenProjectId: Int) {
+private fun DIV.otherAddTaskForm(
+    buckets: List<Bucket>,
+    chosen: Bucket?,
+    chosenProjectId: Int,
+    dueFilter: TaskDueFilter?,
+) {
     val aim = chosen ?: buckets.firstOrNull() ?: return
     form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "kcol-add") {
         attributes["data-live-target"] = "#taskModal"
@@ -334,6 +362,7 @@ private fun DIV.otherAddTaskForm(buckets: List<Bucket>, chosen: Bucket?, chosenP
         input(type = InputType.hidden, name = "column") { value = "${aim.id}" }
         if (chosen != null) input(type = InputType.hidden, name = "bucket") { value = "${chosen.id}" }
         if (chosenProjectId > 0) input(type = InputType.hidden, name = "project") { value = "$chosenProjectId" }
+        dueFilter?.let { input(type = InputType.hidden, name = "due") { value = it.key } }
         button(type = ButtonType.submit, classes = "kcol-add-btn") { +"+ Add task" }
     }
 }
@@ -354,12 +383,17 @@ private fun DIV.otherAddTaskForm(buckets: List<Bucket>, chosen: Bucket?, chosenP
  * the write for anybody else, so offering it would be a button a role cannot use. A reader who writes cards
  * without that right keeps the old `+ New task` offer in the panel instead.
  */
-private fun DIV.newBucketButton(chosenBucket: Bucket?, chosenProject: Project?) {
+private fun DIV.newBucketButton(
+    chosenBucket: Bucket?,
+    chosenProject: Project?,
+    dueFilter: TaskDueFilter?,
+) {
     form(action = "/app/assigned-tasks", method = FormMethod.get, classes = "opener-form") {
         attributes["data-live-target"] = "#bucketModal"
         input(type = InputType.hidden, name = "newbucket") { value = "1" }
         if (chosenBucket != null) input(type = InputType.hidden, name = "bucket") { value = "${chosenBucket.id}" }
         if (chosenProject != null) input(type = InputType.hidden, name = "project") { value = "${chosenProject.id}" }
+        dueFilter?.let { input(type = InputType.hidden, name = "due") { value = it.key } }
         button(type = ButtonType.submit, classes = "submit btn-sm new-bucket-btn") { +"+ New bucket" }
     }
 }

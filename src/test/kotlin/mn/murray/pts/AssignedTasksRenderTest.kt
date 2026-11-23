@@ -23,6 +23,7 @@ import java.io.File
 import kotlinx.html.DIV
 import kotlinx.html.div
 import kotlinx.html.stream.createHTML
+import java.time.LocalDate
 
 /**
  * What the Assigned tasks page renders: the reader's own projects board, then their own Other tasks under it.
@@ -71,15 +72,17 @@ class AssignedTasksRenderTest {
         projectId: Int = 0,
         canAddBuckets: Boolean = false,
         bucket: BucketForm = BucketForm(),
+        dueFilter: TaskDueFilter? = null,
     ): String = render {
         assignedTasksContent(
             if (canManage) manager else engineer,
             canManage,
             state,
-            bucketId,
-            projectId,
-            canAddBuckets,
-            bucket,
+            otherBucketId = bucketId,
+            projectFilter = projectId,
+            dueFilter = dueFilter,
+            canAddBuckets = canAddBuckets,
+            bucket = bucket,
         )
     }
 
@@ -89,11 +92,12 @@ class AssignedTasksRenderTest {
         assignee: String? = "EMP0002",
         status: String = "Not started",
         projectId: Int? = null,
+        due: String = "2026-11-12",
     ): Int = TaskRepository.insert(
         kind = "ASSIGNED",
         title = title,
         projectId = projectId,
-        due = "2026-11-12",
+        due = due,
         priority = "Medium",
         assigneeEmpNo = assignee,
         status = status,
@@ -717,5 +721,39 @@ class AssignedTasksRenderTest {
         assertEquals("assigned:0:5", backOf(made), "a posted project filter was dropped")
         val half = Parameters.build { append("back", "assigned::5") }
         assertEquals("assigned:0:5", backOf(half), "a half-written token was not normalised")
+    }
+
+    @Test
+    fun `the due filter keeps only open matching tasks and survives task actions`() {
+        val today = LocalDate.now()
+        val project = ProjectRepository.insert(
+            code = "S-01", name = "Haul road", status = "In progress", progress = 0,
+            managerEmpNo = "EMP0001", due = "", type = "Site projects",
+        )
+        val overdueId = assigned("Past deadline", projectId = project, due = today.minusDays(1).toString())
+        assigned("Due today", projectId = project, due = today.toString())
+        assigned("Already done", status = "Completed", projectId = project, due = today.minusDays(2).toString())
+        BucketRepository.insert("Site works")
+
+        val html = page(canManage = false, dueFilter = TaskDueFilter.OVERDUE)
+
+        assertTrue(html.contains("Past deadline"), "the overdue task was filtered out")
+        assertFalse(html.contains("Due today"), "a task due today was called overdue")
+        assertFalse(html.contains("Already done"), "a completed task was shown as urgent")
+        assertTrue(html.contains("Showing: Overdue."), "the filtered board does not identify its due window")
+        assertTrue(html.contains("value=\"assigned:0:0:overdue\""), "the editor lost its due filter")
+        assertTrue(
+            html.contains("action=\"/app/assigned-tasks?due=overdue\""),
+            "opening the task did not preserve the overdue view",
+        )
+        val bucketFilter = formWithClass(html, "other-bucket-filter")
+        assertTrue(bucketFilter.contains("name=\"due\""), "changing buckets cleared the due filter")
+        assertEquals(
+            "/app/assigned-tasks?edit=$overdueId&bucket=3&project=7&due=overdue",
+            taskRedirect(backForFilters(3, 7, TaskDueFilter.OVERDUE), 0, edit = overdueId),
+            "task actions did not restore all three filters",
+        )
+        val posted = Parameters.build { append("back", "assigned:0:0:overdue") }
+        assertEquals("assigned:0:0:overdue", backOf(posted), "a posted due filter was dropped")
     }
 }

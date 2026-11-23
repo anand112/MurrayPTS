@@ -199,7 +199,7 @@ it), `Authorization`, `SessionRepository`, `LoginRateLimiter`, `Csrf`, `Security
 Every item below must still work after Stage 9:
 
 - [x] `PTS_SID` cookie name
-- [x] Login at `/`, `POST /login`, `GET /logout`, `/app` → `/app/projects`
+- [x] Login at `/`, `POST /login`, `GET /logout`, `/app` → Dashboard, `/app/projects` → Projects
 - [x] All 35 route paths exactly as today
 - [x] `POST /app/tasks/status` form-encoded `id`+`status`, Referrer redirect
 - [x] `POST /app/todo/lists/reorder` with `order=csv`
@@ -528,7 +528,7 @@ that they win.
 ### A phone gets its own row of tabs, a search page, a board it can swipe, and a KPI row that folds (Stage 134)
 
 The shell now has a second navigation, printed on every authenticated page and shown only below 900px:
-`nav#mobileTabs`, a fixed bar at the foot of the page — four links (*Home* → `/app/projects`, *My tasks* →
+`nav#mobileTabs`, a fixed bar at the foot of the page — four links (*Home* → `/app`, the Dashboard; *My tasks* →
 `/app/assigned-tasks`, *To-do* → `/app/todo`, *Search* → `/app/search`) and one button (*Menu*). The links come from
 `MOBILE_TABS` through `mobileTabsFor`, which filters them by the same `NAV_PERMISSIONS` the sidebar reads — a no-op
 for today's four, kept for the fifth tab anybody adds later. The active tab is named by the page's own `section`,

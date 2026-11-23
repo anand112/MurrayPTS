@@ -577,7 +577,9 @@ class ShellRenderTest {
      */
     @Test
     fun `every page prints the phone's row of five tabs, with the page's own tab lit`() {
-        val html = page()
+        val html = createHTML().html {
+            appPage(UserSession(reader), "dashboard", "Dashboard") { }
+        }
         val bar = Regex("<nav[^>]*id=\"mobileTabs\"[^>]*>").find(html)?.value
             ?: throw AssertionError("the shell no longer prints the bottom bar at all")
         assertTrue(bar.contains("class=\"mtabbar\""), "the bar is not the element the breakpoint shows: $bar")
@@ -588,7 +590,7 @@ class ShellRenderTest {
         val links = Regex("<a([^>]*)>").findAll(tabs).map { it.groupValues[1] }.toList()
         assertEquals(4, links.size, "the bar does not print the four destinations: $links")
         assertEquals(
-            listOf("/app/projects", "/app/assigned-tasks", "/app/todo", "/app/search"),
+            listOf("/app", "/app/assigned-tasks", "/app/todo", "/app/search"),
             links.map { Regex("href=\"([^\"]+)\"").find(it)?.groupValues?.get(1) },
             "the bar's four tabs are not the checklist's Home, My tasks, To-do and Search, in that order",
         )
@@ -598,7 +600,7 @@ class ShellRenderTest {
             "the bar's captions are not the words the checklist asked for, in the order it asked for them",
         )
         assertEquals(5, Regex("<svg").findAll(tabs).count(), "a tab is missing its glyph, or grew a second one")
-        // This page's `section` is `projects`, so the first tab is the one wearing the active class — and only it.
+        // This page's `section` is `dashboard`, so Home is the one tab wearing the active class — and only it.
         assertTrue(links[0].contains("class=\"mtab active\""), "the page's own tab is not lit up")
         assertTrue(links[0].contains("aria-current=\"page\""), "a lit tab that does not say so is lit for eyes only")
         assertEquals(1, Regex("mtab active").findAll(tabs).count(), "more than one tab claims to be the page")

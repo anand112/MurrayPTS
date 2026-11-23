@@ -226,13 +226,13 @@ class SidebarTaskCountTest {
             assertTrue(it in boards, "a Project Manager lost the $it link, which is theirs")
         }
         assertFalse("access-control" in boards, "a Project Manager was offered the access-control link with no chip to earn it")
-        assertEquals(9, boards.size, "a Project Manager's sidebar is not its role's links")
+        assertEquals(10, boards.size, "a Project Manager's sidebar is not its role's links")
 
         val people = navItemsFor("EMP0004").map { it.id }
         NAV_PERMISSIONS.keys.forEach {
             assertTrue(it in people, "an Administrator lost the $it link, and its role holds every chip")
         }
-        assertEquals(10, people.size, "an Administrator's sidebar is not the complete list")
+        assertEquals(11, people.size, "an Administrator's sidebar is not the complete list")
 
         val employee = navItemsFor("EMP0002").map { it.id }
         NAV_PERMISSIONS.keys.forEach { assertFalse(it in employee, "an Employee was offered the $it link") }
@@ -241,9 +241,9 @@ class SidebarTaskCountTest {
         assertEquals(navItemsFor("EMP0003").map { it.id }, employee, "a role-less account is not the default role")
         // Everything else is everybody's page — Settings included since Stage 123 — and the complete list the
         // bell resolves through still has all ten.
-        val shared = setOf("projects", "assigned-tasks", "calendar", "team", "lessons", "todo", "settings")
+        val shared = setOf("dashboard", "projects", "assigned-tasks", "calendar", "team", "lessons", "todo", "settings")
         shared.forEach { assertTrue(it in employee, "an Employee lost the $it link, which is theirs") }
-        assertEquals(7, employee.size, "an Employee's sidebar dropped a link that is everybody's")
-        assertEquals(10, navItems("EMP0002").size, "the resolver's list was trimmed, not the render")
+        assertEquals(8, employee.size, "an Employee's sidebar dropped a link that is everybody's")
+        assertEquals(11, navItems("EMP0002").size, "the resolver's list was trimmed, not the render")
     }
 }

@@ -97,6 +97,7 @@ private fun visibleTaskCount(employeeNumber: String): Int =
         TaskService.assignedOtherFor(employeeNumber).size
 
 fun navItems(employeeNumber: String): List<NavItem> = listOf(
+    NavItem("dashboard", "/app", "Dashboard", ICONS["home"]!!, null),
     NavItem("projects", "/app/projects", "Projects", ICONS["folder"]!!, DemoData.projects.size),
     NavItem("assigned-tasks", "/app/assigned-tasks", "Assigned tasks", ICONS["check"]!!, visibleTaskCount(employeeNumber)),
     NavItem("calendar", "/app/calendar", "Calendar", ICONS["calendar"]!!, null),
@@ -383,15 +384,15 @@ data class MobileTab(val id: String, val path: String, val label: String, val ic
  * The phone's bottom bar (Stage 134), in the order the design checklist names them: *Home, My tasks, To-do,
  * Search, Menu*. Four are links and the fifth is [mobileTabBar]'s button, so the list holds only the four.
  *
- * Three of the four are the sidebar's own rows under the names a thumb uses: *Home* is `/app/projects`, which
- * is where `/app` has always redirected, so the bar does not invent a landing page; *My tasks* is the sidebar's
- * *Assigned tasks*, because on a phone the word "assigned" is the system's and the word "my" is the reader's;
- * and *To-do* is the same page under the same name. *Search* is the one destination the sidebar does not have —
- * Stage 134's new `/app/search`, a page of its own rather than a box in the head, because a bar tab has to land
- * somewhere and a popup opened from a tab has nothing to be the back button's answer to.
+ * Three of the four are the sidebar's own rows under the names a thumb uses: *Home* is the Dashboard at `/app`,
+ * now the authenticated landing page; *My tasks* is the sidebar's *Assigned tasks*, because on a phone the word
+ * "assigned" is the system's and the word "my" is the reader's; and *To-do* is the same page under the same name.
+ * *Search* is the one destination the sidebar does not have — Stage 134's `/app/search`, a page of its own rather
+ * than a box in the head, because a bar tab has to land somewhere and a popup opened from a tab has nothing to be
+ * the back button's answer to.
  */
 val MOBILE_TABS: List<MobileTab> = listOf(
-    MobileTab("projects", "/app/projects", "Home", ICONS["home"]!!),
+    MobileTab("dashboard", "/app", "Home", ICONS["home"]!!),
     MobileTab("assigned-tasks", "/app/assigned-tasks", "My tasks", ICONS["check"]!!),
     MobileTab("todo", "/app/todo", "To-do", ICONS["list"]!!),
     MobileTab("search", "/app/search", "Search", ICONS["search"]!!),
