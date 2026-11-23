@@ -264,7 +264,10 @@ data class TaskForm(
  * remember what a blank form looks like — the server renders it, with this page's project already
  * selected when the opener sits on a project page.
  */
-fun DIV.newTaskButton(fixedProject: Project? = null) {
+fun DIV.newTaskButton(
+    fixedProject: Project? = null,
+    assignedFilters: List<Pair<String, String>> = emptyList(),
+) {
     form(
         action = fixedProject?.let { "/app/projects/${it.id}" } ?: "/app/assigned-tasks",
         method = FormMethod.get,
@@ -272,6 +275,9 @@ fun DIV.newTaskButton(fixedProject: Project? = null) {
     ) {
         attributes["data-live-target"] = "#taskModal"
         input(type = InputType.hidden, name = "new") { value = "1" }
+        assignedFilters.forEach { (filterName, filterValue) ->
+            input(type = InputType.hidden, name = filterName) { value = filterValue }
+        }
         button(type = ButtonType.submit, classes = "submit btn-sm new-task-btn") { +"+ New task" }
     }
 }
@@ -331,6 +337,7 @@ fun taskRedirect(back: String, projectId: Int, edit: Int = 0): String {
     val assigned = back == BACK_ASSIGNED || back.startsWith("$BACK_ASSIGNED:")
     val bucket = if (assigned) bucketOfBack(back) else 0
     val project = if (assigned) projectOfBack(back) else 0
+    val due = if (assigned) dueOfBack(back) else null
     // Since Stage 93 the shared backlog's own Bucket picker rides the same token in `show` — the key its filter
     // form posts, because `?bucket=` on that URL already names a column's popup.
     val picked = bucketOfOtherBack(back)
@@ -338,6 +345,7 @@ fun taskRedirect(back: String, projectId: Int, edit: Int = 0): String {
         if (edit > 0) "edit=$edit" else null,
         if (bucket > 0) "bucket=$bucket" else null,
         if (project > 0) "project=$project" else null,
+        due?.let { "due=${it.key}" },
         if (picked > 0) "show=$picked" else null,
     ).joinToString("&")
     return if (query.isEmpty()) page else "$page?$query"
@@ -373,10 +381,17 @@ fun backForBucket(bucketId: Int): String = backForFilters(bucketId, 0)
  * The ids are written from the board's own data, never from a post, so a hand-built token can only name a
  * filter a URL could name anyway.
  */
-fun backForFilters(bucketId: Int, projectId: Int): String = when {
-    bucketId <= 0 && projectId <= 0 -> BACK_ASSIGNED
-    projectId <= 0 -> "$BACK_ASSIGNED:$bucketId"
-    else -> "$BACK_ASSIGNED:${bucketId.coerceAtLeast(0)}:$projectId"
+fun backForFilters(
+    bucketId: Int,
+    projectId: Int,
+    dueFilter: TaskDueFilter? = null,
+): String {
+    val filters = when {
+        bucketId <= 0 && projectId <= 0 -> if (dueFilter == null) BACK_ASSIGNED else "$BACK_ASSIGNED:0:0"
+        projectId <= 0 -> "$BACK_ASSIGNED:$bucketId${if (dueFilter == null) "" else ":0"}"
+        else -> "$BACK_ASSIGNED:${bucketId.coerceAtLeast(0)}:$projectId"
+    }
+    return dueFilter?.let { "$filters:${it.key}" } ?: filters
 }
 
 /** The ids inside an [backForFilters] token, in order; empty for `assigned` and for anything unrecognised. */
@@ -391,6 +406,9 @@ fun bucketOfBack(back: String): Int = assignedParts(back).getOrNull(0)?.trim()?.
  * and for anything unrecognised — a bucket-only `assigned:3` is the whole projects board, never a guess.
  */
 fun projectOfBack(back: String): Int = assignedParts(back).getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+
+/** Which due window an Assigned-page [backForFilters] token names, if any. */
+fun dueOfBack(back: String): TaskDueFilter? = assignedParts(back).getOrNull(2)?.let { TaskDueFilter.from(it) }
 
 /**
  * The `back` token for the **shared** Other-tasks board, carrying the bucket its own picker is showing
@@ -545,7 +563,7 @@ fun backOf(form: Parameters): String {
         raw == BACK_PROJECT -> BACK_PROJECT
         raw == BACK_OTHER -> BACK_OTHER
         raw.startsWith("$BACK_OTHER:") -> backForOtherBucket(bucketOfOtherBack(raw))
-        else -> backForFilters(bucketOfBack(raw), projectOfBack(raw))
+        else -> backForFilters(bucketOfBack(raw), projectOfBack(raw), dueOfBack(raw))
     }
 }
 

@@ -435,6 +435,7 @@ internal fun DIV.bucketModal(
     from: String = "",
     assignedBucketId: Int = 0,
     projectFilter: Int = 0,
+    dueFilter: TaskDueFilter? = null,
 ) {
     val managed = columns.firstOrNull { it.first.id == state.bucketId }
     div("modal") {
@@ -446,7 +447,7 @@ internal fun DIV.bucketModal(
                 +"×"
             }
             if (canManage && state.isManage && managed != null) bucketManageBody(managed, state, columns, showBucketId)
-            else bucketAddBody(state, showBucketId, target, from, assignedBucketId, projectFilter)
+            else bucketAddBody(state, showBucketId, target, from, assignedBucketId, projectFilter, dueFilter)
         }
     }
     script(src = "/static/js/bucket-modal.js") {}
@@ -460,6 +461,7 @@ private fun DIV.bucketAddBody(
     from: String = "",
     assignedBucketId: Int = 0,
     projectFilter: Int = 0,
+    dueFilter: TaskDueFilter? = null,
 ) {
     h3 { +"Add a bucket" }
     p("modal-scope") {
@@ -494,6 +496,7 @@ private fun DIV.bucketAddBody(
         if (from.isNotEmpty()) input(type = InputType.hidden, name = "back") { value = from }
         if (assignedBucketId > 0) input(type = InputType.hidden, name = "bucket") { value = "$assignedBucketId" }
         if (projectFilter > 0) input(type = InputType.hidden, name = "project") { value = "$projectFilter" }
+        dueFilter?.let { input(type = InputType.hidden, name = "due") { value = it.key } }
         div("modal-actions") {
             button(type = ButtonType.submit, classes = "submit") { +"Add bucket" }
             button(type = ButtonType.button, classes = "ghost-btn") {

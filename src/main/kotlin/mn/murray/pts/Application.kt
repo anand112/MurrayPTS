@@ -403,15 +403,25 @@ private suspend fun ApplicationCall.respondAssignedTasks(
     bucket: BucketForm = BucketForm(),
     otherBucketId: Int = 0,
     projectFilter: Int = 0,
+    dueFilter: TaskDueFilter? = null,
     canAddBuckets: Boolean = false,
 ) = respondHtml {
-    appPage(session, "assigned-tasks", "Assigned tasks", actions = { if (canWriteTasks) newTaskButton() }) {
+    val assignedFilters = listOfNotNull(
+        otherBucketId.takeIf { it > 0 }?.let { "bucket" to "$it" },
+        projectFilter.takeIf { it > 0 }?.let { "project" to "$it" },
+        dueFilter?.let { "due" to it.key },
+    )
+    appPage(
+        session, "assigned-tasks", "Assigned tasks",
+        actions = { if (canWriteTasks) newTaskButton(assignedFilters = assignedFilters) },
+    ) {
         assignedTasksContent(
             session,
             canWriteTasks,
             state,
             otherBucketId = otherBucketId,
             projectFilter = projectFilter,
+            dueFilter = dueFilter,
             canAddBuckets = canAddBuckets,
             bucket = bucket,
         )
@@ -523,7 +533,14 @@ fun main() {
                 )
                 call.respondRedirect("/")
             }
-            get("/app") { call.respondRedirect("/app/projects") }
+            get("/app") {
+                val session = call.requireSession() ?: return@get
+                call.respondHtml {
+                    appPage(session, "dashboard", "Dashboard") {
+                        dashboardContent(it)
+                    }
+                }
+            }
 
             get("/app/projects") {
                 val session = call.requireSession() ?: return@get
@@ -632,6 +649,7 @@ fun main() {
                 // which is the same answer a deleted row gets in [assignedTasksContent].
                 val bucket = call.request.queryParameters["bucket"]?.trim()?.toIntOrNull() ?: 0
                 val project = call.request.queryParameters["project"]?.trim()?.toIntOrNull() ?: 0
+                val due = TaskDueFilter.from(call.request.queryParameters["due"])
                 // **Stage 124:** the empty projects board's `+ New bucket` is a GET opener onto this page. A reader
                 // who may name a column asks for that popup open; anybody else's `?newbucket=1` is an ordinary page,
                 // exactly as a hand-typed `?new=1` is when the reader may not write a card.
@@ -643,7 +661,7 @@ fun main() {
                 }
                 call.respondAssignedTasks(
                     session, canWriteTasks, state, bucketState,
-                    otherBucketId = bucket, projectFilter = project, canAddBuckets = canBuckets,
+                    otherBucketId = bucket, projectFilter = project, dueFilter = due, canAddBuckets = canBuckets,
                 )
             }
             /**
@@ -1598,6 +1616,7 @@ fun main() {
                     // The same page also carries the column popup since Stage 124, so a refusal keeps the panel's
                     // `+ New bucket` offer — one renderer, so a page arriving from a save is the page arriving
                     // from a read.
+                    dueFilter = dueOfBack(back),
                     canAddBuckets = session.may(Permission.MANAGE_BUCKETS),
                 )
             }
@@ -2009,13 +2028,18 @@ fun main() {
                 val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
                 val otherBucketId = form["bucket"]?.trim()?.toIntOrNull() ?: 0
                 val projectFilter = form["project"]?.trim()?.toIntOrNull() ?: 0
+                val dueFilter = TaskDueFilter.from(form["due"])
+                val assignedBack = taskRedirect(
+                    backForFilters(otherBucketId, projectFilter, dueFilter),
+                    projectId = 0,
+                )
                 // Stage 51: naming a backlog column is an Other-tasks function, and the board is now management's,
                 // so the route turns a Viewer's add back to the page (which they cannot open) rather than growing
                 // a column. The rename/delete routes below have always checked the role; this closes the last
                 // write Stage 48 had left open to every signed-in account.
                 if (!canBuckets) {
                     return@post call.respondRedirect(
-                        if (fromAssigned) "/app/assigned-tasks" else "/app/other-tasks",
+                        if (fromAssigned) assignedBack else "/app/other-tasks",
                     )
                 }
                 val name = form["name"]?.trim().orEmpty()
@@ -2034,7 +2058,8 @@ fun main() {
                         return@post call.respondAssignedTasks(
                             session, canWriteTasks,
                             bucket = BucketForm(typed = name, nameError = bucketMessage(error)),
-                            otherBucketId = otherBucketId, projectFilter = projectFilter, canAddBuckets = canBuckets,
+                            otherBucketId = otherBucketId, projectFilter = projectFilter,
+                            dueFilter = dueFilter, canAddBuckets = canBuckets,
                         )
                     }
                     return@post call.respondOtherTasks(
@@ -2057,7 +2082,8 @@ fun main() {
                 if (fromAssigned) {
                     return@post call.respondAssignedTasks(
                         session, canWriteTasks,
-                        otherBucketId = createdId, projectFilter = projectFilter, canAddBuckets = canBuckets,
+                        otherBucketId = createdId, projectFilter = projectFilter,
+                        dueFilter = dueFilter, canAddBuckets = canBuckets,
                     )
                 }
                 call.respondRedirect(bucketsBack(createdId))
