@@ -2057,7 +2057,7 @@ class TaskBoardRenderTest {
         // The delete button is a sibling form — a form cannot live inside the note form — so it is the row, not
         // nesting, that puts it at the right end of the Add note line, bottoms aligned.
         listOf(
-            ".note-foot { display: flex; align-items: flex-end; gap: 10px; }",
+            ".note-foot { display: flex; align-items: flex-end; gap: var(--sp-2); }",
             ".note-foot .note-add { flex: 1 1 auto; min-width: 0; }",
             ".note-foot .task-del { flex: 0 0 auto; }",
         ).forEach { assertTrue(css.contains(it), "the note foot lost its rule: $it") }
