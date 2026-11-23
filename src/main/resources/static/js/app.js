@@ -159,7 +159,6 @@
         // half-updated page `data-live-extra` exists to prevent. Ones the form does not name are
         // untouched, so every page written before this is unaffected.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
-        landed = true;
         // replaceState, not pushState: a back stack of half-typed phrases would trap the reader,
         // while the URL still stays shareable, bookmarkable and reloadable.
         window.history.replaceState(null, '', url.href);
@@ -259,9 +258,10 @@
         if (token !== targetGenerations[id]) return;
         var again = document.getElementById(id);
         if (again) again.classList.remove('pts-busy');
-        // forms.js re-enables the sent form's buttons and confirms a save on this; a form swapped out of the
-        // page still dispatches it, so the listener can tell "landed and closed" from "came back refused".
-        form.dispatchEvent(new CustomEvent('pts:sent', { bubbles: true, detail: { ok: landed } }));
+        // forms.js re-enables the sent form's buttons and confirms a save on this. A form the swap took out of
+        // the page cannot bubble to a listener any more, so the document carries the event for it instead.
+        (form.isConnected ? form : document).dispatchEvent(
+          new CustomEvent('pts:sent', { bubbles: true, detail: { ok: landed, form: form } }));
       });
   }
 

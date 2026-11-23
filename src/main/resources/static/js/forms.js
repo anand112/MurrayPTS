@@ -134,7 +134,7 @@
   });
 
   document.addEventListener('pts:sent', function (e) {
-    var form = e.target;
+    var form = (e.detail && e.detail.form) || e.target;
     if (!form || !form.getAttribute) return;
     release(form);
     if (!e.detail || !e.detail.ok || !isRealForm(form)) return;
