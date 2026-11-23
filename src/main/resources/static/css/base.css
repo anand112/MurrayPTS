@@ -39,7 +39,7 @@
     /* Status colours and elevation (token audit). Every status fill and ink the app painted as a literal hex, and
        the three shadow depths its nine one-off shadows collapse onto: a hairline lift, a raised card or menu,
        and a floating popup. */
-    --danger: #d93025;       --danger-strong: #b3261e;  --danger-ink: #c92a3d;
+    --danger: #d93025;       --danger-strong: #b3261e;  --danger-ink: #b3261e;
     --danger-soft: #fdecea;  --danger-line: #f5c6c0;
     --ok-soft: #e6f4d7;      --ok-ink: #3f620e;
     --info-soft: #e3f1fd;    --info-ink: #1a5fb4;
@@ -64,6 +64,13 @@ html[data-theme="dark"] {
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .4);
     --shadow-2: 0 8px 18px rgba(0, 0, 0, .5);
     --shadow-3: 0 24px 60px rgba(0, 0, 0, .55);
+    /* Status inks lighten and their soft fills darken on the dark card, so every chip and inline error keeps
+       4.5:1 (WCAG 1.4.3) on both themes; the solid --danger fill keeps white text at 4.5:1 on both. */
+    --danger-ink: #f28b82;   --danger-soft: #3a1a17;   --danger-line: #5c2b27;
+    --ok-ink: #a5d6a7;       --ok-soft: #24341a;
+    --info-ink: #8ab4f8;     --info-soft: #16283c;
+    --plan-ink: #c9a7f0;     --plan-soft: #2a1f3a;
+    --warn-ink: #e0b45a;     --warn-soft: #33260f;
     --card-bg: #17202b;
     --title: #f1f5f9;
     --muted: #94a3b8;
@@ -71,8 +78,8 @@ html[data-theme="dark"] {
     --input-bg: #0e141c;
     --input-border: #2c3a4b;
     --input-text: #e2e8f0;
-    --btn-bg: #5a8a12;
-    --btn-bg-hover: #6ba316;
+    --btn-bg: #548011;       /* was #5a8a12: white text at 4.13:1 */
+    --btn-bg-hover: #4a700f;
     --toggle-bg: #243040;
     --note: #7c8a9b;
     --focus-ring: #85a25d;
@@ -168,7 +175,7 @@ button.submit:active:not(:disabled), a.submit:active { transform: translateY(1px
     border: 1px solid var(--danger-line);
     border-radius: var(--r-md);
     background: var(--danger-soft);
-    color: var(--danger-strong);
+    color: var(--danger-ink);
     font-size: var(--fs-9);
 }
 .note { margin-top: var(--sp-5); font-size: var(--fs-6); line-height: 1.6; color: var(--note); }

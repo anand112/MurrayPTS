@@ -12,6 +12,7 @@ import kotlinx.html.TR
 import kotlinx.html.button
 import kotlinx.html.div
 import kotlinx.html.form
+import kotlinx.html.h2
 import kotlinx.html.h3
 import kotlinx.html.id
 import kotlinx.html.input
@@ -199,7 +200,7 @@ fun DIV.accessContent(
     rolesPanel(roles, counts, canRoles)
 
     div("card-panel") {
-        h3("set-section") { +"People" }
+        h2("set-section") { +"People" }
         table("grid") {
             thead {
                 tr {
@@ -505,7 +506,7 @@ private fun DIV.rolesPanel(
     div("card-panel") {
         id = "rolesPanel"
         div("panel-head") {
-            h3("set-section") { +"Roles & permissions" }
+            h2("set-section") { +"Roles & permissions" }
             if (canRoles) {
                 form(action = "/app/access-control", method = FormMethod.get, classes = "opener-form") {
                     attributes["data-live-target"] = "#roleModal"

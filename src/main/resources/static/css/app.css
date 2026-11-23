@@ -131,7 +131,7 @@ table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { fon
 .pname { font-weight: 600; }
 .chip { display: inline-block; padding: 3px var(--sp-2); border-radius: var(--r-lg); font-size: var(--fs-6); font-weight: 600; }
 .chip.ontrack { background: var(--ok-soft); color: var(--ok-ink); }
-.chip.atrisk { background: var(--danger-soft); color: var(--danger-strong); }
+.chip.atrisk { background: var(--danger-soft); color: var(--danger-ink); }
 .chip.done { background: var(--info-soft); color: var(--info-ink); }
 .chip.planning { background: var(--plan-soft); color: var(--plan-ink); }
 .chip.onhold { background: var(--warn-soft); color: var(--warn-ink); }
@@ -157,7 +157,7 @@ table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { fon
 form.cell-edit { margin: 0; }
 form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-8); }
 form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); font-weight: 600; cursor: pointer; }
-.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: var(--danger-ink); border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); font-weight: 600; cursor: pointer; white-space: nowrap; }
+.delete-btn { border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger-ink); border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); font-weight: 600; cursor: pointer; white-space: nowrap; }
 .delete-btn:hover { background: rgba(220, 53, 69, .16); }
 .field-err { color: var(--danger-ink); font-size: var(--fs-8); font-weight: 600; margin: var(--sp-1) 0 0; }
 .kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
@@ -260,9 +260,9 @@ html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
 .kstat { font-size: var(--fs-6); font-weight: 600; color: var(--title); white-space: nowrap; flex: 0 0 auto; }
 .kstat::before { content: "● "; font-size: var(--fs-1); }
 .kstat.s-notstarted::before { color: #8a9199; }
-.kstat.s-inprogress::before { color: #e0a800; }
+.kstat.s-inprogress::before { color: #b38600; }
 .kstat.s-onhold::before { color: #e07000; }
-.kstat.s-blocked::before { color: var(--danger); }
+.kstat.s-blocked::before { color: var(--danger-ink); }
 .kstat.s-completed::before { color: #1e8e3e; }
 /* A kanban card is a fixed width and a content height (Stage 38, and it is worth saying which of the two is
    which). Stage 37 pinned the height at 168px on the way to matching the picture's columns; the board was
@@ -332,9 +332,9 @@ a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 .kmeta.kfoot { justify-content: space-between; }
 .prio { font-weight: 600; }
 .prio::before { content: "● "; font-size: var(--fs-1); }
-.prio.p-high { color: var(--danger); }
-.prio.p-med { color: #e07000; }
-.prio.p-low { color: #8a9199; }
+.prio.p-high { color: var(--danger-ink); }
+.prio.p-med { color: var(--warn-ink); }
+.prio.p-low { color: var(--muted); }
 .avatar.xs { width: 22px; height: 22px; flex-basis: 22px; font-size: var(--fs-1); margin-left: auto; }
 /* The backlog's own controls (Stage 40, on their own page since Stage 47).
    The page-head control — `+ Add bucket` — is rendered into `.page-actions`, which
@@ -389,7 +389,7 @@ a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 .count { display: inline-block; min-width: 24px; padding: 2px var(--sp-2); border-radius: var(--r-md); font-size: var(--fs-7); font-weight: 700; }
 .count.zero { background: var(--input-bg); color: var(--muted); opacity: .55; font-weight: 600; }
 .count.ontrack { background: var(--ok-soft); color: var(--ok-ink); }
-.count.atrisk { background: var(--danger-soft); color: var(--danger-strong); }
+.count.atrisk { background: var(--danger-soft); color: var(--danger-ink); }
 .count.done { background: var(--info-soft); color: var(--info-ink); }
 .count.planning { background: var(--plan-soft); color: var(--plan-ink); }
 .count.onhold { background: var(--warn-soft); color: var(--warn-ink); }
@@ -545,12 +545,12 @@ table.lessons-table .code { color: var(--title); font-weight: 800; font-size: va
    both themes; the pick comes from the account, not from the row. */
 .ll-person { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .ll-person-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-.ll-a1 { background: #5b7fd4; color: #fff; }
-.ll-a2 { background: #4a9d7a; color: #fff; }
-.ll-a3 { background: #c2772b; color: #fff; }
+.ll-a1 { background: #5272bf; color: #fff; }
+.ll-a2 { background: #3d8164; color: #fff; }
+.ll-a3 { background: #a56525; color: #fff; }
 .ll-a4 { background: #8a5a9d; color: #fff; }
 .ll-a5 { background: #b3566b; color: #fff; }
-.ll-a6 { background: #3f8ba8; color: #fff; }
+.ll-a6 { background: #397d97; color: #fff; }
 html[data-theme="dark"] .ll-a1 { background: #4a6bb5; }
 html[data-theme="dark"] .ll-a2 { background: #3d8566; }
 html[data-theme="dark"] .ll-a3 { background: #a5651f; }
@@ -580,7 +580,7 @@ form.ll-text-form { display: block; margin: 0; min-width: 0; }
 .chip.ll-discussed::before, .chip.ll-undiscussed::before { content: ""; width: 7px; height: 7px; border-radius: var(--r-round); }
 .chip.ll-discussed { background: var(--ok-soft); color: var(--ok-ink); }
 .chip.ll-discussed::before { background: var(--ok-ink); }
-.chip.ll-undiscussed { background: rgba(0, 0, 0, .06); color: var(--muted); }
+.chip.ll-undiscussed { background: rgba(0, 0, 0, .06); color: var(--label); }
 .chip.ll-undiscussed::before { background: var(--muted); }
 html[data-theme="dark"] .chip.ll-discussed { background: rgba(139, 195, 74, .16); color: #a5d6a7; }
 html[data-theme="dark"] .chip.ll-discussed::before { background: #a5d6a7; }
@@ -650,16 +650,16 @@ form.col-sort-form { display: none; }
    lesson sheet's three have, and the pencil is red because the picture's is, and because it is the one
    control on this sheet that changes a live account. */
 form.ts-action { display: inline-flex; margin: 0; }
-table.team-sheet .icon-btn.ts-edit { background: var(--danger-soft); color: var(--danger-strong); }
+table.team-sheet .icon-btn.ts-edit { background: var(--danger-soft); color: var(--danger-ink); }
 html[data-theme="dark"] table.team-sheet .icon-btn.ts-edit { background: rgba(179, 38, 30, .18); color: #f28b82; }
 /* A bin that cannot press, which is the sheet's answer to "may I take this row off?" for a row that is
    somebody else's account, or your own, or the one the app will not let go. The reason is its `title`. */
 .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
 /* The three headings the Settings page is divided by. The picture's "Team" is a small quiet label above
    its card, not a page title — the page already has one, and a second big heading would compete with it. */
-h3.set-section { font-size: var(--fs-8); font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+.set-section { font-size: var(--fs-8); font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
     color: var(--muted); margin: var(--sp-6) 0 var(--sp-2); }
-h3.set-section:first-child { margin-top: 0; }
+.set-section:first-child { margin-top: 0; }
 /* The count line at the end of the toolbar. It is a field of the filter form rather than a sibling of
    it, because it is the one number on the page that describes exactly what the three controls leave, and
    a live region cannot replace its own toolbar — so it rides as the form's companion (`data-live-extra`)
@@ -726,7 +726,7 @@ h3.set-section:first-child { margin-top: 0; }
 .modal-btn { display: inline-block; padding: var(--sp-2) var(--sp-4); background: var(--accent); color: #fff; text-decoration: none; border-radius: var(--r-sm); font-weight: 600; font-size: var(--fs-9); }
 .modal-btn:hover { background: var(--accent-strong); }
 .todo-del { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: var(--fs-13); line-height: 1; padding: 2px var(--sp-2); border-radius: var(--r-sm); }
-.todo-del:hover { color: var(--danger); background: rgba(217, 48, 37, .12); }
+.todo-del:hover { color: var(--danger-ink); background: rgba(217, 48, 37, .12); }
 .todo-title { flex: 1; }
 .todo-title.done { text-decoration: line-through; color: var(--muted); }
 .todo-add { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
@@ -859,7 +859,7 @@ form.bucket-add .colour-row { margin-top: var(--sp-2); }
 .bucket-preset-rows { margin-top: var(--sp-1); }
 .bucket-preset-row { display: none; flex-wrap: wrap; gap: var(--sp-1); }
 .bucket-preset-row.on { display: flex; }
-.bucket-preset { display: inline-block; background: #eef1f5; color: var(--muted); border: 1px solid var(--input-border);
+.bucket-preset { display: inline-block; background: var(--input-bg); color: var(--muted); border: 1px solid var(--input-border);
     border-radius: var(--r-pill); font-size: var(--fs-5); font-weight: 600; padding: 2px var(--sp-2); }
 html[data-theme="dark"] .bucket-preset { background: #1c222b; color: #9aa7b8; }
 .bucket-preset.none { border-style: dashed; font-weight: 500; }
@@ -877,7 +877,7 @@ html[data-theme="dark"] .bucket-pending-chip { background: #24341a; color: #b7e0
 /* The box's own refusal — a name the category already offers, or one already on this board twice. It is not a
    `.field-err` node on purpose: an error line that is always printed is the first one a refused create would
    try to stand the caret in, and this one says nothing until the script has a reason to speak. */
-p.bucket-add-said { margin: var(--sp-1) 0 0; font-size: var(--fs-8); font-weight: 600; color: var(--danger-strong); }
+p.bucket-add-said { margin: var(--sp-1) 0 0; font-size: var(--fs-8); font-weight: 600; color: var(--danger-ink); }
 p.bucket-add-said:empty { display: none; }
 /* Stage 77: whether a new bucket also joins the category's defaults is asked as its own line under the box that
    names it — never in the row of tick-boxes above, where it would read as one more bucket to pick. */
@@ -893,7 +893,7 @@ p.bucket-widen-why { flex: 1 1 100%; margin: 2px 0 0; font-size: var(--fs-6); co
    last tick-box. */
 .bucket-said { flex: 1 1 100%; margin: var(--sp-2) 0 0; font-size: var(--fs-8); font-weight: 600; }
 .bucket-said.ok { color: var(--accent-ink); }
-.bucket-said.err { color: var(--danger-strong); }
+.bucket-said.err { color: var(--danger-ink); }
 /* The mailer's master switch is a tick box and a Save, in one form: the box carries the state and the button
    is the path a reader with no JavaScript takes to the same write. They stack — the box is the sentence and
    the button is the answer to it, so putting them side by side reads as one control. */
@@ -905,7 +905,7 @@ label.check-row { display: flex; align-items: center; gap: var(--sp-2); margin: 
 .check-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .flash { padding: 10px var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-9); margin-bottom: var(--sp-3); animation: pts-flash-in var(--dur-2) var(--ease-out); }
 .flash.ok { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent); }
-.flash.err { background: var(--danger-soft); color: var(--danger-strong); border: 1px solid var(--danger-line); }
+.flash.err { background: var(--danger-soft); color: var(--danger-ink); border: 1px solid var(--danger-line); }
 select {
     width: 100%;
     padding: 11px var(--sp-3);
@@ -981,7 +981,7 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .chip.t-e { background: #e8eaf2; color: #3d4a72; }
 .chip.t-f { background: #f6e6df; color: #8a3c17; }
 .chip.t-g { background: #fde7ef; color: #a12a5e; }
-.chip.t-o { background: rgba(0, 0, 0, .06); color: var(--muted); }
+.chip.t-o { background: rgba(0, 0, 0, .06); color: var(--label); }
 .row-link { color: var(--title); text-decoration: none; }
 .row-link:hover { color: var(--accent-ink); text-decoration: underline; }
 .detail-head { margin-bottom: var(--sp-3); }
@@ -1085,7 +1085,7 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .edit-actions .submit { display: inline-block; width: auto; padding: var(--sp-2) 18px; font-size: var(--fs-9); }
 /* A destructive action styled as a small ghost button that reddens on hover — it sits in the header row
    beside the pin, not as a filled danger block, so it never outweighs the page. */
-.ghost-btn.btn-sm.danger { color: var(--danger); }
+.ghost-btn.btn-sm.danger { color: var(--danger-ink); }
 .ghost-btn.btn-sm.danger:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
 /* The project page's roll-up strip (Stage 21) is gone — Stage 28 took the tiles, the column line and the
    people line out with it, because the board's own column heads already carry those counts. The `.sum-*`
@@ -1318,7 +1318,7 @@ body.pts-modal-open { overflow: hidden; }
   z-index: 1100;
   padding: 10px var(--sp-5);
   border-radius: var(--r-pill);
-  background: var(--accent-ink);
+  background: var(--btn-bg);
   color: #fff;
   font-size: var(--fs-9);
   font-weight: 700;
@@ -1372,7 +1372,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
     cursor: pointer; border: none; background: transparent; color: var(--muted);
     font-size: var(--fs-13); line-height: 1; padding: 2px var(--sp-2); border-radius: var(--r-sm); font-family: inherit;
 }
-.x-btn:hover { color: var(--danger); background: rgba(217, 48, 37, .12); }
+.x-btn:hover { color: var(--danger-ink); background: rgba(217, 48, 37, .12); }
 
 .note-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px dashed var(--input-border); }
 .note-row:last-of-type { border-bottom: none; }
@@ -1421,7 +1421,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 .notif-btn:hover { background: var(--input-border); }
 .notif-badge {
     position: absolute; top: -6px; right: -6px; min-width: 17px; height: 17px; padding: 0 var(--sp-1);
-    border-radius: var(--r-md); background: #d64545; color: #fff; font-size: var(--fs-4); font-weight: 800;
+    border-radius: var(--r-md); background: var(--danger); color: #fff; font-size: var(--fs-4); font-weight: 800;
     line-height: 17px; text-align: center;
 }
 .notif-panel {
@@ -1465,7 +1465,7 @@ a.notif-item.unread .notif-item-title { color: var(--title); }
     display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap;
     margin-bottom: var(--sp-1);
 }
-.panel-head h3.set-section { margin: 0; }
+.panel-head .set-section { margin: 0; }
 
 /* One role's chips, wrapped in its own column. `row-gap` rather than `gap` alone, because a role holding
    thirteen of them wraps to four lines and the lines have to breathe the same way the columns do. */
@@ -1709,7 +1709,7 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
 .modal-btn { background: var(--btn-bg); }
 .modal-btn:hover { background: var(--btn-bg-hover); }
 .pin-btn, .kmove-btn, .count-btn { border: 1px solid var(--input-border); background: var(--input-bg); }
-.delete-btn { border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger-strong); }
+.delete-btn { border: 1px solid var(--danger-line); background: var(--danger-soft); color: var(--danger-ink); }
 .delete-btn:hover { border-color: var(--danger); background: var(--danger); color: #fff; }
 .pill, .chip, .cal-tag, .other-tag, .bucket-pending-chip { border-radius: var(--r-pill); }
 

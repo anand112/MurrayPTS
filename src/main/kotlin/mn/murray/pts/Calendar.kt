@@ -360,7 +360,7 @@ fun DIV.calendarContent(session: UserSession, month: String = currentMonthKey())
                             td { span("chip ${chipClass(task.status)}") { +task.status } }
                             td {
                                 span("cal-group") {
-                                    span("cal-dot ${priorityDot(task.priority)}") {}
+                                    span("cal-dot ${priorityDot(task.priority)}") { attributes["aria-hidden"] = "true" }
                                     +task.priority
                                 }
                             }
