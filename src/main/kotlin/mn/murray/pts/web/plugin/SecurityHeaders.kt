@@ -15,12 +15,18 @@ import mn.murray.pts.config.AppConfig
  * sees figures from the past until they press F5 (Stage 69). Telling the browser not to store the answer makes
  * every visit ask again, which is what makes the numbers on the screen the numbers in the database.
  *
- * Paths outside this set are the static assets under `/static` and the uploaded files under `/files`: they are
- * the same bytes for every reader, so caching them is a win and costs nothing in correctness.
+ * Static assets under `/static` are the same bytes for every reader, but their URLs are not versioned. A
+ * browser may keep a copy only on condition that it checks with the server before reuse; see [isStaticAsset].
+ * Ktor's static-resource route does not currently emit a validator, so that check fetches the current file.
+ * Uploaded files under `/files` keep their existing cache policy.
  */
 internal fun isServerDrawnPage(path: String): Boolean =
     path == "/" || path == "/login" || path == "/logout" ||
         path == "/app" || path.startsWith("/app/")
+
+/** Every response below the unversioned static-resource route must be revalidated before reuse. */
+internal fun isStaticAsset(path: String): Boolean =
+    path == "/static" || path.startsWith("/static/")
 
 /**
  * Adds baseline security response headers to every response.
@@ -30,6 +36,7 @@ internal fun isServerDrawnPage(path: String): Boolean =
  * - `Referrer-Policy`                 — limit referrer leakage.
  * - `Permissions-Policy`              — disable unneeded browser features.
  * - `Cache-Control: no-store`         — on the pages the server draws, see [isServerDrawnPage].
+ * - `Cache-Control: no-cache`         — on `/static`, which must be checked with the server before reuse.
  * - `Content-Security-Policy`         — see note below.
  * - `Strict-Transport-Security`       — only in production (assumes TLS termination).
  *
@@ -48,8 +55,11 @@ val SecurityHeaders = createApplicationPlugin(name = "SecurityHeaders") {
         call.response.header("X-Frame-Options", "DENY")
         call.response.header("Referrer-Policy", "same-origin")
         call.response.header("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
-        if (isServerDrawnPage(call.request.path())) {
+        val path = call.request.path()
+        if (isServerDrawnPage(path)) {
             call.response.header("Cache-Control", "no-store")
+        } else if (isStaticAsset(path)) {
+            call.response.header("Cache-Control", "no-cache")
         }
 
         call.response.header(
