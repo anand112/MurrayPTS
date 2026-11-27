@@ -232,4 +232,22 @@
   window.addEventListener('focus', comeBack);
 
   bind();
+
+  /* Dismissal belongs to the popup and the document, not to the rows that bind() replaces. Delegation keeps
+     the × working after render()/paint() swaps its contents, and stopPropagation keeps that close from also
+     looking like an outside click. Row targets stay with their own handlers: another row switches members,
+     the same row toggles shut, and the task/quick-add controls keep their existing behaviour. */
+  pop.addEventListener('click', function (e) {
+    if (!e.target.closest || !e.target.closest('.mpop-x')) return;
+    e.stopPropagation();
+    close();
+  });
+  document.addEventListener('click', function (e) {
+    if (pop.hidden || pop.contains(e.target)) return;
+    if (e.target.closest && e.target.closest('.team-table tbody tr[data-emp], .tasks-toggle, .quick-add')) return;
+    close();
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !pop.hidden) close();
+  });
 })();

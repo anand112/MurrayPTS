@@ -10,9 +10,10 @@
    dark -- a light-accent rule placed after a dark rule would put light ink on a dark page, and this codebase has
    been caught by that exact trap four times. DesignTokensTest resolves the table for all six combinations and measures the ink against the surfaces it lands on, so a reordered rule fails on arithmetic rather than on somebody's eyes.
    `--focus-ring: var(--accent-ink)` appears six times below and is not duplication: written once on `:root` it loses to base.css's `html[data-theme="dark"]` on specificity, and every dark page would ring in green whatever its accent. Declared beside each ink, it always means this page's ink. */
-:root { --main-bg: #f4f6f8; --accent: #5a8a12; --accent-strong: #33500b; --accent-soft: #e9f4d8;
-        --accent-ink: #33500b; --focus-ring: var(--accent-ink); }
-html[data-theme="dark"] { --main-bg: #0e141c; --accent-soft: #24341a; --accent-ink: #85a25d; --focus-ring: var(--accent-ink); }
+:root { --main-bg: #f1f5f2; --accent: #5a8a12; --accent-strong: #33500b; --accent-soft: #e9f4d8;
+        --accent-ink: #33500b; --focus-ring: var(--accent-ink);
+        --accent-fill-hover: color-mix(in srgb, var(--accent-strong) 92%, #fff); }
+html[data-theme="dark"] { --main-bg: #0d1512; --accent-soft: #24341a; --accent-ink: #85a25d; --focus-ring: var(--accent-ink); }
 html[data-accent="blue"] { --accent: #2f6fb2; --accent-strong: #1a4f8a; --accent-soft: #e3eefb;
                 --accent-ink: #1a4f8a; --focus-ring: var(--accent-ink); }
 html[data-accent="blue"][data-theme="dark"] { --accent-soft: #16283c; --accent-ink: #689dd8; --focus-ring: var(--accent-ink); }
@@ -20,6 +21,8 @@ html[data-accent="amber"] { --accent: #c07c10; --accent-strong: #8a5a06; --accen
                  --accent-ink: #8a5a06; --focus-ring: var(--accent-ink); }
 html[data-accent="amber"][data-theme="dark"] { --accent-soft: #33260f; --accent-ink: #c0903c; --focus-ring: var(--accent-ink); }
 body.app-body { display: block; padding: 0; background: var(--main-bg); }
+/* Keep the page's inline edge reserved: filtering a tall board down to one row must not move the toolbar. */
+html { scrollbar-gutter: stable; }
 .app { display: flex; min-height: 100vh; }
 .sidebar {
     width: 240px; flex: 0 0 240px;
@@ -39,8 +42,8 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; }
 .nav-item.active svg { color: var(--accent-ink); }
 .nav-item .label { flex: 1; }
-.pill { background: var(--input-bg); border-radius: 10px; padding: 2px var(--sp-2); font-size: var(--fs-5); font-weight: 600; color: var(--muted); }
-.nav-item.active .pill { background: var(--card-bg); color: var(--accent-ink); }
+.pill { --badge-ink: var(--muted); }
+.nav-item.active .pill { --badge-ink: var(--accent-ink); }
 .pinned { margin: 18px var(--sp-1) 0; }
 .pinned h2 { font-size: var(--fs-4); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 .pinned .empty { font-size: var(--fs-7); line-height: 1.6; color: var(--note); }
@@ -50,6 +53,12 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
 .pinned-row .code { flex: 0 0 auto; color: var(--title); font-size: var(--fs-7); font-weight: 700; }
 .pinned-row a { flex: 1; min-width: 0; font-size: var(--fs-9); color: var(--title); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pinned-row a:hover { color: var(--accent-ink); text-decoration: underline; }
+/* Stage 142: a pin is a write like any other, so the block it swaps dims while it is in flight. `.pinned` is
+   the sidebar's list, `.pin-spot` the detail head's pin form, and `[data-live-region]` the Projects sheet's
+   results, which had a transition and no dim of its own -- the same gap the to-do board had until Stage 141.
+   One class, one opacity, one duration: a pending state that differs per block is four ideas of "busy". */
+.pinned, .pin-spot, [data-live-region] { transition: opacity var(--dur-1) var(--ease-std); }
+.pinned.pts-busy, .pin-spot.pts-busy, [data-live-region].pts-busy { opacity: .55; }
 .side-foot { margin-top: auto; padding-top: 14px; border-top: 1px solid var(--input-border); }
 .user-row { display: flex; align-items: center; gap: 10px; }
 .avatar { width: 36px; height: 36px; flex: 0 0 36px; border-radius: var(--r-round); background: var(--accent-strong); color: #fff; display: flex; align-items: center; justify-content: center; font-size: var(--fs-7); font-weight: 700; }
@@ -58,7 +67,15 @@ body.app-body { display: block; padding: 0; background: var(--main-bg); }
 .user-name { font-size: var(--fs-9); font-weight: 600; color: var(--title); }
 .user-role { font-size: var(--fs-5); color: var(--muted); }
 .icon-btns { display: flex; gap: 6px; }
-.icon-btn { width: 30px; height: 30px; border: none; border-radius: var(--r-md); background: var(--input-bg); cursor: pointer; font-size: var(--fs-11); line-height: 1; }
+.icon-btn {
+    width: var(--control-h-sm); height: var(--control-h-sm); padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid transparent; border-radius: var(--r-md);
+    background: var(--input-bg); color: var(--muted); cursor: pointer;
+    font-size: var(--fs-11); line-height: 1;
+}
+.icon-btn:hover:not(:disabled) { background: var(--input-border); color: var(--title); }
+.icon-btn:focus-visible { border-color: var(--focus-ring); }
 a.logout { display: block; margin-top: var(--sp-3); padding: 9px; border-radius: var(--r-md); background: var(--input-bg); color: var(--title); font-size: var(--fs-10); font-weight: 600; text-align: center; text-decoration: none; }
 a.logout:hover { background: var(--input-border); }
 .main { flex: 1; min-width: 0; padding: var(--sp-7) var(--sp-8); }
@@ -74,13 +91,34 @@ a.logout:hover { background: var(--input-border); }
 /* The one page whose name needs a second half (Stage 47, Other tasks). It sits on the title's baseline at a
    size that reads as a description rather than a competing heading — the sentence used to be a section head of
    its own, under the board it described, and the page now has one head instead of two. */
-.page-head h1 .page-sub { font-size: var(--fs-7); font-weight: 600; color: var(--muted); margin-left: var(--sp-2); }
+.page-head h1 .page-sub { font-size: var(--fs-7); font-weight: 500; line-height: 1.4; color: var(--muted); margin-left: var(--sp-2); }
 .page-right { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; }
 .page-actions { display: flex; align-items: center; gap: var(--sp-2); flex: 0 0 auto; }
-.card-panel { background: var(--card-bg); border: 1px solid var(--input-border); border-radius: var(--r-lg); padding: 18px var(--sp-5); margin-bottom: var(--sp-4); }
-.panel-caption { font-size: var(--fs-8); color: var(--muted); margin-bottom: var(--sp-3); }
-table.grid { width: 100%; border-collapse: collapse; font-size: var(--fs-10); }
-table.grid th { text-align: left; font-size: var(--fs-4); font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 10px; border-bottom: 1px solid var(--input-border); }
+.card-panel {
+    background: var(--surface); border: 1px solid var(--border-subtle); border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm); padding: var(--sp-5) var(--sp-6); margin-bottom: var(--sp-5);
+}
+/* Filled actions share the reader's accent, but use its dark end rather than the mid tone: white button text
+   keeps AA in green, blue and amber, in both themes. The quiet and destructive variants below own their ink. */
+body.app-body button.submit:not(.danger-btn),
+body.app-body a.submit:not(.danger-btn),
+body.app-body .modal-btn {
+    border: 1px solid var(--accent);
+    background: var(--accent-strong);
+    box-shadow: var(--shadow-sm);
+}
+body.app-body button.submit:hover:not(:disabled):not(.danger-btn),
+body.app-body a.submit:hover:not(.danger-btn),
+body.app-body .modal-btn:hover {
+    background: var(--accent-fill-hover);
+    border-color: var(--accent-strong);
+}
+body.app-body button.submit:disabled:not(.danger-btn) {
+    background: var(--input-bg); border-color: var(--input-border); color: var(--muted); box-shadow: none;
+}
+.panel-caption { font-size: var(--fs-8); line-height: 1.45; color: var(--muted); margin-bottom: var(--sp-3); }
+table.grid { width: 100%; border-collapse: collapse; font-size: var(--fs-10); line-height: 1.45; }
+table.grid th { text-align: left; font-size: var(--fs-4); font-weight: 700; line-height: 1.35; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 10px; border-bottom: 1px solid var(--input-border); }
 table.grid td { padding: 10px; border-bottom: 1px solid var(--input-border); color: var(--title); vertical-align: middle; }
 table.grid tr:last-child td { border-bottom: none; }
 /* The projects board renders one table per category panel, and the browser sizes each table from its
@@ -98,6 +136,12 @@ table.grid tr:last-child td { border-bottom: none; }
    columns (Project, Client, Manager) to absorb the tenth column. (Projects.projectTable carries the
    matching c-* classes.) */
 table.projects-table { table-layout: fixed; }
+table.grid.projects-table { font-variant-numeric: tabular-nums; }
+/* The Team sheet's row pattern: the cells carry the soft highlight, including while a link or pin inside
+   the row has keyboard focus. The cells also belong to the shared pointer-transition rule below. */
+table.projects-table tbody tr { cursor: pointer; }
+table.projects-table tbody tr:hover td,
+table.projects-table tbody tr:focus-within td { background: var(--input-bg); }
 table.projects-table col.c-code { width: 5%; }
 table.projects-table col.c-name { width: 18%; }
 table.projects-table col.c-client { width: 10%; }
@@ -118,7 +162,8 @@ table.projects-table th.c-rev, table.projects-table td.c-rev { text-align: right
 table.projects-table td.c-start, table.projects-table td.c-due { text-align: center; white-space: nowrap; }
 table.projects-table th.c-start, table.projects-table th.c-due { text-align: center; }
 table.projects-table th.c-pin, table.projects-table td.c-pin { text-align: right; }
-.code { font-family: var(--font-mono); font-size: var(--fs-7); color: var(--muted); font-weight: 600; }
+.code { font-family: var(--font-mono); font-size: var(--fs-7); line-height: 1.35; letter-spacing: .02em;
+    color: var(--muted); font-weight: 600; }
 /* A project's number is how people name it out loud — "S-01 is blocked" — so it is the one thing on the
    board that should not have to be squinted at. Sized up and pushed to full bold everywhere a project code
    prints: the board's ID column, the project page's head, and an account's project line on Settings and
@@ -128,13 +173,26 @@ table.projects-table th.c-pin, table.projects-table td.c-pin { text-align: right
    long code must be allowed to wrap rather than run over the name column the way the date headers would
    (see the note above). */
 table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { font-size: var(--fs-11); font-weight: 700; }
-.pname { font-weight: 600; }
-.chip { display: inline-block; padding: 3px 10px; border-radius: var(--r-lg); font-size: var(--fs-6); font-weight: 600; }
-.chip.ontrack { background: #e6f4d7; color: #3f620e; }
-.chip.atrisk { background: #fdecea; color: #b3261e; }
-.chip.done { background: #e3f1fd; color: #1a5fb4; }
-.chip.planning { background: #f3e8fd; color: #6f3fa0; }
-.chip.onhold { background: #fbeed3; color: #8a5a06; }
+.pname { font-weight: 600; line-height: 1.4; }
+/* One compact label system for statuses, priorities, departments, categories, roles and existing tags.
+   The ink is semantic; the fill is that same ink mixed into the active card surface, so no theme needs a
+   second set of pastel backgrounds and no badge becomes a bright block. */
+.chip, .prio, .kstat, .cal-tag, .other-tag, .tcode, .dept-name, .dept-count, .count, .pill,
+.bucket-preset, .bucket-pending-chip {
+    display: inline-flex; align-items: center; gap: var(--sp-1); max-width: 100%; min-height: var(--sp-5);
+    padding: 2px var(--sp-2); border: 1px solid transparent; border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--badge-ink, var(--muted)) 8%, var(--card-bg));
+    color: var(--badge-ink, var(--muted));
+    font-size: var(--fs-5); font-weight: 700; line-height: 1.25; letter-spacing: .01em;
+    white-space: nowrap; vertical-align: middle;
+}
+.chip.ontrack, .kstat.s-inprogress, .count.ontrack { --badge-ink: var(--badge-amber); }
+.chip.atrisk, .kstat.s-blocked, .count.atrisk { --badge-ink: var(--badge-red); }
+.chip.done, .kstat.s-completed, .count.done, .chip.ll-discussed { --badge-ink: var(--badge-green); }
+.chip.planning, .kstat.s-notstarted, .count.planning { --badge-ink: var(--badge-violet); }
+.chip.onhold, .kstat.s-onhold, .count.onhold { --badge-ink: var(--badge-orange); }
+.chip.ll-undiscussed, .cal-tag, .other-tag { --badge-ink: var(--muted); }
+.dept-chip { white-space: normal; text-align: left; }
 .progress { display: inline-block; width: 110px; height: 8px; border-radius: var(--r-xs); background: var(--input-bg); overflow: hidden; vertical-align: middle; }
 .progress .bar { height: 100%; background: var(--accent); }
 .pct { margin-left: var(--sp-2); font-size: var(--fs-7); color: var(--muted); }
@@ -170,26 +228,47 @@ table.projects-table td.c-code .code, .group-head .code, .mpop-title .code { fon
 .progress.dashboard-progress { display: block; width: auto; min-width: 0; flex: 1; }
 .pin-btn { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--muted); border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); cursor: pointer; white-space: nowrap; }
 .pin-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.pin-btn {
+    min-height: var(--control-h-sm); display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--input-border);
+    border-radius: var(--r-md); background: var(--input-bg); color: var(--muted);
+    font-family: inherit; font-size: var(--fs-7); font-weight: 600; line-height: 1.4;
+    cursor: pointer; white-space: nowrap;
+}
+.pin-btn:hover:not(:disabled) { background: var(--input-border); border-color: var(--border-strong); color: var(--title); }
+.pin-btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.pin-btn.on:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
 .task-row { display: flex; align-items: center; gap: var(--sp-3); padding: 10px 0; border-bottom: 1px solid var(--input-border); }
 .task-row:last-child { border-bottom: none; }
 .task-main { flex: 1; min-width: 0; }
-.task-title { font-size: var(--fs-11); font-weight: 600; color: var(--title); }
-.task-meta { font-size: var(--fs-7); color: var(--muted); margin-top: 2px; }
+.task-title { font-size: var(--fs-11); font-weight: 600; line-height: 1.4; color: var(--title); }
+.task-meta { font-size: var(--fs-7); line-height: 1.45; color: var(--muted); margin-top: 2px; }
 .team-name { display: flex; align-items: center; gap: 10px; }
 .avatar.sm { width: 28px; height: 28px; flex-basis: 28px; font-size: var(--fs-5); }
 .assignee { display: inline-flex; align-items: center; gap: var(--sp-2); margin-right: var(--sp-3); }
 .assignee-meta { display: flex; flex-direction: column; line-height: 1.2; }
 .assignee-name { font-size: var(--fs-8); font-weight: 600; color: var(--title); }
 .assignee-id { font-size: var(--fs-5); color: var(--muted); }
-.assignee.none { font-size: var(--fs-7); color: var(--muted); font-style: italic; margin-right: var(--sp-3); }
+.assignee.none { font-size: var(--fs-7); color: var(--muted); font-style: normal; margin-right: var(--sp-3); }
 .status-form { display: inline-flex; margin-right: 10px; }
-.status-select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-md); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); font-weight: 600; cursor: pointer; }
+.status-select { font-size: var(--fs-7); font-weight: 600; }
 form.cell-edit { margin: 0; }
-form.cell-edit input[type="text"], form.cell-edit input[type="email"] { width: 100%; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-8); }
-form.cell-edit select { border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: var(--sp-1) var(--sp-2); font-size: var(--fs-7); font-weight: 600; cursor: pointer; }
-.delete-btn { border: 1px solid rgba(220, 53, 69, .45); background: rgba(220, 53, 69, .08); color: #c92a3d; border-radius: var(--r-sm); padding: var(--sp-1) 10px; font-size: var(--fs-7); font-weight: 600; cursor: pointer; white-space: nowrap; }
-.delete-btn:hover { background: rgba(220, 53, 69, .16); }
-.field-err { color: #c92a3d; font-size: var(--fs-8); font-weight: 600; margin: var(--sp-1) 0 0; }
+form.cell-edit input[type="text"], form.cell-edit input[type="email"] {
+    width: 100%; font-size: var(--fs-8);
+}
+form.cell-edit select { font-size: var(--fs-7); font-weight: 600; }
+.delete-btn {
+    min-height: var(--control-h-sm); display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--sp-1); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--danger-border);
+    border-radius: var(--r-md); background: var(--danger-soft); color: var(--danger-ink);
+    font-family: inherit; font-size: var(--fs-7); font-weight: 700; line-height: 1.4;
+    cursor: pointer; white-space: nowrap;
+}
+.delete-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--danger-ink) 14%, var(--card-bg)); border-color: var(--danger-ink);
+}
+.delete-btn:disabled { opacity: .55; cursor: not-allowed; }
+.field-err { color: var(--danger-ink); font-size: var(--fs-8); font-weight: 600; line-height: 1.45; margin: var(--sp-1) 0 0; overflow-wrap: anywhere; }
 .kanban { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); align-items: start; }
 /* The Other tasks board (Stage 57) is a vertical run of bucket **groups**, not a row of columns: one group per
    bucket, each with the bucket's name as a heading on top and its own five-status `.kanban` underneath. So
@@ -218,7 +297,11 @@ form.cell-edit select { border: 1px solid var(--input-border); background: var(-
    every one of them to the busiest. The 190px floor is what an empty column still reads as: a lane, not a
    strip. (A fixed-height column with its own scrollbar was built and asked off the same day; if this is
    restated again, that is the shape to reach for rather than a per-card height.) */
-.kcol { background: rgba(0, 0, 0, .035); border-radius: var(--r-lg); padding: var(--sp-3); min-height: 190px; }
+.kcol {
+    background: rgba(0, 0, 0, .035); border-radius: var(--r-lg); padding: var(--sp-3); min-height: 190px;
+    outline: 2px dashed transparent; outline-offset: 3px;
+    transition: outline-color var(--dur-1) var(--ease-std), background-color var(--dur-1) var(--ease-std);
+}
 html[data-theme="dark"] .kcol { background: rgba(255, 255, 255, .05); }
 /* An empty board that a reader may fill says so, and carries the opener itself: five columns of
    "Nothing here." do not read as somewhere to start. Printed only for somebody who can write the first
@@ -228,8 +311,8 @@ html[data-theme="dark"] .kcol { background: rgba(255, 255, 255, .05); }
     border: 1px dashed var(--input-border); border-radius: var(--r-lg); background: var(--input-bg);
 }
 html[data-theme="dark"] .board-empty { background: rgba(255, 255, 255, .04); }
-.board-empty-line { margin: 0; font-size: var(--fs-10); font-weight: 700; color: var(--title); }
-.board-empty-sub { margin: 5px 0 var(--sp-3); font-size: var(--fs-7); color: var(--muted); }
+.board-empty-line { margin: 0; font-size: var(--fs-10); font-weight: 700; line-height: 1.4; color: var(--title); }
+.board-empty-sub { margin: 5px 0 var(--sp-3); font-size: var(--fs-7); line-height: 1.5; color: var(--muted); }
 /* The Assigned tasks page's second board (Stage 55): the reader's own Other tasks, below the projects board.
    The heading separates the two status boards that share one page and one popup, and the empty line is the honest
    answer when nothing is on them — not a board of "Nothing here." columns for a person who has no such work. */
@@ -248,7 +331,18 @@ form.other-bucket-filter .board-key select {
     width: 200px; min-width: 0; max-width: 100%;
     padding: 6px 10px; font-size: var(--fs-9);
 }
-.kcol.drag-over { outline: 2px dashed var(--accent); }
+.kcol.drag-over {
+    outline-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 7%, var(--main-bg));
+}
+html[data-theme="dark"] .kcol.drag-over { background: color-mix(in srgb, var(--accent) 10%, var(--main-bg)); }
+/* A card-sized marker shows the server's landing rule without becoming a card or changing either count. */
+.kcard-drop {
+    display: flex; align-items: center; justify-content: center; min-height: 64px; margin-top: 10px;
+    padding: var(--sp-3); border: 2px dashed var(--accent); border-radius: var(--r-md);
+    background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--accent-ink);
+    font-size: var(--fs-8); font-weight: 700; line-height: 1.4; pointer-events: none;
+}
 .kcol-head { display: flex; align-items: center; gap: var(--sp-2); margin-bottom: 10px; }
 .kcol-title { font-size: var(--fs-9); font-weight: 700; color: var(--title); }
 .kcol-count { margin-left: auto; font-size: var(--fs-7); color: var(--muted); font-weight: 600; }
@@ -280,20 +374,12 @@ html[data-theme="dark"] .kcard.s-completed { background: #12291a; }
 /* The status board's chip is a project **code** or, on an Other-task card, a bucket **name** (Stage 88). A
    bucket name is free text up to BUCKET_NAME_MAX, so the chip is allowed to take the line and cut itself short
    with an ellipsis rather than push the card wider than its column. */
-.kcard-top .tcode { margin-bottom: 0; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* The stage word on a lane card's foot line (Stage 78): a coloured dot and the word beside it, drawn the way the
-   priority line above it is — `.prio`'s `::before` — so the two small lines at the bottom of a card read as one
-   kind of thing. Only the *dot* takes the board's five hues, the same values a `.dot` in a column head and the
-   card's own left bar are painted with, so *In progress* means the same amber wherever it is read; the word
-   keeps the card's text colour, because on an amber-tinted card an amber word is the tint saying itself twice
-   and going unreadable. A status board never emits this span: its column head already is the word. */
-.kstat { font-size: var(--fs-6); font-weight: 600; color: var(--title); white-space: nowrap; flex: 0 0 auto; }
-.kstat::before { content: "● "; font-size: var(--fs-1); }
-.kstat.s-notstarted::before { color: #8a9199; }
-.kstat.s-inprogress::before { color: #e0a800; }
-.kstat.s-onhold::before { color: #e07000; }
-.kstat.s-blocked::before { color: #d93025; }
-.kstat.s-completed::before { color: #1e8e3e; }
+.kcard-top .tcode { display: inline-block; margin-bottom: 0; flex: 0 0 auto; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The stage word on a lane card's foot line uses the same compact badge and semantic ink as every other
+   status label. Its dot is drawn in that ink rather than repeating a second hardcoded hue table. A status
+   board never emits this span: its column head already is the word. */
+.kstat { flex: 0 0 auto; }
+.kstat::before { content: ""; width: 5px; height: 5px; border-radius: var(--r-round); background: currentColor; flex: 0 0 5px; }
 /* A kanban card is a fixed width and a content height (Stage 38, and it is worth saying which of the two is
    which). Stage 37 pinned the height at 168px on the way to matching the picture's columns; the board was
    asked back the other way the next day, so the tile is gone and a card with no plan is short while a card
@@ -310,7 +396,7 @@ html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 
 /* The card's own live region: its meta line and nothing else (Stage 41 took its plan into the popup). It
    is still a swap companion, because the percentage printed here is counted from the steps ticked there,
    so a box and the number it moves land in the same response. It is a plain block — the card around it
-   keeps its padding, its left status bar and the drag handle kanban.js binds to the `.kcard` node. */
+   keeps its padding, its left status bar and the draggable surface kanban.js binds to the `.kcard` node. */
 .kbody { transition: opacity var(--dur-1) var(--ease-std); }
 .kbody.pts-busy { opacity: .55; }
 /* What this card has reached, counted from its own checklists. Themed through the same input variables the
@@ -340,18 +426,19 @@ html[data-theme="dark"] .kmove-btn:hover:not(:disabled) { background: rgba(255, 
    `.bar` are used exactly as the Projects board and a project page use them — one control, one size, no
    second style of bar in the app — so all that is added here is the block it sits on. */
 .kprog { margin: 5px 0 var(--sp-2); }
-.tcode { display: inline-block; background: #e6f4d7; color: #3f620e; border-radius: var(--r-sm); font-size: var(--fs-4); font-weight: 700; padding: 2px 7px; margin-bottom: 6px; }
-html[data-theme="dark"] .tcode { background: #24341a; color: #b7e08a; }
-/* An Other-task card's chip names a bucket, not a project (Stage 88), so it wears the board's own neutral tint
+.tcode { --badge-ink: var(--badge-green); margin-bottom: 6px; }
+/* An Other-task card's chip names a bucket, not a project (Stage 88), so it wears the information blue
    rather than the project green: the two facts are different and a run of cards should not say they are the same. */
-.tcode.bucket-chip { background: #e8eef7; color: #3a5a7a; }
-html[data-theme="dark"] .tcode.bucket-chip { background: #1e2a38; color: #a9c6e2; }
+.tcode.bucket-chip { --badge-ink: var(--badge-blue); }
 /* Stage 104: a status board's project code is the card's one way to the page it names, so it is an `<a>` wearing
    the same chip rather than a new control. Underline on hover only — a board of permanently underlined chips reads
    as a list of links instead of a board of cards — and a focus ring, because the chip is reachable by Tab and the
    card around it is too. */
 a.tcode { text-decoration: none; cursor: pointer; }
-a.tcode:hover { text-decoration: underline; }
+a.tcode:hover {
+    background: color-mix(in srgb, var(--badge-ink, var(--muted)) 14%, var(--card-bg));
+    text-decoration: underline;
+}
 a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .ktitle {
     display: -webkit-box; min-width: 0; overflow: hidden; overflow-wrap: anywhere;
@@ -360,11 +447,11 @@ a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
 }
 .kmeta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; margin-top: 7px; font-size: var(--fs-6); color: var(--muted); }
 .kmeta.kfoot { justify-content: space-between; }
-.prio { font-weight: 600; }
-.prio::before { content: "● "; font-size: var(--fs-1); }
-.prio.p-high { color: #d93025; }
-.prio.p-med { color: #e07000; }
-.prio.p-low { color: #8a9199; }
+.prio { --badge-ink: var(--muted); }
+.prio::before { content: ""; width: 5px; height: 5px; border-radius: var(--r-round); background: currentColor; flex: 0 0 5px; }
+.prio.p-high { --badge-ink: var(--badge-red); }
+.prio.p-med { --badge-ink: var(--badge-orange); }
+.prio.p-low { --badge-ink: var(--muted); }
 .avatar.xs { width: 22px; height: 22px; flex-basis: 22px; font-size: var(--fs-1); margin-left: auto; }
 /* The backlog's own controls (Stage 40, on their own page since Stage 47).
    The page-head control — `+ Add bucket` — is rendered into `.page-actions`, which
@@ -416,15 +503,11 @@ a.tcode:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2p
   border-color: var(--input-border); color: var(--muted); background: var(--input-bg); cursor: not-allowed;
 }
 .team-table th.num, .team-table td.num { text-align: center; width: 1%; white-space: nowrap; }
-.count { display: inline-block; min-width: 24px; padding: 2px var(--sp-2); border-radius: 10px; font-size: var(--fs-7); font-weight: 700; }
-.count.zero { background: var(--input-bg); color: var(--muted); opacity: .55; font-weight: 600; }
-.count.ontrack { background: #e6f4d7; color: #3f620e; }
-.count.atrisk { background: #fdecea; color: #b3261e; }
-.count.done { background: #e3f1fd; color: #1a5fb4; }
-.count.planning { background: #f3e8fd; color: #6f3fa0; }
-.count.onhold { background: #fbeed3; color: #8a5a06; }
+.count, .pill { min-width: 24px; justify-content: center; font-variant-numeric: tabular-nums; }
+.count.zero { --badge-ink: var(--muted); font-weight: 600; }
 .count-total { font-size: var(--fs-9); font-weight: 800; color: var(--title); }
-.card-panel h3, .fc-completed-head h3 { font-size: var(--fs-12); font-weight: 700; color: var(--title); margin: var(--sp-1) 0 6px; }
+.card-panel h3, .fc-completed-head h3 { font-size: var(--fs-12); font-weight: 700; letter-spacing: -.01em;
+    color: var(--title); margin: var(--sp-1) 0 6px; }
 /* ---- The forecast sheet (V8) -------------------------------------------------------------
    One line per project per month, read as a spreadsheet: eleven columns on the running half,
    eight on the completed one, and three states printed as a row colour rather than as a word,
@@ -606,14 +689,9 @@ form.ll-text-form { display: block; margin: 0; min-width: 0; }
 .ll-open:hover { color: var(--accent-ink); text-decoration: underline; }
 /* The two states, as the dot the picture prints. Green for a lesson that has been talked about,
    grey for one that has not: the sheet's whole point is which rows still need a conversation. */
-.chip.ll-discussed, .chip.ll-undiscussed { display: inline-flex; align-items: center; gap: 6px; }
-.chip.ll-discussed::before, .chip.ll-undiscussed::before { content: ""; width: 7px; height: 7px; border-radius: var(--r-round); }
-.chip.ll-discussed { background: #e6f4d7; color: #3f620e; }
-.chip.ll-discussed::before { background: #3f620e; }
-.chip.ll-undiscussed { background: rgba(0, 0, 0, .06); color: var(--muted); }
-.chip.ll-undiscussed::before { background: var(--muted); }
-html[data-theme="dark"] .chip.ll-discussed { background: rgba(139, 195, 74, .16); color: #a5d6a7; }
-html[data-theme="dark"] .chip.ll-discussed::before { background: #a5d6a7; }
+.chip.ll-discussed::before, .chip.ll-undiscussed::before {
+    content: ""; width: 5px; height: 5px; border-radius: var(--r-round); background: currentColor; flex: 0 0 5px;
+}
 /* The row's two writes: forms that exist only to carry one button each, laid out as the app's
    other icon-button groups do. */
 .ll-action { display: inline-flex; margin: 0; }
@@ -657,9 +735,9 @@ table.team-sheet .code { color: var(--title); font-weight: 700; font-size: var(-
 /* The person: the same avatar as every other sheet, and the name that has to survive being long. */
 .ts-person { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
 .ts-person-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-/* The picture's own marker for the row the reader is standing in. `.chip.ontrack` is the app's green
-   pill — the same one a project's status prints — so the badge is a chip and not a seventh widget. */
-.ts-you { flex: 0 0 auto; padding: 2px var(--sp-2); font-size: var(--fs-4); letter-spacing: .04em; }
+/* The picture's own marker for the row the reader is standing in. It keeps the shared chip shape and
+   uses the success ink, so the badge is a label-system member rather than a seventh widget. */
+.chip.ts-you { --badge-ink: var(--badge-green); flex: 0 0 auto; letter-spacing: .04em; }
 /* A column with nothing in it: the same em-dash the lesson sheet uses, so "no department", "no account"
    and "not yours to count" all read as a gap in a row rather than as a failure of the page. */
 .ts-none { color: var(--muted); font-weight: 600; }
@@ -680,8 +758,10 @@ form.col-sort-form { display: none; }
    lesson sheet's three have, and the pencil is red because the picture's is, and because it is the one
    control on this sheet that changes a live account. */
 form.ts-action { display: inline-flex; margin: 0; }
-table.team-sheet .icon-btn.ts-edit { background: #fdecea; color: #b3261e; }
-html[data-theme="dark"] table.team-sheet .icon-btn.ts-edit { background: rgba(179, 38, 30, .18); color: #f28b82; }
+table.team-sheet .icon-btn.ts-edit { background: var(--danger-soft); color: var(--danger-ink); }
+html[data-theme="dark"] table.team-sheet .icon-btn.ts-edit {
+    background: color-mix(in srgb, var(--danger-ink) 14%, var(--card-bg));
+}
 /* A bin that cannot press, which is the sheet's answer to "may I take this row off?" for a row that is
    somebody else's account, or your own, or the one the app will not let go. The reason is its `title`. */
 .icon-btn:disabled { opacity: .4; cursor: not-allowed; }
@@ -737,7 +817,7 @@ h3.set-section:first-child { margin-top: 0; }
 .cal-dot-high { background: #ff5b4d; }
 .cal-dot-medium { background: #ffd257; }
 .cal-dot-low { background: #7ee29a; }
-.cal-tag { font-size: var(--fs-1); font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--input-border); border-radius: var(--r-pill); padding: 1px 6px; }
+.cal-tag { letter-spacing: .04em; text-transform: uppercase; }
 .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; overflow-y: auto; background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(3px); animation: pts-overlay-in var(--dur-2) var(--ease-out); }
 /* Stage 23 puts the plan and the running log under the editor's fields, so a card with a few entries in
    each is taller than a short window. The old `margin: 10% auto` measured a vertical gap against the
@@ -753,26 +833,42 @@ h3.set-section:first-child { margin-top: 0; }
 .modal-label { font-weight: 600; color: var(--muted); width: 100px; flex-shrink: 0; }
 .modal-value { color: var(--title); }
 .modal-actions { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px solid var(--input-border); }
-.modal-btn { display: inline-block; padding: var(--sp-2) var(--sp-4); background: var(--accent); color: #fff; text-decoration: none; border-radius: var(--r-sm); font-weight: 600; font-size: var(--fs-9); }
-.modal-btn:hover { background: var(--accent-strong); }
+.modal-btn {
+    min-height: var(--control-h); display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--sp-1); padding: var(--sp-2) var(--sp-4); border-radius: var(--r-md);
+    color: #fff; font-family: inherit; font-size: var(--fs-10); font-weight: 700; line-height: 1.4;
+    text-decoration: none; cursor: pointer;
+}
 .todo-del { cursor: pointer; border: none; background: transparent; color: var(--muted); font-size: var(--fs-13); line-height: 1; padding: 2px 7px; border-radius: var(--r-sm); }
-.todo-del:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
+.todo-del:hover { color: var(--danger-ink); background: color-mix(in srgb, var(--danger-ink) 12%, transparent); }
 .todo-title { flex: 1; }
 .todo-title.done { text-decoration: line-through; color: var(--muted); }
 .todo-add { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-3); }
-.todo-add input[type="text"] { flex: 1; min-width: 0; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-md); padding: 11px 14px; font-size: var(--fs-11); }
-.todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: 10px 10px; font-size: var(--fs-9); }
-.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; padding: var(--sp-2) 6px; font-size: var(--fs-6); }
-.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; padding: var(--sp-1) 6px; font-size: var(--fs-6); }
+.todo-add input[type="text"] { flex: 1; min-width: 0; padding: var(--sp-2) var(--control-pad-x); font-size: var(--fs-11); }
+.todo-add input[type="date"] { flex: 0 0 140px; width: 140px; padding: var(--sp-2) var(--control-pad-x); font-size: var(--fs-9); }
+.todo-list .todo-add input[type="date"] { flex: 0 0 100px; width: 100px; font-size: var(--fs-6); }
+.todo-row .todo-due-form input[type="date"] { flex: 0 0 auto; width: 100px; font-size: var(--fs-6); }
 .todo-due-form input[type="date"]::-webkit-calendar-picker-indicator,
 .todo-add input[type="date"]::-webkit-calendar-picker-indicator { display: none; }
 .todo-due-form input[type="date"],
 .todo-add input[type="date"] { background: transparent; border-color: transparent; }
 .todo-due-form input[type="date"]:focus,
-.todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--input-border); }
-.todo-add button.submit { flex: 0 0 auto; width: auto; margin-top: 0; padding: 5px var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5; }
+.todo-add input[type="date"]:focus { background: var(--input-bg); border-color: var(--focus-ring); }
+.todo-add button.submit {
+    flex: 0 0 auto; width: auto; display: inline-flex; align-items: center; justify-content: center;
+    margin-top: 0; padding: 5px var(--sp-3); font-size: var(--fs-8); font-weight: 600; line-height: 1.5;
+}
 .todo-board { display: flex; gap: var(--sp-4); align-items: flex-start; overflow-x: auto; padding-bottom: 6px; }
 .todo-board .todo-list { flex: 0 0 330px; max-width: 330px; }
+/* A write in flight has to look like one (Stage 141). `.kbody`, a live region and the modal's two
+   checklists each named their own dim; the To-do board, one of its lists and the New list card were none
+   of those, so `sendToBlock` added `pts-busy` to a block nothing answered — and a POST that had not
+   come back yet looked exactly like one that had, which on a board whose columns are 330px wide reads as
+   the write having been dropped. Same `.55` and same `--dur-1` as the three that were already here, so
+   there is one idea of "busy" in the app rather than four, and base.css's `prefers-reduced-motion`
+   block takes the length out of it without being asked a second time. */
+.todo-board, .todo-list, .todo-new-list { transition: opacity var(--dur-1) var(--ease-std); }
+.todo-board.pts-busy, .todo-list.pts-busy, .todo-new-list.pts-busy { opacity: .55; }
 .todo-check { margin: 0; display: flex; align-items: center; }
 .todo-check input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; padding: 0; margin: 0; accent-color: var(--accent); cursor: pointer; }
 .todo-head-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
@@ -816,11 +912,10 @@ h3.set-section:first-child { margin-top: 0; }
 .type-row .icon-btns { flex: 0 0 auto; }
 .type-row.editing .type-rename { display: flex; align-items: center; gap: var(--sp-2); flex: 1 1 auto; min-width: 0; }
 .type-row.editing .type-rename input {
-    flex: 1 1 240px; min-width: 0; width: auto; margin: 0;
-    padding: 6px 10px; font-size: var(--fs-9);
+    flex: 1 1 240px; min-width: 0; width: auto; margin: 0; font-size: var(--fs-9);
 }
 form.type-add { display: flex; align-items: center; gap: var(--sp-2); margin-top: 14px; }
-form.type-add input { margin: 0; padding: 7px 10px; font-size: var(--fs-9); }
+form.type-add input { margin: 0; font-size: var(--fs-9); }
 form.type-add input[name="code"] { flex: 0 0 84px; width: 84px; text-align: center; text-transform: uppercase; }
 form.type-add input[name="name"] { flex: 1 1 auto; min-width: 0; width: auto; }
 form.type-add .btn-sm { flex: 0 0 auto; }
@@ -851,7 +946,7 @@ form.bucket-add { display: flex; align-items: center; gap: var(--sp-2); margin-t
    shrink (`flex: 0 1 330px` below), so the row stays one line whatever the catalogue is called. */
 form.bucket-add .bucket-add-for { flex: 0 0 auto; font-size: var(--fs-8); color: var(--muted); white-space: nowrap; }
 form.bucket-add input {
-    flex: 0 1 330px; max-width: 100%; margin: 0; padding: 7px 10px; font-size: var(--fs-9);
+    flex: 0 1 330px; max-width: 100%; margin: 0; font-size: var(--fs-9);
 }
 form.bucket-add .btn-sm { flex: 0 0 auto; }
 /* --- Stage 80: the bucket's colour, chosen rather than counted --------------------------------------------
@@ -889,25 +984,21 @@ form.bucket-add .colour-row { margin-top: var(--sp-2); }
 .bucket-preset-rows { margin-top: var(--sp-1); }
 .bucket-preset-row { display: none; flex-wrap: wrap; gap: 5px; }
 .bucket-preset-row.on { display: flex; }
-.bucket-preset { display: inline-block; background: #eef1f5; color: var(--muted); border: 1px solid var(--input-border);
-    border-radius: var(--r-pill); font-size: var(--fs-5); font-weight: 600; padding: 2px 9px; }
-html[data-theme="dark"] .bucket-preset { background: #1c222b; color: #9aa7b8; }
+.bucket-preset { --badge-ink: var(--muted); border-color: var(--input-border); }
 .bucket-preset.none { border-style: dashed; font-weight: 500; }
 .bucket-pending { display: flex; flex-wrap: wrap; gap: 5px; }
 .bucket-pending:empty { display: none; }
-.bucket-pending-chip { display: inline-flex; align-items: center; gap: var(--sp-1); background: #e6f4d7; color: #3f620e;
-    border-radius: var(--r-pill); font-size: var(--fs-5); font-weight: 700; padding: 2px var(--sp-1) 2px 9px; }
-html[data-theme="dark"] .bucket-pending-chip { background: #24341a; color: #b7e08a; }
-.bucket-pending-drop { border: 0; background: none; color: inherit; cursor: pointer; font-size: var(--fs-9);
+.bucket-pending-chip { --badge-ink: var(--badge-green); }
+.bucket-pending-drop { border: 0; border-radius: var(--r-xs); background: none; color: inherit; cursor: pointer; font-size: var(--fs-9);
     line-height: 1; padding: 0 var(--sp-1); opacity: .7; }
-.bucket-pending-drop:hover { opacity: 1; }
+.bucket-pending-drop:hover { opacity: 1; background: color-mix(in srgb, currentColor 12%, transparent); }
 .bucket-add-line { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
 .bucket-add-line input[type="text"] { flex: 1 1 auto; }
 .bucket-add-line .ghost-btn { flex: 0 0 auto; }
 /* The box's own refusal — a name the category already offers, or one already on this board twice. It is not a
    `.field-err` node on purpose: an error line that is always printed is the first one a refused create would
    try to stand the caret in, and this one says nothing until the script has a reason to speak. */
-p.bucket-add-said { margin: var(--sp-1) 0 0; font-size: var(--fs-8); font-weight: 600; color: #b3261e; }
+p.bucket-add-said { margin: var(--sp-1) 0 0; font-size: var(--fs-8); font-weight: 600; line-height: 1.45; color: var(--danger-ink); }
 p.bucket-add-said:empty { display: none; }
 /* Stage 77: whether a new bucket also joins the category's defaults is asked as its own line under the box that
    names it — never in the row of tick-boxes above, where it would read as one more bucket to pick. */
@@ -921,9 +1012,9 @@ p.bucket-widen-why { flex: 1 1 100%; margin: 2px 0 0; font-size: var(--fs-6); co
    tick-list away, so this is printed inside #projectBoard — and it keeps the flex rules because it is still a
    flex item on the create popup's picker, where a note has to take its own line rather than squeeze in beside the
    last tick-box. */
-.bucket-said { flex: 1 1 100%; margin: 10px 0 0; font-size: var(--fs-8); font-weight: 600; }
+.bucket-said { flex: 1 1 100%; margin: 10px 0 0; font-size: var(--fs-8); font-weight: 600; line-height: 1.45; }
 .bucket-said.ok { color: var(--accent-ink); }
-.bucket-said.err { color: #b3261e; }
+.bucket-said.err { color: var(--danger-ink); }
 /* The mailer's master switch is a tick box and a Save, in one form: the box carries the state and the button
    is the path a reader with no JavaScript takes to the same write. They stack — the box is the sentence and
    the button is the answer to it, so putting them side by side reads as one control. */
@@ -933,20 +1024,9 @@ form.mail-switch { display: flex; flex-direction: column; align-items: flex-star
 label.check-row { display: flex; align-items: center; gap: var(--sp-2); margin: 0; font-size: var(--fs-10); font-weight: 600;
     letter-spacing: normal; text-transform: none; color: var(--title); cursor: pointer; }
 .check-row input[type="checkbox"] { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); cursor: pointer; }
-.flash { padding: 10px var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-9); margin-bottom: 14px; animation: pts-flash-in var(--dur-2) var(--ease-out); }
+.flash { padding: 10px var(--sp-3); border-radius: var(--r-md); font-size: var(--fs-9); line-height: 1.5; margin-bottom: 14px; animation: pts-flash-in var(--dur-2) var(--ease-out); }
 .flash.ok { background: var(--accent-soft); color: var(--accent-ink); border: 1px solid var(--accent); }
-.flash.err { background: #fdecea; color: #b3261e; border: 1px solid #f5c6c0; }
-select {
-    width: 100%;
-    padding: 11px var(--sp-3);
-    font-size: var(--fs-11);
-    font-family: inherit;
-    color: var(--input-text);
-    background: var(--input-bg);
-    border: 1px solid var(--input-border);
-    border-radius: var(--r-md);
-    outline: none;
-}
+.flash.err { background: var(--danger-soft); color: var(--danger-ink); border: 1px solid var(--danger-border); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--sp-3); margin-bottom: 14px; }
 .form-grid .field { margin-bottom: 0; }
 /* The projects board's search bar and its two sort pickers, in one GET form onto /app/projects.
@@ -995,23 +1075,93 @@ body.pts-refreshing [data-live-region] { opacity: .55; }
 }
 .ftab:hover { color: var(--title); }
 .ftab.active { background: var(--accent-soft); color: var(--accent-ink); }
-.ftab .pill { background: rgba(0, 0, 0, .06); }
-html[data-theme="dark"] .ftab .pill { background: rgba(255, 255, 255, .08); }
+.ftab.active .pill { --badge-ink: var(--accent-ink); }
 .group-head { display: flex; align-items: center; gap: 10px; margin-bottom: var(--sp-3); }
-.group-head .chip { font-size: var(--fs-9); font-weight: 700; padding: var(--sp-1) var(--sp-3); }
-.group-head .pill { background: rgba(0, 0, 0, .06); }
-html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08); }
+.group-head .chip { flex: 0 0 auto; }
 /* Project categories — one chip colour per letter prefix (M/R/S/L/D/E/F/G/O).
    Keyed on the letter, not the label, so renaming a category keeps its colour. */
-.chip.t-m { background: #e3f1fd; color: #1a5fb4; }
-.chip.t-r { background: #fbeed3; color: #8a5a06; }
-.chip.t-s { background: #e6f4d7; color: #3f620e; }
-.chip.t-l { background: #f3e8fd; color: #6f3fa0; }
-.chip.t-d { background: #ddeef0; color: #0f6670; }
-.chip.t-e { background: #e8eaf2; color: #3d4a72; }
-.chip.t-f { background: #f6e6df; color: #8a3c17; }
-.chip.t-g { background: #fde7ef; color: #a12a5e; }
-.chip.t-o { background: rgba(0, 0, 0, .06); color: var(--muted); }
+.chip.t-m { --badge-ink: var(--badge-blue); }
+.chip.t-r { --badge-ink: var(--badge-amber); }
+.chip.t-s { --badge-ink: var(--badge-green); }
+.chip.t-l { --badge-ink: var(--badge-violet); }
+.chip.t-d { --badge-ink: var(--badge-teal); }
+.chip.t-e { --badge-ink: var(--badge-slate); }
+.chip.t-f { --badge-ink: var(--badge-orange); }
+.chip.t-g { --badge-ink: var(--badge-rose); }
+.chip.t-o { --badge-ink: var(--muted); }
+
+/* Projects sheet polish (Stage 147). One scoped filter surface, a quieter data hierarchy and a designed
+   empty state. Colours come from the shared tokens and spacing from the shared scale, so dark mode and
+   reduced motion keep the contracts the rest of the app already uses. */
+body:has(#projectSearch) .page-head { margin-bottom: var(--sp-6); }
+body:has(#projectSearch) .page-head h1 { letter-spacing: -.02em; line-height: 1.2; }
+body:has(#projectSearch) .new-project-btn { min-height: 36px; padding: var(--sp-2) var(--sp-4); }
+form.board-toolbar:has(#projectSearch) {
+    gap: var(--sp-3); padding: var(--sp-3); margin-bottom: var(--sp-4);
+    background: var(--card-bg); border: 1px solid var(--input-border); border-radius: var(--r-lg);
+}
+form.board-toolbar:has(#projectSearch) .board-search {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-2);
+}
+form.board-toolbar:has(#projectSearch) .board-search-label {
+    grid-column: 1 / -1; margin: 0; color: var(--muted);
+    font-size: var(--fs-5); font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+}
+form.board-toolbar:has(#projectSearch) .board-search input[type="text"] {
+    width: 100%; min-height: 36px; border-color: var(--input-border);
+}
+form.board-toolbar:has(#projectSearch) .board-search input[type="text"]:focus { border-color: var(--focus-ring); }
+form.board-toolbar:has(#projectSearch) .board-search .submit {
+    min-height: 36px; padding: var(--sp-2) var(--sp-4); font-weight: 600;
+}
+form.board-toolbar:has(#projectSearch) .board-key {
+    flex: 0 1 150px; min-width: 140px; flex-direction: column; align-items: stretch; gap: var(--sp-1);
+    font-size: var(--fs-5); font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+}
+form.board-toolbar:has(#projectSearch) .board-key select {
+    width: 100%; min-width: 0; min-height: 36px; padding: var(--sp-2) var(--sp-3);
+    font-size: var(--fs-9); font-weight: 600; letter-spacing: normal; text-transform: none;
+}
+form.board-toolbar:has(#projectSearch) .board-reset {
+    display: inline-flex; align-items: center; justify-content: center; min-height: 36px;
+    padding: var(--sp-2) var(--sp-3); border: 1px solid var(--input-border); border-radius: var(--r-md);
+    background: var(--card-bg); font-weight: 600; text-decoration: none;
+}
+form.board-toolbar:has(#projectSearch) .board-reset:hover { background: var(--input-bg); }
+body:has(#projectSearch) .board-results > .filter-tabs { gap: var(--sp-2); margin-bottom: var(--sp-4); padding: 2px; }
+body:has(#projectSearch) .board-results > .filter-tabs .ftab {
+    min-height: 32px; padding: var(--sp-1) var(--sp-3); border: 1px solid transparent; font-size: var(--fs-8);
+}
+body:has(#projectSearch) .board-results > .filter-tabs .ftab:hover:not(.active) { background: var(--input-border); }
+body:has(#projectSearch) .board-results > .filter-tabs .ftab.active { border-color: var(--accent); font-weight: 700; }
+body:has(#projectSearch) .board-results > .filter-tabs .ftab.active .pill { --badge-ink: var(--accent-ink); }
+.board-results > .card-panel:has(table.projects-table) { padding: var(--sp-4); }
+body:has(#projectSearch) .board-results > .card-panel:last-child { margin-bottom: 0; }
+body:has(#projectSearch) .board-results .group-head { padding-bottom: var(--sp-3); margin-bottom: var(--sp-2); border-bottom: 1px solid var(--input-border); }
+table.projects-table th { padding: var(--sp-3); background: var(--input-bg); font-size: var(--fs-5); letter-spacing: .05em; }
+table.projects-table td { padding: var(--sp-3); line-height: 1.45; }
+table.projects-table td.c-code .code { color: var(--title); letter-spacing: .02em; }
+table.projects-table td.c-name .pname { font-weight: 700; line-height: 1.4; }
+table.projects-table td.c-client,
+table.projects-table td.c-manager { color: var(--muted); }
+table.projects-table td.c-start,
+table.projects-table td.c-due { color: var(--muted); font-size: var(--fs-9); }
+table.projects-table td.c-rev .money { color: var(--title); font-weight: 700; }
+table.projects-table td.c-status .chip { max-width: 100%; }
+table.projects-table .pct { display: inline-block; min-width: 32px; font-weight: 600; font-variant-numeric: tabular-nums; }
+table.projects-table .pin-btn {
+    min-height: 26px; padding: var(--sp-1) var(--sp-2); border-radius: var(--r-md); font-size: var(--fs-6); line-height: 1.4;
+}
+table.projects-table .pin-btn:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-ink); }
+body:has(#projectSearch) .board-results > .card-panel:not(:has(table)) {
+    padding: var(--sp-8) var(--sp-6); text-align: center; background: var(--input-bg); border-style: dashed;
+}
+body:has(#projectSearch) .board-results > .card-panel:not(:has(table)) .task-meta {
+    display: block; color: var(--title); font-size: var(--fs-11); font-weight: 600; line-height: 1.6;
+}
+body:has(#projectSearch) .board-results > .card-panel:not(:has(table)) .row-link {
+    display: inline-flex; margin-top: var(--sp-2); color: var(--accent-ink); font-weight: 700;
+}
 .row-link { color: var(--title); text-decoration: none; }
 .row-link:hover { color: var(--accent-ink); text-decoration: underline; }
 .detail-head { margin-bottom: var(--sp-3); }
@@ -1112,17 +1262,20 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 /* base.css writes `button.submit { display:block; width:100% }`, which turned "Save changes" into a full-width
    green bar spanning the panel — the screenshot shows no such bar. Compact it back to a right-aligned button
    that hugs its own label. */
-.edit-actions .submit { display: inline-block; width: auto; padding: var(--sp-2) 18px; font-size: var(--fs-9); }
+.edit-actions .submit {
+    display: inline-flex; align-items: center; justify-content: center; width: auto;
+    padding: var(--sp-2) var(--control-pad-x); font-size: var(--fs-10);
+}
 /* A destructive action styled as a small ghost button that reddens on hover — it sits in the header row
    beside the pin, not as a filled danger block, so it never outweighs the page. */
-.ghost-btn.btn-sm.danger { color: #d93025; }
-.ghost-btn.btn-sm.danger:hover { background: #d93025; border-color: #d93025; color: #fff; }
+.ghost-btn.btn-sm.danger { color: var(--danger-ink); }
+.ghost-btn.btn-sm.danger:hover { background: var(--danger-fill); border-color: var(--danger-fill); color: #fff; }
 /* The project page's roll-up strip (Stage 21) is gone — Stage 28 took the tiles, the column line and the
    people line out with it, because the board's own column heads already carry those counts. The `.sum-*`
    rules went with the markup rather than staying as a vocabulary nothing speaks. */
-.assignee.none { color: var(--muted); font-style: italic; }
+.assignee.none { color: var(--muted); font-style: normal; }
 .pw-edit { display: flex; gap: 6px; align-items: center; }
-.pw-edit input[type="password"] { width: 120px; border: 1px solid var(--input-border); background: var(--input-bg); color: var(--title); border-radius: var(--r-sm); padding: 5px var(--sp-2); font-size: var(--fs-8); }
+.pw-edit input[type="password"] { width: 120px; font-size: var(--fs-8); }
 .team-table tbody tr[data-emp] { cursor: pointer; }
 .team-table tbody tr[data-emp]:hover td { background: var(--input-bg); }
 .mhint { color: var(--muted); font-size: var(--fs-12); font-weight: 700; }
@@ -1134,25 +1287,32 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
 .mpop-id { flex: 1; min-width: 0; }
 .mpop-name { font-size: var(--fs-11); font-weight: 700; color: var(--title); }
 .mpop-sub { font-size: var(--fs-6); color: var(--muted); margin-top: 1px; }
-.mpop-x { border: none; background: transparent; color: var(--muted); font-size: var(--fs-14); line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: var(--r-sm); }
+.mpop-x { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; min-width: var(--sp-7); min-height: var(--sp-7); border: none; background: transparent; color: var(--muted); font-size: var(--fs-14); line-height: 1; cursor: pointer; padding: 2px 7px; border-radius: var(--r-sm); }
 .mpop-x:hover { color: var(--title); background: rgba(0, 0, 0, .07); }
+.mpop-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mpop-body { padding: var(--sp-1) 14px var(--sp-3); max-height: min(60vh, 480px); overflow-y: auto; }
 .mpop-sechead { font-size: var(--fs-4); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: var(--sp-3) 0 var(--sp-1); }
-.mpop-empty { font-size: var(--fs-8); color: var(--note); font-style: italic; padding: var(--sp-1) 0 2px; }
+.mpop-empty { font-size: var(--fs-8); line-height: 1.5; color: var(--muted); font-style: normal; padding: var(--sp-1) 0 2px; }
 .mpop-row { display: flex; align-items: flex-start; gap: 10px; padding: var(--sp-2) 0; border-bottom: 1px solid var(--input-border); }
 .mpop-row:last-child { border-bottom: none; }
 .mpop-main { flex: 1; min-width: 0; }
 .mpop-title { font-size: var(--fs-9); font-weight: 600; color: var(--title); line-height: 1.35; }
 .mpop-title .code { margin-right: var(--sp-1); }
 .mpop-title .tcode { margin-right: 6px; }
-.tcode.m { font-size: var(--fs-2); padding: 1px 5px; }
+.tcode.m { letter-spacing: .02em; }
 .mpop-meta { display: flex; align-items: center; gap: 6px; font-size: var(--fs-6); color: var(--muted); margin-top: 3px; flex-wrap: wrap; }
 .mdot { width: 8px; height: 8px; border-radius: var(--r-round); display: inline-block; flex: 0 0 8px; }
 .mprog { display: inline-block; width: 70px; height: 6px; border-radius: 3px; background: var(--input-bg); overflow: hidden; margin-left: var(--sp-1); }
 .mprog-bar { display: block; height: 100%; background: var(--accent); }
 .mrole { flex: 0 0 auto; font-size: var(--fs-4); font-weight: 700; padding: 2px var(--sp-2); border-radius: 10px; background: var(--input-bg); color: var(--muted); margin-top: 2px; }
 .mrole.mgr { background: var(--accent-soft); color: var(--accent-ink); }
-.tasks-toggle { min-width: 32px; padding: 2px 10px; border-radius: var(--r-lg); border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: var(--fs-8); font-weight: 700; cursor: pointer; }
+.tasks-toggle, .tasks-static, .quick-add, .count-btn {
+    min-width: 32px; min-height: var(--control-h-sm); display: inline-flex; align-items: center; justify-content: center;
+    padding: var(--sp-1) var(--sp-2); border: 1px solid var(--input-border); border-radius: var(--r-md);
+    background: var(--card-bg); color: var(--title); font-family: inherit; font-size: var(--fs-8);
+    font-weight: 700; line-height: 1.4;
+}
+.tasks-toggle { cursor: pointer; }
 .tasks-toggle:hover { border-color: var(--accent-ink); color: var(--accent-ink); }
 .tasks-toggle.open { background: var(--accent-soft); border-color: var(--accent-ink); color: var(--accent-ink); }
 .tasks-toggle.zero { color: var(--muted); font-weight: 600; }
@@ -1160,38 +1320,40 @@ html[data-theme="dark"] .group-head .pill { background: rgba(255, 255, 255, .08)
    everybody and the card list under it is not, so the number is printed as a plain figure rather than as a button
    that would open nothing — same metrics as .tasks-toggle minus the cursor and the hover, so the column still
    reads as one kind of thing rather than as a control that has stopped working. */
-.tasks-static { display: inline-block; min-width: 32px; padding: 2px 10px; border-radius: var(--r-lg); border: 1px solid var(--input-border); background: var(--card-bg); color: var(--title); font-size: var(--fs-8); font-weight: 700; }
+.tasks-static { color: var(--title); }
 .tasks-static.zero { color: var(--muted); font-weight: 600; }
 /* How many projects a member is on (Team.kt memberProjects) — a set of projects, not a count of cards, so it is
    deliberately not a .count pill: the five status figures add up to the Total beside it and this one does not
    belong to that arithmetic. Matched to .count-total's weight so the row reads as two totals, not one total
    and one stray number. */
 .proj-count { font-size: var(--fs-9); font-weight: 800; color: var(--title); }
-.quick-add { margin-left: 6px; padding: 1px 9px; border-radius: 10px; border: 1px solid var(--input-border); background: var(--card-bg); color: var(--muted); font-size: var(--fs-11); font-weight: 700; line-height: 1.4; cursor: pointer; }
+.quick-add { margin-left: 6px; color: var(--muted); cursor: pointer; }
 .quick-add:hover { color: var(--accent-ink); border-color: var(--accent-ink); background: var(--accent-soft); }
 /* Department label rows above each group in the Team table (Team.kt departmentRow). A plain row
    rather than a <th>: the column widths still come from the member rows underneath, and a header
    cell would fight the .num sizing those rows rely on.
-   Highlighted as an accent band — --accent-soft under --accent-strong is the same pairing the active
-   nav item, the manager role chip and the flash banner use, so it re-colours with the accent cycle
-   and flips with the dark theme with no hardcoded value and no [data-theme] override. The count rides
-   on --card-bg, which is how .nav-item.active .pill stays legible inside the same soft fill. */
+   Highlighted as an accent band — --accent-soft under --accent-ink is the same readable pairing the
+   active nav item uses, so it re-colours with the accent cycle and flips with the dark theme with no
+   hardcoded value and no [data-theme] override. The name and count use the shared badge shape, with
+   their ink kept on the accent so the group still reads as one band. */
 tr.dept-row > td { padding: 7px 0 5px; background: transparent; }
 .dept-cell { display: flex; align-items: baseline; gap: 9px; padding: 7px var(--sp-3); background: var(--accent-soft); border-left: 3px solid var(--accent-ink); border-radius: 0 var(--r-md) var(--r-md) 0; }
-.dept-name { font-size: var(--fs-8); font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--accent-ink); }
-.dept-count { font-size: var(--fs-5); font-weight: 700; color: var(--accent-ink); background: var(--card-bg); border-radius: 10px; padding: 1px var(--sp-2); }
+.dept-name { --badge-ink: var(--accent-ink); letter-spacing: .06em; text-transform: uppercase; }
+.dept-count { --badge-ink: var(--accent-ink); font-variant-numeric: tabular-nums; }
 tr.member-tasks > td { background: var(--accent-soft); border-top: 1px dashed var(--input-border); padding: var(--sp-2) 14px 10px; }
 tr.member-tasks[hidden] { display: none; }
 tr.member-tasks .mpop-row { padding: 7px 0; }
-.mtd-empty { font-size: var(--fs-8); color: var(--note); font-style: italic; }
-.other-tag { flex: 0 0 auto; font-size: var(--fs-2); font-weight: 700; padding: 1px 6px; border-radius: var(--r-md); background: var(--input-bg); color: var(--muted); margin-right: var(--sp-1); }
+.mtd-empty { font-size: var(--fs-8); line-height: 1.5; color: var(--muted); font-style: normal; }
+.other-tag { flex: 0 0 auto; margin-right: var(--sp-1); }
 /* Nothing under a project's columns any more (Stage 35): the box that named one more lane is gone, so the
    `.lane-add` rules went with it, along with the `.manager-set` rules they had already replaced. A board is the
    three lanes its project was created with, and a card moves between them through the popup's Lane field or a
    drag — which is what `.kcol-add`, the per-column `+ Add task` line, and the `[data-lane]` columns are for. */
 .acct-email { font-size: var(--fs-9); color: var(--muted); }
 table.grid td.num { text-align: center; width: 1%; white-space: nowrap; }
-.count-btn { min-width: 34px; padding: 2px 10px; border-radius: var(--r-lg); border: 1px solid var(--input-border); background: var(--card-bg); color: var(--accent-ink); font-size: var(--fs-8); font-weight: 800; font-family: inherit; cursor: pointer; }
+.count-btn {
+    min-width: 34px; color: var(--accent-ink); font-weight: 800; font-variant-numeric: tabular-nums; cursor: pointer;
+}
 .count-btn:hover { border-color: var(--accent-ink); background: var(--accent-soft); }
 .count-btn.open { background: var(--accent-soft); border-color: var(--accent-ink); }
 .count-zero { font-size: var(--fs-9); color: var(--muted); opacity: 0.55; }
@@ -1216,7 +1378,8 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
    The selector is .submit.btn-sm, not .btn-sm: base.css writes `button.submit`, which is
    (0,1,1) and would outrank a bare class, leaving the button full-width and 13px padded. */
 .submit.btn-sm, .btn-sm {
-    width: auto; display: inline-block; margin-top: 0; padding: 5px var(--sp-3);
+    width: auto; min-height: var(--control-h-sm); display: inline-flex; align-items: center; justify-content: center;
+    margin-top: 0; padding: 5px var(--sp-3);
     font-size: var(--fs-8); font-weight: 600; line-height: 1.5;
 }
 .new-project-btn, .new-task-btn { white-space: nowrap; }
@@ -1231,11 +1394,11 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 /* The board's one hidden opener form. `hidden` alone is not enough here: base.css gives forms a display
    value, and a visible empty form would sit under the last column of the board. */
 .card-edit-opener[hidden] { display: none; }
-.kcol-empty { font-size: var(--fs-7); color: var(--muted); font-style: italic; margin: 6px 0 0; }
+.kcol-empty { font-size: var(--fs-7); line-height: 1.5; color: var(--muted); font-style: normal; margin: 6px 0 0; }
 /* A lane column always prints its "Nothing here." line last, so the line that says a column has cards is the
    line hiding it: a card moved in or out changes the message with nothing in the script keeping it in step.
-   The status board does not need this — its columns are only ever drawn by the server, and it reloads. */
-.kcol .kcard + .kcol-empty { display: none; }
+   A status column that becomes empty gets the same line from kanban.js before its quiet board refresh. */
+.kcol .kcard + .kcol-empty, .kcol .kcard ~ .kcol-empty { display: none; }
 /* --- Stage 80: a column's finished cards folded behind one line ------------------------------------------
    The line only prints when the column holds a Completed card, and it is the board's quietest control on purpose
    — the same treatment as `+ Add task` below, because "show me the rest" is not an action with consequences and
@@ -1287,25 +1450,58 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 .lane-add-box-btn:hover { color: var(--accent-ink); text-decoration: underline; }
 .lane-add-box-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .modal-wide { max-width: 640px; }
-.modal-wide h3 { font-size: 17px; margin: 0 0 var(--sp-4); }
+.modal-wide h3 { font-size: var(--fs-14); letter-spacing: -.01em; margin: 0 0 var(--sp-4); }
 .modal-wide .form-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
 .field.full { grid-column: 1 / -1; }
-.field-hint { display: block; font-size: var(--fs-6); color: var(--muted); margin-top: 5px; }
+.field-hint { display: block; font-size: var(--fs-6); line-height: 1.45; color: var(--muted); margin-top: var(--sp-1); }
 /* --- Stage 109: the currency picker under Revenue in the new-project popup --------------------------------
    The amount and the money it is in are one answer, so the second box hugs the first: a short gap rather than the
    form grid's, and `select`'s own field height turned down to something that reads as "and in what?" rather than
    as a field of the same weight as the amount. Its width stays the base rule's 100%, because it sits directly
    under the amount box and anything narrower would look like a stray control beside it. */
 .currency-line { margin-top: 6px; }
-.currency-line select { padding: 7px 10px; font-size: var(--fs-8); font-weight: 600; color: var(--muted); }
+.currency-line select { font-size: var(--fs-8); font-weight: 600; color: var(--muted); }
 .modal-wide .modal-actions { display: flex; align-items: center; gap: 10px; }
-.modal-wide .modal-actions .submit { flex: 1; margin-top: 0; padding: 11px; font-size: var(--fs-10); }
+.modal-wide .modal-actions .submit { flex: 1; margin-top: 0; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-10); }
 .ghost-btn {
-    flex: 0 0 auto; padding: 11px 18px; border: 1px solid var(--input-border); border-radius: var(--r-md);
-    background: transparent; color: var(--muted); font-family: inherit; font-size: var(--fs-10);
-    font-weight: 700; cursor: pointer;
+    min-height: var(--control-h); flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center;
+    gap: var(--sp-1); padding: var(--sp-2) var(--sp-4); border: 1px solid var(--input-border); border-radius: var(--r-md);
+    background: transparent; color: var(--muted); font-size: var(--fs-10);
+    font-family: inherit; font-weight: 700; line-height: 1.4; text-decoration: none; cursor: pointer;
 }
-.ghost-btn:hover { color: var(--title); background: var(--input-bg); }
+.ghost-btn:hover:not(:disabled) { color: var(--title); background: var(--input-bg); border-color: var(--border-strong); }
+.ghost-btn:disabled { opacity: .55; cursor: not-allowed; }
+.ghost-btn.btn-sm { min-height: var(--control-h-sm); padding: 5px var(--sp-3); font-size: var(--fs-8); }
+
+/* Stage 2 — one compact control vocabulary. Row editors, date pickers and catalogue add lines keep
+   their own widths and type sizes, but not their own idea of height, corner or inset. */
+.status-select,
+form.cell-edit input[type="text"], form.cell-edit input[type="email"], form.cell-edit select,
+.pw-edit input[type="password"],
+.todo-list .todo-add input[type="date"], .todo-row .todo-due-form input[type="date"],
+.currency-line select,
+.type-row.editing .type-rename input,
+form.type-add input, form.bucket-add input {
+    min-height: var(--control-h-sm); border-radius: var(--r-md);
+    padding: var(--control-py-sm) var(--control-pad-x-sm);
+}
+.icon-btn, .pin-btn, .delete-btn, .ghost-btn, .modal-btn, .quick-add, .tasks-toggle, .count-btn,
+.todo-del, .todo-move {
+    transition: border-color var(--dur-1) var(--ease-std), color var(--dur-1) var(--ease-std),
+        box-shadow var(--dur-1) var(--ease-std), transform var(--dur-1) var(--ease-std),
+        background-color var(--dur-1) var(--ease-std);
+}
+.icon-btn:focus-visible, .pin-btn:focus-visible, .delete-btn:focus-visible, .ghost-btn:focus-visible,
+.modal-btn:focus-visible, .quick-add:focus-visible, .tasks-toggle:focus-visible, .count-btn:focus-visible {
+    border-color: var(--focus-ring);
+}
+.icon-btn:disabled, .pin-btn:disabled, .delete-btn:disabled, .ghost-btn:disabled, .modal-btn:disabled,
+.quick-add:disabled, .tasks-toggle:disabled, .count-btn:disabled {
+    opacity: .55; box-shadow: none; cursor: not-allowed;
+}
+.icon-btn:active:not(:disabled), .pin-btn:active:not(:disabled), .delete-btn:active:not(:disabled),
+.ghost-btn:active:not(:disabled), .modal-btn:active:not(:disabled), .quick-add:active:not(:disabled),
+.tasks-toggle:active:not(:disabled), .count-btn:active:not(:disabled) { transform: translateY(1px); }
 .money { font-variant-numeric: tabular-nums; font-weight: 600; }
 
 /* ---------------------------------------------------------------------------
@@ -1318,11 +1514,7 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
    in a card menu. They have to sit in a flex row exactly where the button they wrap used to sit. */
 .opener-form { display: inline-flex; margin: 0; }
 
-/* Fields the reader reads but cannot write — the four management keeps. The service takes these values
-   from the stored row, so the greying explains the rule instead of enforcing it. */
-.modal-wide input:disabled, .modal-wide select:disabled {
-    background: var(--input-bg); color: var(--muted); cursor: not-allowed; opacity: .75;
-}
+/* Fields the reader reads but cannot write use the shared disabled-control treatment in base.css. */
 .modal-scope { font-size: var(--fs-7); line-height: 1.45; color: var(--muted); margin: -10px 0 var(--sp-4); }
 
 .modal-checklist, .modal-notes {
@@ -1331,7 +1523,7 @@ tr.acct-detail .mpop-row { padding: 7px 0; }
 }
 html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes { border-top-color: rgba(255, 255, 255, .12); }
 .modal-checklist.pts-busy, .modal-notes.pts-busy { opacity: .55; }
-.section-empty { font-size: var(--fs-7); font-style: italic; color: var(--muted); margin: var(--sp-1) 0 6px; }
+.section-empty { font-size: var(--fs-7); line-height: 1.5; font-style: normal; color: var(--muted); margin: var(--sp-1) 0 6px; }
 
 /* A step row is a `.chk-row` whether it is read on a project board's popup or anywhere else — the read-only
    ✓/· spelling of a step went out with the card's own list (Stage 41), so `.step-row` and `.step-mark` are
@@ -1343,12 +1535,12 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
     cursor: pointer; border: none; background: transparent; color: var(--muted);
     font-size: var(--fs-13); line-height: 1; padding: 2px 7px; border-radius: var(--r-sm); font-family: inherit;
 }
-.x-btn:hover { color: #d93025; background: rgba(217, 48, 37, .12); }
+.x-btn:hover { color: var(--danger-ink); background: color-mix(in srgb, var(--danger-ink) 12%, transparent); }
 
 .note-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 var(--sp-2); padding: var(--sp-2) 0; border-bottom: 1px dashed var(--input-border); }
 .note-row:last-of-type { border-bottom: none; }
 .note-body { grid-column: 1; font-size: var(--fs-8); line-height: 1.45; color: var(--title); white-space: pre-wrap; word-break: break-word; }
-.note-by { grid-column: 1; font-size: var(--fs-5); color: var(--muted); margin-top: 2px; }
+.note-by { grid-column: 1; font-size: var(--fs-5); line-height: 1.45; color: var(--muted); margin-top: 2px; }
 .note-remove { grid-column: 2; grid-row: 1 / span 2; align-self: start; }
 
 /* One add row per section: the field takes the width and the button keeps its own, so writing a list
@@ -1408,7 +1600,7 @@ html[data-theme="dark"] .modal-checklist, html[data-theme="dark"] .modal-notes {
 .notif-head-title { font-size: var(--fs-8); font-weight: 800; color: var(--title); }
 .notif-head form { margin: 0; }
 .notif-list { max-height: 340px; overflow-y: auto; }
-.notif-empty { padding: 18px 14px; font-size: var(--fs-8); color: var(--muted); line-height: 1.45; }
+.notif-empty { padding: 18px 14px; font-size: var(--fs-8); color: var(--muted); line-height: 1.55; }
 .notif-text { min-width: 0; }
 a.notif-item {
     display: flex; gap: 9px; align-items: flex-start; padding: 10px var(--sp-3);
@@ -1442,8 +1634,7 @@ a.notif-item.unread .notif-item-title { color: var(--title); }
    thirteen of them wraps to four lines and the lines have to breathe the same way the columns do. */
 .perm-chips { display: flex; flex-wrap: wrap; gap: 6px 6px; }
 .chip.perm {
-    background: var(--input-bg); border: 1px solid var(--input-border); color: var(--title);
-    font-size: var(--fs-5); font-weight: 700; letter-spacing: .01em; padding: 2px 9px;
+    --badge-ink: var(--title); background: var(--input-bg); border-color: var(--input-border);
 }
 
 /* The table reads left to right as name, rights, headcount — so the rights column is the one that gets
@@ -1507,19 +1698,19 @@ table.fc-table col.f-prev { width: 8%; }
 table.fc-done-table col.d-type { width: 5%; }
 table.fc-done-table col.d-desc { width: 23%; }
 
-/* ---- The desktop sidebar, hidden by choice (Stage 130) ------------------------------------------------
-   The sidebar holds 240px of the row on a wide page, and a reader working a full-width sheet wants that width
-   back. The corner button that already shuts the phone drawer is the control: here it hides the panel, and the
-   panel leaves the flex row entirely — `display: none`, not a basis animating to zero — so `main` takes the whole
-   window in one step instead of sliding everything sideways for a fifth of a second while the reader watches. It
-   is a choice and never a surprise: nothing on this page folds itself.
-   The way back is a slim tab fixed to the page's left edge, because the button that hid the column is *in* the
-   column and went with it. Every rule here is gated on `html.js`: the state lives in `localStorage`, so without a
-   script there is nobody who could have hidden the panel and the controls that would offer must stay as hidden as
-   they always were. The key is per browser, beside `pts-theme` and `pts-accent` — no route, no table, nothing
-   written about the account.
-   These sit above the Stage 119 block rather than inside it, and the block answers each one: below 900px the
-   sidebar is a drawer that the hamburger opens whatever this browser remembered from a wider window. */
+/* ---- The desktop sidebar, folded to an icon rail (supersedes Stage 130's complete hiding) --------------
+   One always-present corner button switches the 240px column to a 64px rail. The panel stays in the flex row,
+   so every destination remains a normal link and `main` takes the freed width naturally. Width, flex basis and
+   padding use the app's existing motion tokens; base.css's reduced-motion rule stands all of them down.
+   Text and the projects panel leave the rail, while each navigation icon is centred and its count becomes a dot.
+   The button does not move: it remains in the sidebar's top-right corner and its chevron points to the result of
+   the next press. There is no edge tab or second control.
+   Every rule is gated on `html.js`, because only a script can apply the remembered `pts-sidebar` choice. These sit
+   above the Stage 119 block; that block restores the complete drawer at 900px and below, including every label. */
+html.js .sidebar {
+    transition: width var(--dur-2) var(--ease-std), flex-basis var(--dur-2) var(--ease-std),
+        padding var(--dur-2) var(--ease-std);
+}
 html.js .nav-close {
     display: inline-flex; align-items: center; justify-content: center;
     position: absolute; top: 10px; right: 10px;
@@ -1528,27 +1719,31 @@ html.js .nav-close {
     background: var(--card-bg); color: var(--title); cursor: pointer;
 }
 html.js .nav-close:hover { background: var(--input-bg); }
-/* The closer's glyph, at either width: 20px inside a 40px drawer box, 34px desktop box. Which of the two drawings
-   (Stage 129) is turned to the reader is the theme's decision and lives with the theme rules below. */
+/* The closer's two theme drawings are 20px inside a 40px drawer box or a 34px desktop box. */
 html.js .nav-close svg { width: 20px; height: 20px; }
+html.js .nav-close .expand-chevron { display: none; }
+html.js body.sidebar-rail .nav-close .fold-chevron { display: none; }
+html.js body.sidebar-rail .nav-close .expand-chevron { display: inline; }
 
-/* Out of the flex row, so `main` (flex: 1) fills the window. The sidebar's own `position: sticky` above is what
-   the corner button is measured against, and it is why this can be `display: none` rather than a width. */
-html.js body.sidebar-hidden .sidebar { display: none; }
-
-/* The way back sits at the top of the left edge, `top: 10px` — the same offset the closer is given inside the
-   sidebar — so the control that opens the panel appears where the control that hid it just was. It is not floated
-   to the middle of the edge: the reader's eye is on the top of the page when they fold the sidebar away, and a tab
-   they have to look for is a tab that reads as a stray mark on the window. */
-html.js body.sidebar-hidden .sidebar-tab {
-    display: inline-flex; align-items: center; justify-content: center;
-    position: fixed; top: 10px; left: 0; z-index: 50;
-    width: 22px; height: 72px; padding: 0;
-    border: 1px solid var(--input-border); border-left: none; border-radius: 0 var(--r-md) var(--r-md) 0;
-    background: var(--card-bg); color: var(--muted); cursor: pointer;
+html.js body.sidebar-rail .sidebar {
+    width: 64px; flex: 0 0 64px;
+    padding-left: 10px; padding-right: 10px; overflow-x: hidden;
 }
-html.js body.sidebar-hidden .sidebar-tab:hover { background: var(--input-bg); color: var(--title); }
-.sidebar-tab svg { width: 15px; height: 15px; }
+html.js body.sidebar-rail .side-brand,
+html.js body.sidebar-rail .side-caption,
+html.js body.sidebar-rail .pinned,
+html.js body.sidebar-rail .side-foot { display: none; }
+html.js body.sidebar-rail .sidebar nav { margin-top: var(--sp-7); }
+html.js body.sidebar-rail .nav-item {
+    position: relative; justify-content: center; padding: 10px 0;
+}
+html.js body.sidebar-rail .nav-item svg { width: 20px; height: 20px; flex: 0 0 20px; }
+html.js body.sidebar-rail .nav-item .label { display: none; }
+html.js body.sidebar-rail .nav-item .pill {
+    position: absolute; top: 4px; right: 4px;
+    width: 8px; height: 8px; min-width: 8px; padding: 0;
+    border-radius: var(--r-round); font-size: 0;
+}
 
 /* ---- The search page, and the phone's own row of tabs (Stage 134) --------------------------------
    Two of the responsive checklist's asks are not widths, so they live outside the breakpoint: a page of
@@ -1578,8 +1773,8 @@ html.js body.sidebar-hidden .sidebar-tab:hover { background: var(--input-bg); co
     padding: var(--sp-3) 0; border-bottom: 1px solid var(--input-border);
 }
 .search-list .search-row:last-child { border-bottom: none; }
-.search-title { font-size: var(--fs-11); font-weight: 600; }
-.search-detail { font-size: var(--fs-8); color: var(--muted); }
+.search-title { font-size: var(--fs-11); font-weight: 600; line-height: 1.4; }
+.search-detail { font-size: var(--fs-8); line-height: 1.45; color: var(--muted); }
 .mtabbar { display: none; }
 
 /* ---- Motion (Stage B) -------------------------------------------------------------------------
@@ -1589,7 +1784,7 @@ html.js body.sidebar-hidden .sidebar-tab:hover { background: var(--input-bg); co
    invented for the occasion: an entrance asks for `--dur-2`, a state change answers in `--dur-1`, and
    `base.css` ends with the one block that takes them away again for a reader who asked for that.
 
-   Five kinds of motion, each the answer to a moment on the page:
+   Six kinds of motion, each the answer to a moment on the page:
    * a control the cursor lands on, or a finger presses and leaves — the transition set below, which is
      one rule rather than thirty because every one of these already changes colour under a pointer. One of
      them, `.kmove-btn`, had a transition of its own — `background .12s, color .12s, border-color .12s` —
@@ -1604,8 +1799,9 @@ html.js body.sidebar-hidden .sidebar-tab:hover { background: var(--input-bg); co
    * a popup arriving over the page — `.modal` fades and blurs its scrim while `.modal-content` rises into
      place, and `.mpop`, which is a panel beside a row rather than an overlay over the page, only fades;
    * a one-shot banner a save has earned — `.flash` slides down into place instead of appearing;
-   * a card being dragged — `.kcard-drag`, a class `kanban.js` puts on the node at `dragstart` and takes
-     off at `dragend`, so the lift is painted into the drag image and not just left behind in the column;
+   * a card being dragged — `.kcard-drag`, painted into the browser's drag image at `dragstart`, and
+     `.kcard-ghost`, added on the following frame to dim only the original card left in its column;
+   * a dropped card settling — `.kcard-settle`, a short fade/scale that never moves the layout;
    * a page that has just changed — `.content` fades in **once**, on load. A board re-rendering inside
      that page is a different thing entirely, so `[data-live-region]` is given no animation at all and
      keeps only the dimming Stage 39 gave a refresh.
@@ -1621,22 +1817,29 @@ html.js body.sidebar-hidden .sidebar-tab:hover { background: var(--input-bg); co
 .kmove-btn, .kcol-menu-btn, .kcard-open-btn, .notif-btn, .mpop-x, .x-btn, .delete-btn, .kcard,
 .close, a.logout, .ll-open, .row-link, .crumb-link, .back-link, .ftab,
 .board-toolbar .board-reset, .fc-num, .kcol-add-btn, .kdone-btn, .lane-add-box-btn, .mtab,
-.team-table tbody tr[data-emp] td {
+.team-table tbody tr[data-emp] td, table.projects-table tbody tr td, table.projects-table .pin-btn {
     transition: background-color var(--dur-1) var(--ease-std), border-color var(--dur-1) var(--ease-std),
         color var(--dur-1) var(--ease-std), box-shadow var(--dur-1) var(--ease-std),
         transform var(--dur-1) var(--ease-std);
 }
 
-/* The card that has just been picked up: raised out of the column it came from, tilted a fraction so it
-   reads as a thing in the hand rather than a row of the board, and dimmed enough that the column behind it
-   is visibly the one it left. The dark theme needs a darker shadow than a pale card does, or the lift
-   disappears into the page. */
+/* The drag image is deliberately stable: no transform and no transition for the browser to paint mid-gesture.
+   The original is dimmed separately on the next frame, after the image has been captured. */
 .kcard.kcard-drag {
-    opacity: .85;
-    transform: translateY(-2px) rotate(.4deg);
-    box-shadow: 0 8px 18px rgba(0, 0, 0, .22);
+    opacity: .92;
+    transform: none;
+    transition: none;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, .18);
 }
-html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0, .55); }
+.kcard.kcard-ghost { opacity: .38; box-shadow: none; }
+html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0, .48); }
+body.kanban-dragging, body.kanban-dragging .kcard[draggable="true"] { cursor: grabbing; }
+body.kanban-dragging .kanban { scroll-snap-type: none; }
+.kcard.kcard-settle { animation: pts-kanban-settle var(--dur-3) var(--ease-out); }
+@keyframes pts-kanban-settle {
+    from { opacity: .98; transform: scale(.98) }
+    to { opacity: 1; transform: none }
+}
 
 @keyframes pts-overlay-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes pts-card-in {
@@ -1668,11 +1871,16 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
    The off-canvas half is scoped to `html.js`, the class `app.js` puts on the document before the
    page paints. With JavaScript off there is no hamburger that could open a hidden drawer, so the
    sidebar stays in the flow and stacks above the page instead — a smaller shell, but a usable one. */
-.nav-toggle, .nav-backdrop, .nav-close, .sidebar-tab { display: none; }
+.nav-toggle, .nav-backdrop, .nav-close { display: none; }
 
 @media (max-width: 900px) {
     .app { display: block; }
     .main { padding: var(--sp-5) var(--sp-4); }
+
+    /* Projects keeps one search row and lets the two labelled sort fields share the row below it. */
+    form.board-toolbar:has(#projectSearch) .board-search { flex-basis: 100%; }
+    form.board-toolbar:has(#projectSearch) .board-key { flex: 1 1 160px; }
+    .board-results > .card-panel:has(table.projects-table) { padding: var(--sp-3); }
 
     /* Without JavaScript the sidebar is simply the page's first block. */
     .sidebar {
@@ -1691,15 +1899,30 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
     html.js body.nav-open .sidebar { transform: none; }
     html.js body.nav-open { overflow: hidden; }
 
-    /* Stage 130's desktop controls stand down at this width. Each rule is the breakpoint's copy of the one above
-       it — same selector, later source, so the wide-page geometry cannot leak into a phone layout: the panel the
-       corner button would hide *is* the drawer, and the drawer the tab would reopen is the one the hamburger
-       already opens, whatever this browser happened to remember from a wider window. The middle line is Stage
-       128's gate, moved up from the bottom of this block so it outranks the desktop rule above: a closer is
-       printed only while there is a drawer to close. */
-    html.js body.sidebar-hidden .sidebar { display: flex; }
+    /* The remembered desktop rail stands down at this width. The panel is the phone's full-width drawer again,
+       whatever this browser remembered from a wider window, so the brand, labels, projects and footer all return.
+       Same-state selectors, later source: no rail geometry or arrow may leak into the drawer. The closer remains
+       Stage 128's gate and is printed only while there is an open drawer to close. */
+    html.js body.sidebar-rail .sidebar {
+        width: 100%; flex-basis: auto;
+        padding: var(--sp-5) 14px var(--sp-4); overflow-x: auto;
+    }
+    html.js body.sidebar-rail .side-brand { display: inline; }
+    html.js body.sidebar-rail .side-caption,
+    html.js body.sidebar-rail .pinned,
+    html.js body.sidebar-rail .side-foot { display: block; }
+    html.js body.sidebar-rail .sidebar nav { margin-top: 0; }
+    html.js body.sidebar-rail .nav-item { justify-content: flex-start; padding: 10px var(--sp-3); }
+    html.js body.sidebar-rail .nav-item svg { width: 18px; height: 18px; flex: 0 0 18px; }
+    html.js body.sidebar-rail .nav-item .label { display: block; }
+    html.js body.sidebar-rail .nav-item .pill {
+        position: static; top: auto; right: auto;
+        width: auto; height: auto; min-width: auto; padding: 2px var(--sp-2);
+        border-radius: var(--r-pill); font-size: var(--fs-5);
+    }
+    html.js body.sidebar-rail .nav-close .fold-chevron { display: inline; }
+    html.js body.sidebar-rail .nav-close .expand-chevron { display: none; }
     html.js .nav-close { display: none; }
-    html.js body.sidebar-hidden .sidebar-tab { display: none; }
 
     html.js .nav-toggle {
         display: inline-flex; align-items: center; justify-content: center; flex-direction: column;
@@ -1756,6 +1979,24 @@ html[data-theme="dark"] .kcard.kcard-drag { box-shadow: 0 8px 18px rgba(0, 0, 0,
     .kanban > .kcol, .kanban > .lane-add-box {
         flex: 0 0 88%; scroll-snap-align: start; min-width: 0;
     }
+
+    /* The To-do page's board is the shell's other sideways scroller, and Stage 134 gave the Kanban row a
+       flick that settles without giving this one the same. `.todo-board` already scrolls at every width —
+       `overflow-x: auto`, with each list on a fixed 330px basis — so on a phone a reader gets one list and
+       a sliver of the next, and nothing makes the scroll land on a boundary: a flick can stop halfway
+       between two lists, which is the fault the board above this rule was given a snap to lose.
+       `proximity` here and not the `mandatory` the Kanban row uses, because the two boards are dragged
+       differently. `kanban.js` moves a *card* between columns and never scrolls the row that snaps, so
+       there is nothing for a mandatory container to fight. `todo.js` drags the *lists themselves* along
+       this same axis and scrolls the board to do it — `board.scrollLeft += 14` when the pointer comes
+       within 70px of an edge — and a mandatory container re-lands on a snap point, so it would snap that
+       edge-scroll straight back and strand a drag halfway down the row. Proximity settles a scroll that
+       ends near a point, which is what a flick wants and what a drag needs left alone.
+       The lists keep their 330px basis: the sliver of the next one is the affordance that says there is
+       more of the row, the same reason the columns above are 88% and not 100%. No third breakpoint — this
+       sits inside the shell's own 900px block, beside the board it matches. */
+    .todo-board { scroll-snap-type: x proximity; }
+    .todo-board .todo-list { scroll-snap-align: start; }
 
     /* The project page's field row takes two fields to a row here (Stage 134), and one below 520px in the
        block at the end of this file. This is the checklist's "KPI row", which on this app is the strip under
@@ -1876,4 +2117,13 @@ html[data-theme="dark"] .nav-close .glyph-filled { display: block; }
     .detail-strip .ef.progress-ef, .detail-strip .ef:first-child {
         flex: 1 1 100%;
     }
+
+    /* The Projects head may wrap its actions, while the filter pair stays compact and the sheet scrolls. */
+    body:has(#projectSearch) .page-head { flex-wrap: wrap; gap: var(--sp-3); }
+    form.board-toolbar:has(#projectSearch) { padding: var(--sp-3); gap: var(--sp-2); }
+    form.board-toolbar:has(#projectSearch) .board-key { flex: 0 1 35%; min-width: 0; }
+    form.board-toolbar:has(#projectSearch) .board-reset { margin-left: auto; }
+    body:has(#projectSearch) .board-results > .filter-tabs { margin-bottom: var(--sp-3); }
+    .board-results > .card-panel:has(table.projects-table) { padding: var(--sp-3); }
+    body:has(#projectSearch) .board-results .group-head { gap: var(--sp-2); }
 }

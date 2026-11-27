@@ -2,6 +2,7 @@ package mn.murray.pts
 
 import com.zaxxer.hikari.HikariConfig
 import com.zaxxer.hikari.HikariDataSource
+import io.ktor.http.Parameters
 import mn.murray.pts.db.Migrations
 import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.domain.Member
@@ -111,7 +112,7 @@ class TaskBoardRenderTest {
     }
 
     @Test
-    fun `an empty board hands the first card to the reader who may write it`() {
+    fun `an empty project board keeps its text without a new-task offer`() {
         val mayWrite = render {
             taskKanban(
                 emptyList(), engineer, canManage = false, BACK_PROJECT, project.id,
@@ -121,18 +122,25 @@ class TaskBoardRenderTest {
         // The same call the route makes for a reader this board says nothing to: no right, no invitation.
         val mayNot = render { taskKanban(emptyList(), engineer, canManage = false, BACK_PROJECT, project.id) }
         assertTrue(mayWrite.contains("board-empty"), "an empty board said nothing about starting work")
-        // The opener is the page-head form again, so clicking it swaps the popup instead of reloading.
-        assertTrue(mayWrite.contains("name=\"new\""), "no create opener inside the empty board")
-        assertTrue(
-            mayWrite.contains("action=\"/app/projects/${project.id}\""),
-            "a new card was aimed somewhere other than this project",
-        )
+        assertTrue(mayWrite.contains("No tasks on this project yet."), "the empty board lost its no-tasks text")
+        assertFalse(mayWrite.contains("+ New task"), "the project board grew a second create button")
+        assertFalse(mayWrite.contains("name=\"new\""), "the project's empty board still carries a create opener")
         assertFalse(mayNot.contains("board-empty"), "a reader who cannot write was invited to")
         assertFalse(mayNot.contains("name=\"new\""), "a create opener appeared without the right")
     }
 
     @Test
-    fun `a project manager's blank card is writable and pinned to its project`() {
+    fun `an empty assigned board keeps its new-task offer`() {
+        val html = render {
+            taskKanban(emptyList(), manager, canManage = true, BACK_ASSIGNED, canAdd = true)
+        }
+        assertTrue(html.contains("+ New task"), "the Assigned board lost its create offer")
+        assertTrue(html.contains("action=\"/app/assigned-tasks\""), "the offer points away from Assigned tasks")
+        assertTrue(html.contains("data-live-target=\"#taskModal\""), "the offer would reload instead of swapping")
+    }
+
+    @Test
+    fun `a project manager's blank card is writable and fixed to its project`() {
         TeamRepository.upsert(Member("EMP0003", "Naran", "Survey", "Surveyor"))
         // Built the way `?new=1` builds it, so a form the route hands the page cannot drift from the one
         // these assertions describe.
@@ -142,15 +150,14 @@ class TaskBoardRenderTest {
             assertFalse(control(html, field).contains("disabled"), "$field greyed on the one writing it")
         }
         assertFalse(html.contains("modal-scope"), "a create form read as somebody else's card")
-        // The project, though, is the page they are standing on — one greyed option, not a list to aim at.
-        assertTrue(control(html, "project").contains("disabled"), "a new card could be aimed elsewhere")
-        val picker = Regex("<select[^>]*name=\"project\"[^>]*>(.*?)</select>", RegexOption.DOT_MATCHES_ALL)
-            .find(html)?.groupValues?.get(1) ?: error("no project picker rendered")
-        assertEquals(1, occurrences(picker, "<option"), "the pinned project still listed every project")
-        assertTrue(selectedOption(html, project.name))
-        // And the sentence under it says what the page does, not what management's does: a project
-        // manager who was offered other projects would find their card on this page anyway.
-        assertTrue(html.contains("this project is yours to write for"))
+        // The page already names the project, so the form carries it without a label, picker or hint.
+        assertFalse(html.contains("id=\"taskProject\""), "a new card was asked which project again")
+        assertFalse(html.contains(">Project<"), "the fixed project still printed a label")
+        assertTrue(
+            html.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "the save lost the project the page named",
+        )
+        assertFalse(html.contains("this project is yours to write for"))
         assertFalse(html.contains("pick another project"))
     }
 
@@ -598,10 +605,13 @@ class TaskBoardRenderTest {
         // every project for somebody who may change neither.
         assertFalse(placeholder.contains("Naran"), "a greyed field shipped the roster")
         assertFalse(placeholder.contains("style=\"display:block\""), "the placeholder came up open")
-        // What it does carry is the card's own answer, printed once and greyed: a picker with one
-        // option has nothing to open, and no department grouping to read the roster off.
-        assertEquals(0, occurrences(placeholder, "<optgroup"), "a greyed picker still grouped the roster")
-        assertTrue(selectedOption(placeholder, project.name))
+        // What it does carry is the page's project as a hidden answer, not a picker with one option.
+        assertEquals(0, occurrences(placeholder, "<optgroup"), "the closed create still grouped the roster")
+        assertFalse(placeholder.contains("id=\"taskProject\""), "the closed create asked which project")
+        assertTrue(
+            placeholder.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "the closed create lost the page's project",
+        )
         assertTrue(placeholder.contains("Nobody yet"), "an empty card invented a holder")
         assertTrue(control(placeholder, "assignee").contains("disabled"))
     }
@@ -622,7 +632,11 @@ class TaskBoardRenderTest {
         assertFalse(html.contains("— No project —"), "the general board can still create a card on no project")
         val onProject = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
         assertFalse(onProject.contains("— No project —"))
-        assertTrue(selectedOption(onProject, project.name), "a new card was not opened on this project")
+        assertFalse(onProject.contains("id=\"taskProject\""), "a project-page create asked which project")
+        assertTrue(
+            onProject.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "a new card lost the project the page named",
+        )
     }
 
     // --- the general board's create chooses its own board (Stage 111) ----------------------
@@ -812,16 +826,78 @@ class TaskBoardRenderTest {
     @Test
     fun `a project page's create keeps the board the page already names`() {
         val onProject = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
-        // The page is a project, so there is nothing to choose and nothing to follow: one board, already named,
-        // opened on its first column. Stage 111 changes no part of this popup — including its copy.
+        // The page is a project, so there is no project picker or hint and nothing for the lane picker to follow.
+        assertFalse(onProject.contains("id=\"taskProject\""), "the page's own board was put up for choosing")
+        assertFalse(onProject.contains(">Project<"), "the fixed project still printed a label")
+        assertFalse(onProject.contains("New tasks land on ${project.name}"), "the fixed project still printed a hint")
+        assertFalse(onProject.contains("pick another project"), "the fixed project offered another board")
         assertFalse(onProject.contains("data-lane-fill"), "the page's own board was put up for choosing")
         assertFalse(onProject.contains("data-lanes"), "a fixed board shipped a list to swap it for")
         assertFalse(onProject.contains(CHOOSE_A_PROJECT), "a project page asked which project")
-        assertTrue(selectedOption(onProject, project.name), "the create opened on no project")
         assertTrue(selectedOption(onProject, DEFAULT_PROJECT_BUCKETS.first()), "the create opened on no column")
         assertFalse(control(onProject, "lane").contains("disabled"), "this project's columns were greyed")
-        assertTrue(onProject.contains("New tasks land on ${project.name}"), "the page stopped naming the board")
         assertTrue(onProject.contains("A new card lands under ${DEFAULT_PROJECT_BUCKETS.first()}"))
+    }
+
+    @Test
+    fun `a project-page create posts its project without a project field and still saves to the aimed lane`() {
+        val aimedLane = DEFAULT_PROJECT_BUCKETS.last()
+        val html = render {
+            taskFormModal(newFormOf(into = aimedLane).copy(lanes = lanes()), BACK_PROJECT, project)
+        }
+        assertFalse(html.contains("id=\"taskProject\""), "the project picker came back")
+        assertFalse(html.contains(">Project<"), "the project label came back")
+        assertFalse(html.contains("pick another project"), "the project hint came back")
+        assertFalse(html.contains("New tasks land on ${project.name}"), "the pinned-project hint came back")
+        assertFalse(html.contains("id=\"taskBoard\""), "a create was offered the edit-only refile switch")
+        assertTrue(
+            html.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "the form does not post the page's project",
+        )
+        assertTrue(
+            html.contains("<input type=\"hidden\" name=\"projectId\" value=\"${project.id}\">"),
+            "the form lost the page's project id",
+        )
+        assertTrue(html.contains("id=\"taskLane\""), "the fixed project lost its lane picker")
+        assertTrue(selectedOption(html, aimedLane), "the add line's lane was not selected")
+
+        // The same values the browser posts: the hidden project names the board and the lane picker names the
+        // column the + Add task line was pressed under. The service resolves that lane against this project.
+        val posted = Parameters.build {
+            append("title", "Check the haul road")
+            append("project", project.name)
+            append("lane", aimedLane)
+            append("assignee", "EMP0002")
+        }
+        val draft = taskDraftOf(posted)
+        assertEquals(project.name, draft.projectName, "the save route read another project")
+        val saved = TaskService.create(draft, "EMP0001", canManage = true, pageProjectId = project.id)
+        val savedId = saved.taskId ?: error("the project-page create was refused: ${saved.errors}")
+        val card = TaskRepository.findById(savedId)!!
+        assertEquals(project.id, card.projectId, "the card landed on another project")
+        assertEquals(lanes().last().id, card.projectBucketId, "the card landed in another column")
+
+        // A hand-built or stale PROJECT refusal still puts the field and its message back; only then may the
+        // picker replace the hidden value, so the error has somewhere visible to live.
+        val refused = render {
+            taskFormModal(
+                taskFormOf(
+                    taskId = 0,
+                    result = TaskSaveResult(
+                        null,
+                        mapOf(TaskField.PROJECT to "Choose which project this card is on."),
+                        TaskDraft(projectName = project.name, projectLane = aimedLane),
+                    ),
+                    lanes = lanes(),
+                ),
+                BACK_PROJECT,
+                project,
+            )
+        }
+        assertTrue(refused.contains("id=\"taskProject\""), "the project refusal had no field to print under")
+        assertTrue(refused.contains("Choose which project this card is on."), "the project refusal was hidden")
+        assertFalse(refused.contains("<input type=\"hidden\" name=\"project\""), "a picker and hidden project were both posted")
+        assertFalse(refused.contains("pick another project"), "the refused fixed project offered another board")
     }
 
     @Test
@@ -1290,6 +1366,7 @@ class TaskBoardRenderTest {
         assertEquals(DEFAULT_PROJECT_BUCKETS, lanes().map { it.name })
         lanes().forEach { assertTrue(html.contains("<span class=\"kcol-title\">${it.name}</span>"), "${it.name} is not a column") }
         assertTrue(html.contains("data-lane=\"${fabrication.id}\""), "the lanes carry no id for a drop")
+        assertEquals(1, occurrences(html, "data-kanban-board=\"true\""), "a quiet lane drop cannot find its board to refresh")
         // No *column* is cut by status here — `data-lane` is what a drop posts. A card's own Done button
         // still writes a status, and that is the only one on the page.
         assertFalse(html.contains("class=\"kcol\" data-status"), "a status column is on this board")
@@ -1808,9 +1885,13 @@ class TaskBoardRenderTest {
         listOf("board", "assignee", "started", "due", "priority", "status").forEach {
             assertTrue(control(html, it).isNotEmpty(), "$it left the editor")
         }
-        // A create still asks both — there is no row to read them off.
+        // A project-page create still asks for its column, but carries the project the page already named.
         val fresh = render { taskFormModal(newFormOf().copy(lanes = lanes()), BACK_PROJECT, project) }
-        assertTrue(fresh.contains("id=\"taskProject\""), "a create lost its project picker")
+        assertFalse(fresh.contains("id=\"taskProject\""), "a create asked which project again")
+        assertTrue(
+            fresh.contains("<input type=\"hidden\" name=\"project\" value=\"${project.name}\">"),
+            "a create lost the project the page named",
+        )
         assertTrue(fresh.contains("id=\"taskLane\""), "a create lost its sub-category picker")
         // And so does a backlog card's editor, in the half its "where it lives" picker reveals: that is the one
         // crossing in which the two fields are the answer to a question the reader just asked.
@@ -1885,9 +1966,9 @@ class TaskBoardRenderTest {
                 "${lane.name} does not carry its own id into the popup",
             )
         }
-        // Each line is a create of its own: the hidden `new=1` the page head's opener posts, plus the lane.
+        // Each line is a create of its own: the same hidden `new=1` key the Assigned page's opener posts, plus the lane.
         assertEquals(lanes().size, occurrences(html, "<input type=\"hidden\" name=\"new\" value=\"1\">"))
-        // It is the page-head opener's own mechanism, so it is a form and not a link: the popup the server
+        // It uses the card opener's own mechanism, so it is a form and not a link: the popup the server
         // renders for it swaps into #taskModal over the board the reader is standing on.
         val adds = formTags(html, "kcol-add")
         assertEquals(lanes().size, adds.size)
@@ -1910,8 +1991,8 @@ class TaskBoardRenderTest {
 
     @Test
     fun `a reader who may not write a card is offered no add line`() {
-        // The same flag the page head's `+ New task` uses, so the two can never disagree about who sees them
-        // — and the service refuses a create from this reader on the same rule.
+        // The same may-add flag the route passes to this board, and the service refuses a create from this
+        // reader on the same rule.
         val html = laneBoard()
         assertFalse(html.contains("kcol-add"), "an add line was printed for somebody whose create would be refused")
         assertFalse(html.contains("name=\"into\""), "a lane was offered as a destination without the right")

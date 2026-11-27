@@ -43,6 +43,12 @@
      [data-live-url]    — on a GET block form whose block **is** the board: its send is a view change and
                           not a popup, so the fetched URL is written into history the way a filter form's
                           is. Without it the address bar would keep a filter the press has just dropped.
+     [data-live-focus]  — on a block form: the id that should hold the focus once the new copy is in
+                          place. `swapBlock` hands the focus back to whichever control had it, which is
+                          right for a tick and wrong for a write that removes or empties the control the
+                          reader pressed — a delete, whose × is gone from the response, and an add, whose
+                          box the swap has just cleared for the next line. Naming the destination is what
+                          lets a list be written one task at a time without the page restarting.
      [data-confirm]     — a control that asks the reader first, and is not pressed when they say no.
 
    Delegation on `document` also covers rows inserted later via fetch (the board on every refresh), which
@@ -53,16 +59,15 @@
   // flow instead — a smaller shell, but one that still navigates.
   document.documentElement.classList.add('js');
 
-  // The remembered sidebar state (Stage 130) goes on in the same breath, for the same reason: a reader who chose
-  // to fold the column away must not be shown it for a frame on every page load, which is what a class applied
-  // once the paint has happened would do — this file is the parser's last work, so both classes are on the page
-  // before the browser has drawn anything. Only the class is applied here; the controls that read it, and the
-  // storage that keeps it, are with everything else they touch at the bottom of this file.
+  // The remembered desktop rail goes on in the same breath, for the same reason: a reader who chose the narrow
+  // icon column must not see the full sidebar for a frame on every page load. Stage 130's legacy `hidden` value
+  // means the same arrangement now, so an existing browser moves to the rail without losing its choice.
   try {
-    if (localStorage.getItem('pts-sidebar') === 'hidden') document.body.classList.add('sidebar-hidden');
+    var rememberedSidebar = localStorage.getItem('pts-sidebar');
+    if (rememberedSidebar === 'rail' || rememberedSidebar === 'hidden') document.body.classList.add('sidebar-rail');
   } catch (err) {
-    // Storage blocked (private window, cleared site data) costs the memory, not the control: the fold still
-    // works on the page it was pressed on, and the reopen tab is still there on the next one.
+    // Storage blocked (private window, cleared site data) costs the memory, not the control: the toggle still
+    // works on this page, and every navigation link remains available in either arrangement.
   }
 
   function liveBox() { return document.querySelector('[data-livefilter]'); }
@@ -245,6 +250,15 @@
         // Companions come from the same response and the same token, so the block and the numbers that
         // describe it are never from two different moments. Missing ones are simply not swapped.
         extraIds(form).forEach(function (extra) { swapBlock(html, extra); });
+        // Last, so that it wins over the focus `swapBlock` already handed back to the control the reader
+        // pressed: a form that names a destination means that control is not where the reader is going.
+        // `preventScroll`, as everywhere else here — a swap that jumped the page to the focused control
+        // would be a reload by another name.
+        var wantFocus = trim(form.getAttribute('data-live-focus') || '');
+        if (wantFocus.charAt(0) === '#') {
+          var focusNext = document.getElementById(wantFocus.slice(1));
+          if (focusNext && focusNext.focus) focusNext.focus({ preventScroll: true });
+        }
         // A block that is the board itself is not a popup but a view: the reader's next reload has to
         // land on what they are looking at, so the URL the response was fetched for takes the place of
         // the one they came from — a filter it dropped does not survive in the address bar.
@@ -409,6 +423,22 @@
     }
   });
 
+  /* A plain Projects cell is a shortcut to the same project its ID and name links open. Delegation keeps
+     it alive after a filter or pin swaps the sheet. Real links and controls keep their own behaviour, and
+     a modified press or a selection is left to the browser rather than turned into navigation. */
+  function openProjectRow(e) {
+    if (e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+    var target = e.target;
+    if (!target || !target.closest) return;
+    var row = target.closest('table.projects-table tbody tr');
+    if (!row || target.closest('a, button, form, input, select, textarea, label')) return;
+    var selection = window.getSelection ? window.getSelection() : null;
+    if (selection && !selection.isCollapsed) return;
+    var link = row.querySelector('a.row-link[href]');
+    if (link && link.href) window.location.href = link.href;
+  }
+  document.addEventListener('click', openProjectRow);
+
   /* ------------------------------------------------------------------ *
    *  Small-screen navigation — the hamburger and the drawer's own close button
    * ------------------------------------------------------------------ */
@@ -489,65 +519,45 @@
   }
 
   /* ------------------------------------------------------------------ *
-   *  The desktop sidebar — hidden by choice, remembered by this browser
+   *  The desktop sidebar — a narrow rail by choice, remembered by this browser
    * ------------------------------------------------------------------ */
 
-  /* Above 900px there is no drawer and the sidebar is 240px of the page's width, so the corner button that shuts
-     the drawer (Stage 128) does something else here: it hides the column, and the page takes the whole row. The
-     state is one class on <body> — `sidebar-hidden` — which `app.css` reads at both widths, and the way back is
-     the slim `#sidebarTab` fixed to the page's left edge, because the button that hid the panel is *in* the panel
-     and left with it.
-     Nothing is folded by accident: only a press changes this, never a resize, a reload or somebody else's
-     settings. The choice lives in `localStorage` under `pts-sidebar`, per browser rather than per account, beside
-     `pts-theme` and `pts-accent` — no route posts it, no table holds it, and a colleague signing in as the same
-     person somewhere else gets the sidebar they left. With scripting off the two controls stay hidden exactly as
-     every disclosure in the shell does, because there would be no script to bring the panel back.
-     One button, two meanings, split by the width and not by the markup: this is already the file that knows which
-     layout the window is in — it is what closes a drawer that grew into a desktop page — so it is also the file
-     that says what the button does, and what a screen reader is told it is called. */
+  /* Above 900px the same corner button switches the 240px sidebar between its full column and a 64px icon rail.
+     It never leaves the panel, so there is one always-visible control and no second opener competing with the
+     phone's hamburger. The rail state is one class on <body>; the stylesheet owns the geometry and the arrow,
+     while this file owns the per-browser choice and the accessible name.
+     Only a press changes the arrangement. `pts-sidebar` stores `rail`, with absence meaning the full column;
+     the pre-paint read above also accepts Stage 130's old `hidden` value. Below 900px the shared drawer close
+     path is untouched, and the stylesheet restores every full-sidebar label regardless of the remembered state. */
   if (navClose && navDrawer) {
-    var sidebarTab = document.getElementById('sidebarTab');
     var SIDEBAR_KEY = 'pts-sidebar';
 
     function isWide() { return !!(window.matchMedia && window.matchMedia('(min-width: 901px)').matches); }
-    function sidebarHidden() { return document.body.classList.contains('sidebar-hidden'); }
+    function sidebarRail() { return document.body.classList.contains('sidebar-rail'); }
 
-    // Names follow the layout, and the reopen tab is the one control always on the page to report the state, so
-    // its `aria-expanded` — which the markup prints true, the panel being there until asked to leave — is kept
-    // honest here rather than in the shell that cannot see the window.
     function nameSidebarControls() {
-      navClose.setAttribute('aria-label', isWide() ? 'Hide sidebar' : 'Close navigation');
-      if (sidebarTab) sidebarTab.setAttribute('aria-expanded', sidebarHidden() ? 'false' : 'true');
+      navClose.setAttribute('aria-expanded', isWide() && sidebarRail() ? 'false' : 'true');
+      navClose.setAttribute('aria-label', isWide() ? (sidebarRail() ? 'Expand sidebar' : 'Collapse sidebar') : 'Close navigation');
     }
 
-    function setSidebar(hidden) {
-      document.body.classList.toggle('sidebar-hidden', hidden);
+    function setSidebar(rail) {
+      document.body.classList.toggle('sidebar-rail', rail);
       nameSidebarControls();
       try {
-        if (hidden) localStorage.setItem(SIDEBAR_KEY, 'hidden');
-        else localStorage.removeItem(SIDEBAR_KEY);  // the default is absence, not a second value to remember
+        if (rail) localStorage.setItem(SIDEBAR_KEY, 'rail');
+        else localStorage.removeItem(SIDEBAR_KEY);  // the full column is the default, not a second value
       } catch (err) {
-        // Storage blocked, so this page forgets the choice. The controls still work while it is open.
+        // Storage blocked, so this page forgets the choice. The control still works while it is open.
       }
     }
 
-    // Both controls are the same press seen from either side of the fold. `navClose` already runs `closeNav`
-    // above, which does nothing on a wide page — there is no drawer up — and this half keeps out of the drawer's
-    // way by answering only where the drawer cannot be.
+    // `navClose` already runs `closeNav` above. On a wide page that finds no drawer and returns; here the same
+    // press folds or expands the rail. Focus stays on this still-visible button in both directions.
     function toggleSidebar() {
       if (!isWide()) return;
-      setSidebar(!sidebarHidden());
-      // Focus follows the panel it belongs to: the tab that reopened it is the control a reader was last at,
-      // and a hidden panel cannot hold focus, so hiding moves it to the tab instead of leaving it on nothing.
-      if (sidebarHidden()) {
-        if (sidebarTab) sidebarTab.focus();
-      } else {
-        var first = navDrawer.querySelector('a, button');
-        if (first) first.focus();
-      }
+      setSidebar(!sidebarRail());
     }
     navClose.addEventListener('click', toggleSidebar);
-    if (sidebarTab) sidebarTab.addEventListener('click', toggleSidebar);
 
     if (window.matchMedia) {
       var desktop = window.matchMedia('(min-width: 901px)');

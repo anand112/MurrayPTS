@@ -1,205 +1,514 @@
-/* kanban.js — the two task boards.
+/* kanban.js — optimistic drag and drop for the status and project-lane boards.
 
-   On the **Assigned tasks** page the columns are statuses. Dragging a card into one posts that change to
-   /app/tasks/status and the page reloads, exactly as it always has. That drag is the only way a card walks this
-   board now — Stage 103 retired the prev/next buttons that used to do the same POST.
+   The boards are live regions: their columns and cards can be replaced without this script running again, so every
+   listener is delegated from `document`. A drop moves the card and rewrites the affected counts before the POST is
+   sent. The route still owns the write and its permissions; a failed request reloads the authoritative board, while a
+   successful one re-fetches only this board in the background so server ordering, Completed folds and checklist
+   progress agree with the database without a page flash. */
+(function () {
+  var dragging = null;
+  var hovered = null;
+  var placeholder = null;
+  var dragClickBlock = null;
+  var ghostFrame = 0;
+  var scrollFrame = 0;
+  var pointer = null;
+  var pendingRefresh = null;
+  var refreshTokens = Object.create(null);
+  var writes = Object.create(null);
 
-   On a **project's** page the columns are that project's lanes (V7), and a drop there refiles the card
-   through /app/tasks/bucket instead. That one is done in place: the card node is moved into the column it was
-   dropped on and both counts are rewritten, because a reader who is putting cards where they belong must not
-   have the board restart under their hands every time they let one go. Since **Stage 105** the move happens
-   on the drop and the write follows it, instead of the other way round — the reply used to be awaited, and
-   since the route answers with a redirect that meant the browser fetched the whole board page first: the card
-   hung, then jumped. The Done/Reopen button on those cards
-   is still a status change, so it keeps the reload the status board has always had — and that reload is what
-   brings the sidebar's open-card count back in step.
-
-   The lane half is bound on `document` rather than per column so that one set of listeners covers whichever
-   column a drop lands on, and the card being dragged is remembered for the same reason: the drop target is a
-   column, not a card, and by the time the reply arrives the card has already been moved out of wherever the
-   drag started. Adding a lane and taking one off are the board's own forms, not this script's work (Stage 74):
-   a column's `⋯` and the dashed `+ Add bucket` box each open the page's popup, which posts to the routes and
-   comes back as a repainted `#projectBoard`. Since **Stage 75** that is the project page's board at all hours —
-   it is cut by buckets whether or not the columns hold cards — so the columns here are the project's own set:
-   the three it opened with, renamed or removed by its manager like any other, plus the extras it has added.
-   The columns are fixed-width tracks (app.css `.kanban-lanes`), so the only column that ever arrives or leaves
-   is **Unsorted**, and it does so without moving anything else on the board.
-   It is also the one column a card cannot be dropped on: it holds the cards that arrived before every card on a
-   project had to be filed in a sub-category, and it empties as they are placed (Stage 48).
-   A card's width is therefore written in the stylesheet rather than derived from the count of the work; its
-   height is its own content, which is what the board is allowed to grow and shrink by (Stage 38).
-   Since **Stage 80** a column's finished cards are wrapped in a `.kcol-done` block that the page's own
-   `▸ Completed N` line opens and shuts — a GET onto the project page carrying `showdone`, so the server answers
-   with the board already folded the way the reader left it and this script is not involved in the toggle at all.
-   What did change here is where a card lives: a card's column is no longer its parent node, so both halves of a
-   move ask `closest('.kcol')`, and a card filed into a column goes in above its completed run rather than at the
-   bottom of it. */
-/* The **status** columns: a drop here is a status change, so it posts it and the board reloads.
-   Since **Stage 94** these three listeners sit on `document` like the lane half below, and the columns are found
-   with `closest('.kcol[data-status]')` rather than collected at load. The reason is Stage 93: the Other tasks
-   board is a live region, so the Bucket picker answers by replacing `#otherBoard`
-   with a copy parsed out of the response. A node the browser hands back from `importNode` carries its markup and
-   nothing else — a listener attached to the old column died with it — so a board bound at load goes dead the first
-   time the reader narrows it: the card lifts, no column highlights, and the drop does nothing. Bound on `document`
-   the same drop works whichever column the page is showing now, including one that was not on the page when this
-   script ran. The project page's `#projectBoard` is swapped the same way (a lane added, renamed or taken off), and
-   its cards' `✓ Done` / `↺ Reopen` are `.kmove-btn` — the same trap, cured by the same change below. */
-function statusCol(node) {
-  return node && node.closest ? node.closest('.kcol[data-status]') : null;
-}
-
-document.addEventListener('dragover', function (e) {
-  var col = statusCol(e.target);
-  if (!col) return;
-  e.preventDefault();                        // a column accepts the card only once it says so
-  col.classList.add('drag-over');
-});
-document.addEventListener('dragleave', function (e) {
-  var col = statusCol(e.target);
-  if (!col) return;
-  // A pointer crossing from the column onto one of its cards fires `dragleave` with the card as the related
-  // target. That is a move *within* the column, not a leaving of it, so the highlight stays.
-  if (e.relatedTarget && col.contains(e.relatedTarget)) return;
-  col.classList.remove('drag-over');
-});
-document.addEventListener('drop', function (e) {
-  var col = statusCol(e.target);
-  if (!col) return;
-  e.preventDefault();
-  col.classList.remove('drag-over');
-  var id = e.dataTransfer.getData('text/plain');
-  var status = col.getAttribute('data-status');
-  if (!id || !status) return;
-  var fd = new FormData(); fd.append('id', id); fd.append('status', status);
-  fetch('/app/tasks/status', { method: 'POST', body: fd, redirect: 'manual' }).then(function () { location.reload(); });
-});
-
-/* The card being moved, for the lane drop, which is told which column it arrived in and not which card left. */
-var dragging = null;
-
-function cardOf(node) {
-  return node && node.closest ? node.closest('.kcard[draggable="true"]') : null;
-}
-function laneOf(node) {
-  var col = node && node.closest ? node.closest('.kcol[data-lane]') : null;
-  // **Unsorted is not a destination.** A card on a project has to be filed in one of its sub-categories, so a
-  // drop there is a move the route refuses — and a column that took the card, highlighted, and then put it back
-  // would be the board disagreeing with itself in front of the reader. Cards leave it by drag; none arrive.
-  if (col && col.hasAttribute('data-unfiled')) return null;
-  return col;
-}
-
-document.addEventListener('dragstart', function(e){
-  var card = cardOf(e.target);
-  if (!card) return;
-  dragging = card;
-  // Stage B: the lift is a class, not a style, because the browser paints the drag image from this node
-  // the instant this handler returns — `app.css`'s `.kcard-drag` is what the card looks like in the hand,
-  // and the column it left is still there to be read behind it.
-  card.classList.add('kcard-drag');
-  e.dataTransfer.setData('text/plain', card.getAttribute('data-id'));
-});
-document.addEventListener('dragend', function(e){
-  var card = cardOf(e.target) || dragging;
-  if (card) card.classList.remove('kcard-drag');
-  dragging = null;
-});
-
-document.addEventListener('dragover', function(e){
-  var col = laneOf(e.target);
-  if (!col) return;
-  e.preventDefault();                       // nothing can be dropped on a column until it says otherwise
-  col.classList.add('drag-over');
-});
-document.addEventListener('dragleave', function(e){
-  var col = laneOf(e.target);
-  if (col) col.classList.remove('drag-over');
-});
-document.addEventListener('drop', function(e){
-  var col = laneOf(e.target);
-  if (!col) return;
-  e.preventDefault();
-  col.classList.remove('drag-over');
-  var card = dragging;
-  dragging = null;
-  if (!card) return;
-  var bucket = col.getAttribute('data-lane');
-  var id = card.getAttribute('data-id');
-  if (!bucket || !id || card.closest('.kcol') === col) return;
-  // **Stage 105: the card lands on the drop, not on the reply.** It used to wait for the POST to finish, and
-  // `/app/tasks/bucket` answers with a redirect back to the board — so `fetch` followed it and downloaded the
-  // whole project page before `file()` ran. That pause is the delay a reader felt: the card snapped back to
-  // where it was lifted from and jumped a beat later. Nothing about the move needs the server — it is three
-  // local DOM writes — so it happens now, and the reply is asked for with `redirect: 'manual'` so the page
-  // behind the redirect is never fetched at all. What must not happen is a board that says one thing while
-  // the database says another: a write that did not land reloads the board, which is the only path that does.
-  file(card, col);
-  var fd = new FormData(); fd.append('id', id); fd.append('bucket', bucket);
-  window.fetch('/app/tasks/bucket', { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' })
-    .then(function (r) {
-      // A 302 arrives here as an opaque redirect (`type` 'opaqueredirect', `status` 0, `ok` false) and is a
-      // success. Anything that is neither a redirect nor 2xx is a write that did not land.
-      if (r.type !== 'opaqueredirect' && !r.ok) location.reload();
-    })
-    .catch(function () { location.reload(); });
-});
-
-/* Put the card in its new column, in front of the finished run so that a card dragged out of the folded cards
-   lands among the live ones rather than at the bottom of the column, and in front of the "Nothing here." line
-   otherwise, so that line's own rule — hidden while a card precedes it — keeps working. Then let the two columns
-   count what they hold now. A lane that has just lost its last card keeps its column: it is one of the project's
-   lanes, and an empty one is still a lane.
-   Unsorted is the opposite — a bucket for cards nobody has placed, drawn only while it holds one (Stage 37), so
-   the last card leaving it takes the column with it and the board is back to its lanes. Neither move changes a
-   card's width, because the columns are fixed-width tracks (app.css `.kanban-lanes`); what a column does change
-   is its own height, which is simply the cards it holds (Stage 38), so the two columns here grow and shorten by
-   one card each as the card moves.
-   Since **Stage 80** a card's column is no longer its parent: the finished cards of a column sit inside a
-   `.kcol-done` block, so both halves of a move ask `closest('.kcol')` rather than `parentNode`. The count is
-   unaffected either way — `count()` already asks for every `.kcard` under the column, which is the total the
-   head prints and what the server prints for a column with folded cards.
-   Since **Stage 94** the status half is bound the same way as the lane half — on `document`, with the column found
-   by `closest('.kcol[data-status]')` — and so is the `.kmove-btn` press (since **Stage 103** only a project card
-   still prints one). Neither half collects nodes from the page
-   any more, because a page's board is no longer the board that was there when this script ran: Stage 93 made the
-   Other tasks page's `#otherBoard` a live region (its Bucket picker narrows it in place) and the project page's
-   `#projectBoard` has been swapped by its lane writes since Stage 74. A swapped block arrives as markup, and a
-   listener belongs to the node it was put on, not to the HTML it was made from — so binding at load left a
-   narrowed board with cards that lift, columns that never highlight and drops that do nothing. */
-function file(card, col) {
-  var from = card.closest('.kcol');
-  // **The anchor has to be a child of the column.** `.kdone-btn` sits *inside* the `▸ Completed N` form, and
-  // `insertBefore` with a reference that is not this node's child throws `NotFoundError` — a drop into a column
-  // with finished cards in it used to move nothing at all (the throw died inside a promise's `.then`). Stage 105
-  // anchors on the toggle form itself, which is the first of the finished run and a direct child, and falls back
-  // to the "Nothing here." line as before.
-  var anchor = col.querySelector('.kcol-done-toggle') || col.querySelector('.kcol-empty');
-  if (anchor) { col.insertBefore(card, anchor); } else { col.appendChild(card); }
-  count(from); count(col);
-  if (from.getAttribute('data-lane') === '0' && !from.querySelector('.kcard')) {
-    if (from.parentNode) from.parentNode.removeChild(from);
+  function cardOf(node) {
+    return node && node.closest ? node.closest('.kcard[draggable="true"]') : null;
   }
-}
 
-function count(col) {
-  var label = col.querySelector('.kcol-count');
-  if (!label) return;
-  label.textContent = String(col.querySelectorAll('.kcard').length);
-}
+  function statusCol(node) {
+    return node && node.closest ? node.closest('.kcol[data-status]') : null;
+  }
 
-/* A project card's `✓ Done` / `↺ Reopen` is the no-drag path to the same write — the status boards' prev/next
-   arrows were retired in **Stage 103**, so this button is what is left of the class — and since **Stage 94** it is
-   bound on `document` for the same reason the columns above are: the button lives
-   *inside* the board, so a board that was swapped in place has a fresh set of them with no listeners at all. A
-   press disables the button so a double-click cannot post the step twice, exactly as before. */
-document.addEventListener('click', function (e) {
-  var btn = e.target && e.target.closest ? e.target.closest('.kmove-btn') : null;
-  if (!btn) return;
-  e.preventDefault(); e.stopPropagation();
-  var id = btn.getAttribute('data-id');
-  var status = btn.getAttribute('data-status');
-  if (!id || !status) return;
-  btn.disabled = true;
-  var fd = new FormData(); fd.append('id', id); fd.append('status', status);
-  fetch('/app/tasks/status', { method: 'POST', body: fd, redirect: 'manual' }).then(function () { location.reload(); });
-});
+  function laneOf(node) {
+    var col = node && node.closest ? node.closest('.kcol[data-lane]') : null;
+    // Unsorted is a source only. The service refuses arrivals there, so the board must not offer it as a target.
+    if (col && col.hasAttribute('data-unfiled')) return null;
+    return col;
+  }
+
+  function columnOf(node) {
+    return statusCol(node) || laneOf(node);
+  }
+
+  function targetColumn(e) {
+    if (!dragging) return null;
+    var col = columnOf(e.target);
+    // A status write never changes board membership. In particular, the two Assigned boards and the separate
+    // Other-tasks bucket boards must never hand a card to one another's server-rendered columns.
+    if (!col || col.closest('[data-kanban-board]') !== dragging.board) return null;
+    return col;
+  }
+
+  function directChild(col, className) {
+    if (!col) return null;
+    for (var i = 0; i < col.children.length; i += 1) {
+      if (col.children[i].classList.contains(className)) return col.children[i];
+    }
+    return null;
+  }
+
+  function completed(card) {
+    return card.classList.contains('s-completed');
+  }
+
+  function setStatus(card, status) {
+    var slug = {
+      'Not started': 's-notstarted',
+      'In progress': 's-inprogress',
+      'On hold': 's-onhold',
+      Blocked: 's-blocked',
+      Completed: 's-completed'
+    }[status];
+    if (!slug) return;
+    ['s-notstarted', 's-inprogress', 's-onhold', 's-blocked', 's-completed'].forEach(function (name) {
+      card.classList.remove(name);
+    });
+    card.classList.add(slug);
+  }
+
+  function stopAutoScroll() {
+    if (scrollFrame) window.cancelAnimationFrame(scrollFrame);
+    scrollFrame = 0;
+    pointer = null;
+  }
+
+  function clearDrop() {
+    if (hovered) hovered.classList.remove('drag-over');
+    hovered = null;
+    if (placeholder && placeholder.parentNode) placeholder.parentNode.removeChild(placeholder);
+    placeholder = null;
+    stopAutoScroll();
+  }
+
+  function endDrag() {
+    clearDrop();
+    document.body.classList.remove('kanban-dragging');
+    dragging = null;
+    if (pendingRefresh) {
+      var board = pendingRefresh;
+      pendingRefresh = null;
+      refreshBoard(board);
+    }
+  }
+
+  function makePlaceholder() {
+    var node = document.createElement('div');
+    node.className = 'kcard-drop';
+    node.setAttribute('aria-hidden', 'true');
+    node.textContent = 'Drop here';
+    node.style.height = Math.max(64, dragging.height || 80) + 'px';
+    return node;
+  }
+
+  /* The server does not save a card position. The indicator therefore sits at the existing landing rule: before a
+     Completed fold or the empty line, otherwise at the end. A completed card on a lane board belongs in the fold;
+     when that fold is shut the toggle itself is the honest visible indicator. */
+  function landingPlace(card, col) {
+    if (completed(card) && col.hasAttribute('data-lane')) {
+      var done = directChild(col, 'kcol-done');
+      if (done && !done.hasAttribute('hidden')) return { parent: done, before: null };
+      var toggle = directChild(col, 'kcol-done-toggle');
+      if (toggle) return { parent: col, before: toggle };
+    }
+    return {
+      parent: col,
+      before: directChild(col, 'kcol-done-toggle') || directChild(col, 'kcol-empty') || directChild(col, 'kcol-add')
+    };
+  }
+
+  function showPlaceholder(col) {
+    if (!placeholder) placeholder = makePlaceholder();
+    var place = landingPlace(dragging.card, col);
+    var alreadyThere = placeholder.parentNode === place.parent &&
+      ((place.before && placeholder.nextSibling === place.before) || (!place.before && place.parent.lastChild === placeholder));
+    if (!alreadyThere) place.parent.insertBefore(placeholder, place.before || null);
+  }
+
+  function edgeSpeed(position, start, end) {
+    var edge = 56;
+    if (position < start + edge) return Math.ceil((start + edge - position) / edge * 14);
+    if (position > end - edge) return Math.ceil((position - (end - edge)) / edge * 14);
+    return 0;
+  }
+
+  function autoScroll() {
+    scrollFrame = 0;
+    if (!dragging || !pointer) return;
+    var dx = 0;
+    var dy = edgeSpeed(pointer.y, 0, window.innerHeight || 0);
+    if (pointer.board && pointer.scrollable) {
+      dx = edgeSpeed(pointer.x, pointer.left, pointer.right);
+      if (dx) pointer.board.scrollLeft += dx;
+    }
+    if (!dx) {
+      dx = edgeSpeed(pointer.x, 0, window.innerWidth || 0);
+      var root = document.scrollingElement || document.documentElement;
+      if (dx && root) root.scrollLeft += dx;
+    }
+    if (dy) {
+      var page = document.scrollingElement || document.documentElement;
+      if (page) page.scrollTop += dy;
+    }
+    if (dx || dy) scrollFrame = window.requestAnimationFrame(autoScroll);
+  }
+
+  function watchEdges(e, col) {
+    if (typeof e.clientX !== 'number' || typeof e.clientY !== 'number') return;
+    var board = col.closest('.kanban');
+    var rect = board && board.getBoundingClientRect ? board.getBoundingClientRect() : null;
+    pointer = {
+      x: e.clientX,
+      y: e.clientY,
+      board: board,
+      left: rect ? rect.left : 0,
+      right: rect ? rect.right : 0,
+      scrollable: !!(board && board.scrollWidth > board.clientWidth)
+    };
+    if (!scrollFrame) scrollFrame = window.requestAnimationFrame(autoScroll);
+  }
+
+  function count(col) {
+    if (!col) return;
+    var label = col.querySelector('.kcol-count');
+    var cards = col.querySelectorAll('.kcard');
+    if (label) label.textContent = String(cards.length);
+    // Status columns render this line only when they start empty. Create it when the last card leaves so the same
+    // message appears without waiting for the background refresh.
+    if (!cards.length && !directChild(col, 'kcol-empty') && !col.hasAttribute('data-unfiled')) {
+      var empty = document.createElement('p');
+      empty.className = 'kcol-empty';
+      empty.textContent = 'Nothing here.';
+      col.insertBefore(empty, directChild(col, 'kcol-add'));
+    }
+  }
+
+  function ensureDoneGroup(col) {
+    if (directChild(col, 'kcol-done')) return;
+    var board = col.closest('[data-kanban-board]') || col.parentNode;
+    var open = [];
+    var columns = board ? board.querySelectorAll('.kcol[data-lane]') : [];
+    for (var i = 0; i < columns.length; i += 1) {
+      var done = directChild(columns[i], 'kcol-done');
+      if (done && !done.hasAttribute('hidden')) open.push(columns[i].getAttribute('data-lane'));
+    }
+    open.push(col.getAttribute('data-lane'));
+
+    var form = document.createElement('form');
+    form.className = 'kcol-done-toggle';
+    form.setAttribute('method', 'get');
+    form.setAttribute('action', location.pathname);
+    if (col.closest('#projectBoard')) form.setAttribute('data-live-target', '#projectBoard');
+    open.forEach(function (id) {
+      var field = document.createElement('input');
+      field.type = 'hidden';
+      field.name = 'showdone';
+      field.value = id;
+      form.appendChild(field);
+    });
+    var button = document.createElement('button');
+    button.type = 'submit';
+    button.className = 'kdone-btn';
+    form.appendChild(button);
+    var done = document.createElement('div');
+    done.className = 'kcol-done';
+    done.setAttribute('hidden', 'true');
+    col.insertBefore(form, directChild(col, 'kcol-empty') || directChild(col, 'kcol-add'));
+    col.insertBefore(done, directChild(col, 'kcol-empty') || directChild(col, 'kcol-add'));
+  }
+
+  function syncCompleted(col) {
+    if (!col || !col.hasAttribute('data-lane')) return;
+    var done = directChild(col, 'kcol-done');
+    var toggle = directChild(col, 'kcol-done-toggle');
+    var cards = done ? done.querySelectorAll('.kcard') : [];
+    if (!cards.length) {
+      if (toggle && toggle.parentNode) toggle.parentNode.removeChild(toggle);
+      if (done && done.parentNode) done.parentNode.removeChild(done);
+      return;
+    }
+    ensureDoneGroup(col);
+    done = directChild(col, 'kcol-done');
+    toggle = directChild(col, 'kcol-done-toggle');
+    var button = toggle.querySelector('.kdone-btn');
+    var word = cards.length === 1 ? 'card' : 'cards';
+    button.textContent = (done.hasAttribute('hidden') ? '▸' : '▾') + ' Completed ' + cards.length;
+    button.setAttribute('title', (done.hasAttribute('hidden') ? 'Show the ' : 'Hide the ') + cards.length +
+      ' completed ' + word + ' in this column');
+  }
+
+  function reducedMotion() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function settle(card) {
+    if (reducedMotion()) return;
+    card.classList.add('kcard-settle');
+    window.setTimeout(function () { card.classList.remove('kcard-settle'); }, 240);
+  }
+
+  /* Move in one DOM operation, then update only the two affected columns. Completed cards stay in the completed run;
+     the server refresh after a successful POST is the final authority for ordering and for a newly-created fold. */
+  function file(card, col) {
+    var from = card.closest('.kcol');
+    if (from === col) return false;
+    if (completed(card) && col.hasAttribute('data-lane')) {
+      ensureDoneGroup(col);
+      directChild(col, 'kcol-done').appendChild(card);
+    } else {
+      var anchor = directChild(col, 'kcol-done-toggle') || directChild(col, 'kcol-empty') || directChild(col, 'kcol-add');
+      col.insertBefore(card, anchor || null);
+    }
+    syncCompleted(from);
+    syncCompleted(col);
+    count(from);
+    count(col);
+    if (from && from.getAttribute('data-lane') === '0' && !from.querySelector('.kcard') && from.parentNode) {
+      from.parentNode.removeChild(from);
+    }
+    // Reparenting a focused card blurs it in the browser. Put focus back before the quiet refresh captures it,
+    // without scrolling the page or the horizontal board away from the landing the reader just chose.
+    if (dragging && dragging.focusId) {
+      var focusedCard = cardsById(boardOf(card), dragging.focusId);
+      if (focusedCard && focusedCard.focus) focusedCard.focus({ preventScroll: true });
+    }
+    settle(card);
+    return true;
+  }
+
+  function cardsById(root, id) {
+    var all = root.querySelectorAll('.kcard[data-id]');
+    for (var i = 0; i < all.length; i += 1) {
+      if (all[i].getAttribute('data-id') === id) return all[i];
+    }
+    return null;
+  }
+
+  function boardOf(card) {
+    return card.closest('[data-kanban-board]');
+  }
+
+  /* A successful write is followed by a quiet GET of the current page. Only this board is replaced; the toolbar,
+     popup, scroll position and focus stay put. This is what keeps Completed folding and status-driven checklist
+     progress exactly as the server would render them. */
+  function refreshBoard(board) {
+    if (!board || !document.documentElement.contains(board)) return;
+    if (dragging) {
+      pendingRefresh = board;
+      return;
+    }
+    var boards = document.querySelectorAll('[data-kanban-board]');
+    var index = 0;
+    while (index < boards.length && boards[index] !== board) index += 1;
+    if (index === boards.length) return;
+    // Each board has its own reply order: a fast second board must not cancel the first board's refresh.
+    var key = String(index);
+    var token = (refreshTokens[key] || 0) + 1;
+    refreshTokens[key] = token;
+
+    window.fetch(location.href, { credentials: 'same-origin' })
+      .then(function (response) {
+        if (!response.ok) throw new Error('board refresh failed');
+        return response.text();
+      })
+      .then(function (html) {
+        if (refreshTokens[key] !== token) return;
+        if (dragging) {
+          pendingRefresh = board;
+          return;
+        }
+        if (!document.documentElement.contains(board)) return;
+        var parsed = new DOMParser().parseFromString(html, 'text/html');
+        var nextBoards = parsed.querySelectorAll('[data-kanban-board]');
+        var next = nextBoards[index];
+        if (!next) throw new Error('the response carried no matching board');
+        // Capture at the landing moment, not when the request began: a reader who scrolled or moved focus while
+        // the GET was in flight must not be pulled back to where they were when it started.
+        var active = document.activeElement;
+        var activeCard = active && active.closest ? active.closest('.kcard') : null;
+        var focusId = activeCard && board.contains(activeCard) ? activeCard.getAttribute('data-id') : null;
+        var x = window.scrollX || 0;
+        var y = window.scrollY || 0;
+        var left = board.scrollLeft || 0;
+        var imported = document.importNode(next, true);
+        board.parentNode.replaceChild(imported, board);
+        imported.scrollLeft = left;
+        if (window.scrollTo) window.scrollTo(x, y);
+        if (focusId) {
+          var again = cardsById(imported, focusId);
+          if (again && again.focus) again.focus({ preventScroll: true });
+        }
+      })
+      .catch(function () { if (refreshTokens[key] === token) location.reload(); });
+  }
+
+  function sendMove(card, url, field, value) {
+    var id = card.getAttribute('data-id');
+    var board = boardOf(card);
+    var boards = document.querySelectorAll('[data-kanban-board]');
+    var boardIndex = 0;
+    while (boardIndex < boards.length && boards[boardIndex] !== board) boardIndex += 1;
+    var previous = writes[id] || Promise.resolve();
+    // Serialise writes for one card so a quick second drop cannot reach the server before the first one.
+    var request = previous.catch(function () {}).then(function () {
+      var fd = new FormData();
+      fd.append('id', id);
+      fd.append(field, value);
+      return window.fetch(url, { method: 'POST', body: fd, credentials: 'same-origin', redirect: 'manual' });
+    });
+    writes[id] = request;
+    request
+      .then(function (response) {
+        if (response.type !== 'opaqueredirect' && !response.ok) throw new Error('move failed');
+      })
+      .then(function () {
+        // An earlier reply may already have replaced this board. Resolve its current node by stable page order so
+        // the next successful drop still receives its authoritative refresh.
+        var current = boardIndex < boards.length ?
+          document.querySelectorAll('[data-kanban-board]')[boardIndex] : boardOf(card);
+        refreshBoard(current);
+      })
+      .catch(function () { location.reload(); })
+      .then(function () { if (writes[id] === request) delete writes[id]; });
+  }
+
+  document.addEventListener('dragstart', function (e) {
+    var card = cardOf(e.target);
+    if (!card || dragging) return;
+    var control = e.target.closest('button, a, input, select, textarea, label, [contenteditable="true"]');
+    // Other-tasks deliberately makes its whole-card opener the native drag handle. The explicit marker is the
+    // only exception; Done/Reopen, links and form controls still answer their own click and cannot start a drag.
+    if (control && !control.hasAttribute('data-drag-handle')) {
+      e.preventDefault();
+      return;
+    }
+    var rect = card.getBoundingClientRect ? card.getBoundingClientRect() : null;
+    var active = document.activeElement;
+    var focused = active && active.closest ? active.closest('.kcard') : null;
+    dragging = {
+      card: card, id: card.getAttribute('data-id'), height: rect ? rect.height : 80, board: boardOf(card),
+      focusId: focused === card ? card.getAttribute('data-id') : null
+    };
+    dragClickBlock = null;
+    // The browser paints the drag image when this handler returns. The drag-image class therefore goes on now,
+    // before setData; the original is dimmed on the next frame so the image itself stays clear.
+    card.classList.add('kcard-drag');
+    if (e.dataTransfer) {
+      e.dataTransfer.setData('text/plain', dragging.id);
+      if ('effectAllowed' in e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    }
+    document.body.classList.add('kanban-dragging');
+    ghostFrame = window.requestAnimationFrame(function () {
+      ghostFrame = 0;
+      if (dragging && dragging.card === card) card.classList.add('kcard-ghost');
+    });
+  });
+
+  document.addEventListener('dragover', function (e) {
+    if (!dragging) return;
+    var col = targetColumn(e);
+    if (!col) {
+      if (hovered) clearDrop();
+      return;
+    }
+    e.preventDefault();
+    if (e.dataTransfer && 'dropEffect' in e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    if (hovered !== col) {
+      if (hovered) hovered.classList.remove('drag-over');
+      hovered = col;
+      col.classList.add('drag-over');
+    }
+    showPlaceholder(col);
+    watchEdges(e, col);
+  });
+
+  document.addEventListener('dragleave', function (e) {
+    var col = columnOf(e.target);
+    if (!col) return;
+    // Crossing onto a card or any other descendant is still inside this column.
+    if (e.relatedTarget && col.contains(e.relatedTarget)) return;
+    col.classList.remove('drag-over');
+    if (hovered === col) clearDrop();
+  });
+
+  document.addEventListener('drop', function (e) {
+    if (!dragging) return;
+    var card = dragging.card;
+    var id = dragging.id;
+    // Remember the task, not the DOM node: a very fast quiet refresh may already have replaced the card before
+    // the browser emits its release click. Drops outside a valid column are guarded too.
+    dragClickBlock = { id: id, at: Date.now() };
+    var col = targetColumn(e);
+    if (!col) {
+      endDrag();
+      return;
+    }
+    e.preventDefault();
+    var transfer = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+    if (transfer && transfer !== id) {
+      endDrag();
+      return;
+    }
+
+    var status = col.getAttribute('data-status');
+    var bucket = col.getAttribute('data-lane');
+    var sameColumn = card.closest('.kcol') === col;
+    var moved = !sameColumn && file(card, col);
+    if (moved && status) setStatus(card, status);
+    endDrag();
+
+    if (moved && status) sendMove(card, '/app/tasks/status', 'status', status);
+    else if (moved && bucket) sendMove(card, '/app/tasks/bucket', 'bucket', bucket);
+  });
+
+  document.addEventListener('dragend', function (e) {
+    if (ghostFrame) window.cancelAnimationFrame(ghostFrame);
+    ghostFrame = 0;
+    var card = cardOf(e.target) || (dragging && dragging.card);
+    if (card) {
+      card.classList.remove('kcard-drag');
+      card.classList.remove('kcard-ghost');
+    }
+    endDrag();
+  });
+
+  // A fresh press is a new intention, even when it follows a drag whose release click the browser suppressed.
+  document.addEventListener('pointerdown', function () { dragClickBlock = null; }, true);
+
+  // Native drag usually suppresses the click, but not in every browser. Swallow only the click belonging to the
+  // dragged card; the next ordinary click still opens its popup.
+  document.addEventListener('click', function (e) {
+    if (!dragClickBlock) return;
+    if (Date.now() - dragClickBlock.at > 400) {
+      dragClickBlock = null;
+      return;
+    }
+    var card = cardOf(e.target);
+    if (card && card.getAttribute('data-id') === dragClickBlock.id) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      dragClickBlock = null;
+    }
+  }, true);
+
+  /* The project card's Done/Reopen button is still a status write with the existing full-page redirect. */
+  document.addEventListener('click', function (e) {
+    var btn = e.target && e.target.closest ? e.target.closest('.kmove-btn') : null;
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var id = btn.getAttribute('data-id');
+    var status = btn.getAttribute('data-status');
+    if (!id || !status) return;
+    btn.disabled = true;
+    var fd = new FormData();
+    fd.append('id', id);
+    fd.append('status', status);
+    fetch('/app/tasks/status', { method: 'POST', body: fd, redirect: 'manual' }).then(function () { location.reload(); });
+  });
+}());

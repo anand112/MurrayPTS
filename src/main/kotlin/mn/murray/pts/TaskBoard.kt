@@ -616,16 +616,15 @@ fun openDoneLanesOf(params: Parameters): Set<Int> =
  *
  * [canAdd] is the reader's right to write a card here — management on either board, and on a project page
  * also the account that project names as its manager. When the board this reader can see holds nothing and
- * they may write one, the empty board says so and carries the opener itself: the page head's `+ New task`
- * is the same form, and a five-column frame of "Nothing here." is not a thing anybody reads as an
- * invitation. [fixedProject] is what makes a new card land on this project.
+ * they may write one, the empty board says so. [fixedProject] is what makes a new card land on this project.
  *
  * [emptyOffer] and [emptyHint] are what that invitation says and offers, and they belong to the caller
- * because what an empty board should offer is the caller's fact, not the board's. The default is the
- * `+ New task` opener and the "write the first card" line every board has always printed. **Stage 124**
- * is the one caller that answers differently: the Assigned tasks page offers **`+ New bucket`** there —
- * naming a column of the Other tasks board — because that page already carries a `+ New task` in its head
- * and its Other-tasks half is the one thing on it a reader can still be short of.
+ * because what an empty board should offer is the caller's fact, not the board's. The default keeps the
+ * `+ New task` opener on a general/Assigned board, but a fixed project board leaves the no-tasks text without
+ * a second create button: its columns carry their own `+ Add task` lines. **Stage 124** is the one caller
+ * that answers differently: the Assigned tasks page offers **`+ New bucket`** there — naming a column of the
+ * Other tasks board — because that page already carries a `+ New task` in its head and its Other-tasks half
+ * is the one thing on it a reader can still be short of.
  *
  * [canMoveCards] is the right to put one of this project's cards into a different lane of it, and since
  * Stage 49 it is the project page's one difference between management and everybody else: the cards printed
@@ -662,7 +661,7 @@ fun DIV.taskKanban(
     drawOpener: Boolean = true,
     canManageLanes: Boolean = false,
     doneOpen: Set<Int> = emptySet(),
-    emptyOffer: (DIV) -> Unit = { it.newTaskButton(fixedProject) },
+    emptyOffer: (DIV) -> Unit = { if (fixedProject == null) it.newTaskButton() },
     emptyHint: String = if (fixedProject == null) {
         "The board is the plan — write the first card and it appears under its column."
     } else {
@@ -711,6 +710,7 @@ private fun DIV.statusKanban(
     projectId: Int,
 ) {
     div("kanban") {
+        attributes["data-kanban-board"] = "true"
         TASK_STATUSES.forEach { status ->
             val inCol = tasks.filter { it.status == status }
             div("kcol") {
@@ -796,6 +796,7 @@ private fun DIV.laneKanban(
     val unfiled = tasks.filter { it.projectBucketId == 0 }
     val mayWriteLanes = canManageLanes && projectId > 0
     div("kanban kanban-lanes") {
+        attributes["data-kanban-board"] = "true"
         lanes.forEachIndexed { index, lane ->
             val inCol = tasks.filter { it.projectBucketId == lane.id }
             val finished = inCol.filter { it.status == STATUS_COMPLETED }
@@ -1259,16 +1260,15 @@ fun DIV.taskFormModal(
     val v = state.values
     val projectNames = DemoData.projects.map { it.name }
     // On a project page the task always belongs to that project, and since Stage 48 every assigned card names
-    // one: a **create** therefore opens on the first project rather than on a blank the route would only refuse
-    // again. The one form allowed to answer with nothing is an edit of a row that predates the rule and still
-    // carries no project — it prints that as a placeholder, and saving it stays refused until management chooses
-    // a world for the card.
+    // one: a **create** therefore carries that project's name in a hidden field rather than asking again or
+    // opening on a blank the route would only refuse. The one form allowed to answer with nothing is an edit of
+    // a row that predates the rule and still carries no project — it prints that as a placeholder, and saving it
+    // stays refused until management chooses a world for the card.
     val wanted = v.projectName.ifBlank { fixedProject?.name.orEmpty() }
     // **Stage 111:** the general board's `+ New task` is the one create that picks its project *inside* the
     // popup, so it opens on no project at all, and its Sub-category list is that project's own columns rather
     // than the legacy trio [TaskForm.laneChoices] falls back to. Every other form here already names the board
-    // the card belongs to — a project page through [fixedProject], an edit through the row it was loaded from —
-    // and those keep behaving exactly as they did.
+    // the card belongs to — a project page through [fixedProject], an edit through the row it was loaded from.
     val choosesProject = !state.isEdit && !state.showsBacklog && fixedProject == null &&
         state.mayWriteCard && state.lanesByProject.isNotEmpty()
     val selectedProject = when {
@@ -1337,16 +1337,19 @@ fun DIV.taskFormModal(
     // the fields the reader came for. The project still rides along as a hidden field below: the save form has
     // to name the world it writes to, and a field that never printed must not be read as "the first project".
     //
-    // The pair stays wherever it is still an answer to give: on a **create**, which has no row to read one
-    // off; on a **backlog** card, whose "where it lives" picker only needs it at the moment the reader moves
-    // the card onto a project (it is drawn in that half, under the same `hidden` the picker switches); and on
-    // a row that arrived before every card named a project, which is the one card a picker can fix.
+    // The project is fixed the same way for a **create opened on a project page**: the page already names the
+    // board, so the popup carries that name in a hidden field instead of asking again. Its Sub-category picker
+    // still prints below, because the column the `+ Add task` line was pressed under is still an answer to give.
+    // The pair stays wherever it is still an answer to give: on the general board's create, which has no row or
+    // page to read one off; on a **backlog** card, whose "where it lives" picker only needs it at the moment the
+    // reader moves the card onto a project; and on a row that arrived before every card named a project.
+    val projectPageCreate = !state.isEdit && !state.showsBacklog && fixedProject != null
     val projectIsTheRows: Boolean =
-        state.isEdit && !state.isBacklog && !state.task?.project.isNullOrBlank()
+        projectPageCreate || (state.isEdit && !state.isBacklog && !state.task?.project.isNullOrBlank())
     // A refusal about either field prints under the field, so the fields come back with it: a page that
     // said nothing, or said it over a picker that was not there, would be the silent refusal this app does
-    // not have. The only way a project card's save is refused here is a hand-built or stale form — the
-    // popup posts the row's own project — and the pickers are then exactly what fixes it.
+    // not have. The only way a project card's save is refused here is a hand-built or stale form — the popup
+    // posts the row's or the page's own project — and the pickers are then exactly what fixes it.
     val projectRefused: Boolean =
         state.error(TaskField.PROJECT) != null || state.error(TaskField.LANE) != null
     val printProjectFields = printProject && (!projectIsTheRows || projectRefused)
@@ -1413,10 +1416,10 @@ fun DIV.taskFormModal(
                 // *(**Stage 40** had a third field here — `allbuckets`, so a save from the backlog's wide view
                 // did not answer by hiding the columns the reader had opened. **Stage 97** took the wide view
                 // out, and the field with it; the save's board is named by `back` alone.)*
-                // The card's project, carried where the picker no longer prints (Stage 87): the save still has
-                // to name the world it writes to, and [mn.murray.pts.service.TaskService.updateAssigned] reads
-                // the posted name as the card's own answer. Server-rendered from the row, never typed. A
-                // refusal draws the picker instead, which is where its message belongs.
+                // The card's project, carried where the picker no longer prints: an edit reads it from the row,
+                // and a create on a project page reads it from the page. The save still has to name the world it
+                // writes to, and [mn.murray.pts.service.TaskService.create] reads the posted name. Server-rendered,
+                // never typed. A refusal draws the picker instead, which is where its message belongs.
                 if (projectIsTheRows && !projectRefused) {
                     input(type = InputType.hidden, name = "project") { value = selectedProject }
                 }
@@ -1577,7 +1580,7 @@ fun DIV.taskFormModal(
                             }
                             // Words about making a card, so they belong to a create form this reader is
                             // filling; an edit popup says which project the card is on in its own field.
-                            if (!state.isEdit && (state.canEditAll || pinned)) {
+                            if (!state.isEdit && !projectPageCreate && (state.canEditAll || pinned)) {
                                 if (choosesProject) {
                                     // Said before the picker is used, because on this page nothing has decided the
                                     // card's project yet — the page is the reader's own board, not a project.
@@ -1702,9 +1705,11 @@ fun DIV.taskFormModal(
                         }
                         state.error(TaskField.STATUS)?.let { p("field-err") { +it } }
                     }
-                    // The sub-category the card sits in on its project's board (V7), drawn wherever the Project
-                    // picker is (see [printProjectFields]): a **create** has to answer it because every project's
-                    // board opens with the same three, and a card cannot be left on no lane of it; a **backlog**
+                    // The sub-category the card sits in on its project's board (V7), drawn wherever the project
+                    // half is answered: a project-page create keeps this picker even though its Project field is
+                    // hidden, because the column its `+ Add task` line was pressed under is still an answer to
+                    // give. A **create** has to answer it because every project's board opens with the same three,
+                    // and a card cannot be left on no lane of it; a **backlog**
                     // card answers it at the moment its "where it lives" picker moves it onto a project, which is
                     // the same crossing that needs the project above. An **edit** of a card already on a project
                     // no longer prints it (Stage 87): the column is a fact of the row, and the board behind the
@@ -1715,7 +1720,7 @@ fun DIV.taskFormModal(
                     // below until somebody files it. Like title, project and status it is a field that moves a
                     // card about the board, so a plain account reads it greyed where it prints and the service
                     // takes the stored value instead: see [mn.murray.pts.service.TaskService.updateAssigned].
-                    if (printProjectFields) {
+                    if (printProjectFields || projectPageCreate) {
                         div("field") {
                             if (!showProject) attributes["hidden"] = "hidden"
                             if (state.mayRefile) attributes["data-board-half"] = "project"

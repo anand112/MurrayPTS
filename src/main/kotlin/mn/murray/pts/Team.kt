@@ -93,8 +93,8 @@ private const val CHOOSE_COLUMN = "— Choose a column —"
  * rather than a project, so it moves **Total** and not **Projects**, and the two figures are allowed to differ.
  *
  * The sheet is wrapped in `#teamSheet` for one reason: **the figures on it are only ever true for the moment the
- * page was drawn** (Stage 69). A card dragged on a board writes its new status to SQLite and the board reloads,
- * but this page — sitting in the tab they came from, or waiting under the Back button — has no reason to ask
+ * page was drawn** (Stage 69). A card dragged on a board writes its new status to SQLite without revisiting this
+ * page — sitting in the tab they came from, or waiting under the Back button — so it has no reason to ask
  * again, so it goes on printing the counts from before the move. `team.js` therefore re-pulls
  * this very URL and swaps this one panel when the page is restored from the browser's back/forward cache or
  * comes back on screen, which is what makes the numbers right without the reader pressing F5. The panel is the
@@ -187,7 +187,9 @@ fun DIV.teamContent(
                                     }
                                 }
                             }
-                            td { +member.department }
+                            td {
+                                if (member.department.isNotBlank()) span("chip dept-chip") { +member.department } else +member.department
+                            }
                             td { +member.position }
                             td("num") { span("proj-count") { +"${projects.size}" } }
                             td("num") {

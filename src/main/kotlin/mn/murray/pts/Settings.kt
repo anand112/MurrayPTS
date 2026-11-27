@@ -427,7 +427,9 @@ private fun TBODY.teamRow(row: EmployeeRow, filter: EmployeeFilter) {
         }
         td("t-emp") { span("code") { +row.employeeNumber } }
         td("t-position") { +row.position }
-        td("t-department") { if (row.department.isBlank()) +"—" else +row.department }
+        td("t-department") {
+            if (row.department.isBlank()) +"—" else span("chip dept-chip") { +row.department }
+        }
         td("t-role") {
             if (row.role.isEmpty()) {
                 span("ts-none") { +"—" }

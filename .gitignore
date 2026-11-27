@@ -95,3 +95,7 @@ deploy/hosts.before-*.bak
 # resources Stage 7 deleted from src/. Both stay on disk; neither belongs in the v2 tree.
 MMS/
 build_old/
+
+# Local UI polish review files
+scratch/
+ui-snapshot-*.txt

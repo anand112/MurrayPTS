@@ -163,6 +163,22 @@ class TeamPageRenderTest {
     }
 
     @Test
+    fun `roster departments use the shared badge and a blank stays empty`() {
+        val html = render { teamContent(canManage = false, viewerEmpNo = "EMP0011") }
+        roster.filter { it.department.isNotBlank() }.forEach { member ->
+            assertTrue(
+                figuresRow(html, member.employeeNumber)
+                    .contains("<span class=\"chip dept-chip\">${member.department}</span>"),
+                "${member.name}'s department lost the shared badge",
+            )
+        }
+        val unassigned = figuresRow(html, "EMP0014")
+        assertTrue(unassigned.contains("<td></td>"), "a blank department stopped reading as an empty cell")
+        assertFalse(unassigned.contains("chip dept-chip"), "a blank department was given an empty badge")
+        assertEquals(4, occurrences(html, "class=\"chip dept-chip\""), "the roster gained or lost a department badge")
+    }
+
+    @Test
     fun `the assign form offers the same departments as option groups`() {
         val html = render { teamContent(canManage = true, viewerEmpNo = "EMP0011") }
         assertEquals(4, occurrences(html, "<optgroup"), "the assign form lost its groups")
@@ -577,5 +593,26 @@ class TeamPageRenderTest {
         assertTrue(js.contains("bind();"), "the swapped rows arrive with no listeners on them")
         // What this stage is *not* allowed to do: the answer to a stale number must not be a page that restarts.
         assertFalse(js.contains("location.reload"), "the sheet reloads instead of updating in place")
+    }
+
+    /** Dismissal is delegated and registered once, so replacing the popup's HTML cannot orphan its closer. */
+    @Test
+    fun `the member popup closes from its button outside click and Escape without stacking listeners`() {
+        val js = File("src/main/resources/static/js/team.js").readText().replace("\r\n", "\n")
+        val finalBind = js.lastIndexOf("bind();")
+        assertTrue(finalBind >= 0, "the Team rows are never bound")
+        val loadTime = js.substring(finalBind + "bind();".length)
+        assertEquals(1, occurrences(loadTime, "pop.addEventListener('click'"), "the delegated closer is not registered once")
+        assertEquals(1, occurrences(loadTime, "document.addEventListener('click'"), "outside click is not registered once")
+        assertEquals(1, occurrences(loadTime, "document.addEventListener('keydown'"), "Escape is not registered once")
+        assertTrue(loadTime.contains("e.target.closest('.mpop-x')"), "the closer is bound to a node a re-render replaces")
+        assertTrue(loadTime.contains("e.stopPropagation();\n    close();"), "the closer also reads as an outside click")
+        assertTrue(loadTime.contains("if (pop.hidden || pop.contains(e.target)) return;"), "inside clicks do not leave the popup alone")
+        assertTrue(
+            loadTime.contains(".team-table tbody tr[data-emp], .tasks-toggle, .quick-add"),
+            "outside click would fight the row switch, task toggle or quick-add shortcut",
+        )
+        assertTrue(loadTime.contains("if (e.key === 'Escape' && !pop.hidden) close();"), "Escape does not close an open popup")
+        assertTrue(js.contains("function close() { pop.hidden = true; current = null; }"), "a closed popup can reopen on re-count")
     }
 }

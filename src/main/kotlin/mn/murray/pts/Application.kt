@@ -556,6 +556,9 @@ fun main() {
                     text = query["q"].orEmpty().trim(),
                     statusSort = BoardSort.of(query["sort_status"]),
                     managerSort = BoardSort.of(query["sort_manager"]),
+                    doneOpen = query.getAll("showdone").orEmpty()
+                        .filter { it in PROJECT_TYPES }
+                        .toSet(),
                 )
                 call.respondHtml {
                     appPage(session, "projects", "Projects",
@@ -575,7 +578,6 @@ fun main() {
                 // [TaskService.mayEditLanes] / [TaskService.mayAddTasks]).
                 val canEdit = session.may(Permission.EDIT_PROJECT_DETAILS)
                 val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
-                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canWriteTasks)
                 val state = openingTaskForm(call, session, canWriteTasks, project.id)
                 // `?lane=` is read by nothing here (Stage 35). The two lane routes still answer a request with
                 // the code they refused it on — `POST /app/projects/{id}/buckets` is a management-only endpoint
@@ -608,7 +610,7 @@ fun main() {
                 // the back button all come back to the same board the reader was looking at.
                 val doneOpen = openDoneLanesOf(call.request.queryParameters)
                 call.respondHtml {
-                    appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
+                    appPage(session, "projects", project.name) {
                         projectDetailContent(
                             it, project, canEdit, state,
                             bucketNote = bucketNote, bucketNoteIsError = savedCode == "err",
@@ -1229,6 +1231,9 @@ fun main() {
                     text = fields["board_q"].orEmpty().trim(),
                     statusSort = BoardSort.of(fields["board_sort_status"]),
                     managerSort = BoardSort.of(fields["board_sort_manager"]),
+                    doneOpen = fields.getAll("board_showdone").orEmpty()
+                        .filter { it in PROJECT_TYPES }
+                        .toSet(),
                 )
                 val state = ProjectForm(result.values, result.errors, ProjectService.suggestedCodes())
                 call.respondHtml {
@@ -1289,10 +1294,9 @@ fun main() {
                 // The refusal hands the page back with the strip still open; every other control is drawn
                 // for the chips this reader actually holds, not for the one that let them edit the strip.
                 val canWriteTasks = session.may(Permission.EDIT_ANY_TASK)
-                val mayAdd = TaskService.mayAddTasks(project.id, session.employeeNumber, canWriteTasks)
                 val state = openingTaskForm(call, session, canWriteTasks, project.id)
                 call.respondHtml {
-                    appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
+                    appPage(session, "projects", project.name) {
                         projectDetailContent(
                             it, project, canEdit = true, state = state,
                             edit = ProjectForm(result.values, result.errors),
@@ -1581,7 +1585,7 @@ fun main() {
                     val project = DemoData.projects.firstOrNull { it.id == projectId }
                     if (project != null) {
                         return@post call.respondHtml {
-                            appPage(session, "projects", project.name, actions = { if (mayAdd) newTaskButton(project) }) {
+                            appPage(session, "projects", project.name) {
                                 // A refused card write comes back on the project page with the board drawn for the
                                 // chips this reader holds — the one that let them post this card (*Edit any task*)
                                 // plus the three that decide what else on the page is live.

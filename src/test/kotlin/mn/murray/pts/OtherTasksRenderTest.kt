@@ -558,14 +558,17 @@ class OtherTasksRenderTest {
         card("Grade the haul road", site, assignee = "EMP0002")
         card("Re-stock the laydown", site, assignee = "EMP0002", status = "In progress")
 
-        val management = board(page(canManage = true))
+        val html = page(canManage = true)
+        val management = board(html)
+        assertEquals(1, occurrences(html, "data-kanban-board=\"true\""),
+            "a backlog status move has no board boundary or quiet-refresh target")
         // Every backlog card is both a draggable node and has a draggable opener button — one handle per card, so no
         // card management cannot move looks grabbable and none they can move stays stuck.
         val openers = Regex("<button[^>]*class=\"kcard-open-btn\"[^>]*>").findAll(management).toList()
         assertEquals(2, openers.size, "management's board did not print one opener per backlog card")
         assertTrue(
-            openers.all { it.value.contains("draggable=\"true\"") },
-            "a backlog card's whole-card opener was not a drag handle, so dragging never starts",
+            openers.all { it.value.contains("draggable=\"true\"") && it.value.contains("data-drag-handle=\"true\"") },
+            "a backlog card's whole-card opener was not an explicit drag handle, so dragging never starts",
         )
         val cards = cardTag(management)
         assertEquals(2, cards.size, "management's board did not print both backlog cards")

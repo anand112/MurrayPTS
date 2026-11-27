@@ -215,8 +215,10 @@ Every item below must still work after Stage 9:
 - [x] Dark mode + accent toggle persisted in `localStorage` keys `pts-theme` / `pts-accent` (verified in a real browser in Stage 7 — see below; the old inline `THEME_JS` was dead code and never ran). **Since Stage 129** the theme also
   chooses the drawer closer's drawing — stroked on light, solid on dark — which is a stylesheet reading of the
   `data-theme` attribute `theme.js` already sets, not a second render and not a server-side guess. **Since Stage 130**
-  a third key, `pts-sidebar`, holds whether this browser has folded the desktop sidebar away: same per-browser
-  storage, same absence-is-the-default shape, and still nothing on the server knows how a reader's window is arranged
+  a third key, `pts-sidebar`, remembers the desktop sidebar arrangement; **Stage 145** changed the folded state from a
+  hidden panel to a 64px icon rail. It stores `rail`, treats the legacy `hidden` value as the same state, and removes
+  the key when expanded: same per-browser storage, same absence-is-the-default shape, and still nothing on the server
+  knows how a reader's window is arranged
 - [x] Per-user pins, per-user todo ownership and list ordering — **since Stage 127 every signed-in account may
   pin for itself** (the route's *Edit project details* gate is gone, and the row written is still the caller's
   own, keyed by `session.employeeNumber`), and the sidebar's **Pinned projects** rows lead with the project's
@@ -319,11 +321,21 @@ Kotlin, CSS and JS all changed, so **Ctrl+F5** once. Verified at the time by **7
 HTTP checks** across all ten authenticated pages plus the login page, and **19 synthetic-DOM JS checks**; the shell as
 it now stands — with **Stage 129**'s redraw, **Stage 130**'s desktop fold and **Stage 131**'s placement of the
 way back, with **Stage 132**'s scale, ink and ring, **Stage 133**'s table of times and **Stage 134**'s phone
-close-out written over all of it — is at **779 tests / 54 classes**. The last deploy is Stage 134's follow-up
-(2026-11-16, PID **12248**, jar **2010630** bytes), live on 8080 with `data/pts.db*` copied in place to
-`data/pts.pre-stage134b-20261116-091223.db*` before the JVM came back up. The stage's first deploy (2026-11-13,
-PID 15388, jar 2009972, backup `pts.pre-stage134-20261113-112344.db*`) shipped a fold that reached only one of the
-project page's two copies of the row; the follow-up is what corrected it.
+close-out written over all of it — is at **789 tests / 55 classes**, with **Stages 135–138** (a Kanban card
+that clamps and wraps, a To-do tick that refreshes only its own list, a bell that refreshes in place, and a
+To-do delete that asks first) written over that too, and **Stages 139–140** (the To-do board's swipe snap
+inside the 900px block, and a test-only pin that every wide sheet sits in the panel the stylesheet scrolls)
+over that. The last deploy is 2026-11-23 10:56
+(PID **6060**, jar **2011673** bytes), live on 8080 with
+`data/pts.db*` copied in place to `data/pts.pre-stages139-140-20261123-105411.db*` before the build went up.
+PID 27744 — which had carried Stages 135–138 since 09:41 with jar 2011118 and backup
+`data/pts.pre-stages135-138-20261123-094119.db*` — was stopped by its netstat PID first, so `installDist` ran
+against a quiet machine with no listener on 8080. No migration ran, so Flyway stays **v22**.
+Stage 134's follow-up (2026-11-16, PID 12248, jar 2010630, backup
+`data/pts.pre-stage134b-20261116-091223.db*`) is the deploy that preceded the one at 09:41; Stages 135–138 were
+recorded without a distribution of their own and went out in it. Stage 134's first deploy (2026-11-13, PID 15388, jar 2009972, backup
+`pts.pre-stage134-20261113-112344.db*`) shipped a fold that reached only one of the project page's two copies
+of the row; the follow-up is what corrected it.
 
 ### The drawer closer's two drawings, and the theme that picks between them (Stage 129)
 
