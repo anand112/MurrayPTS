@@ -1,21 +1,29 @@
 package mn.murray.pts.web
 
+import io.ktor.client.request.get
+import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.install
+import io.ktor.server.http.content.staticResources
+import io.ktor.server.response.respondText
+import io.ktor.server.routing.get
+import io.ktor.server.routing.routing
+import io.ktor.server.testing.testApplication
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import mn.murray.pts.web.plugin.SecurityHeaders
 import mn.murray.pts.web.plugin.isServerDrawnPage
+import mn.murray.pts.web.plugin.isStaticAsset
 
 /**
- * Stage 69 pinned the second half of the fix for "when a card is moved the Team count is not working".
- *
- * The write and the counting were always right; the browser was showing a copy of a page drawn before the
- * move. Two mechanisms do that and each needed its own answer: a page that sits in a tab keeps its old
- * figures until something asks again ([mn.murray.pts.teamScript] re-counts the sheet in place), and a page
- * the browser hands back from its own cache on the Back button never asks the server at all — which is what
- * `Cache-Control: no-store` on the server-drawn pages stops. These tests pin the split between the two kinds
- * of response, because getting it wrong in either direction is a bug: caching a page prints yesterday's
- * numbers, and refusing to cache a stylesheet costs a request per click for bytes that never change.
+ * Server-drawn pages must never come back from the browser's cache: their figures belong to the instant they
+ * were rendered. Unversioned static files may be stored only if the browser checks with the server before
+ * reuse; Ktor's static-resource route currently answers that check with the current file rather than a 304.
+ * These tests exercise real responses through the plugin and route, not just the source that decides policy.
  */
 class ResponseCachingTest {
 
@@ -36,11 +44,12 @@ class ResponseCachingTest {
             "/logout",
         ).forEach {
             assertTrue(isServerDrawnPage(it), "$it is drawn per reader, so it must not be cached")
+            assertFalse(isStaticAsset(it), "$it was mistaken for a shared static file")
         }
     }
 
     @Test
-    fun `bytes that are the same for every reader stay cacheable`() {
+    fun `static bytes stay cacheable only with mandatory revalidation`() {
         listOf(
             "/static/css/app.css",
             "/static/css/base.css",
@@ -48,30 +57,78 @@ class ResponseCachingTest {
             "/static/js/kanban.js",
             "/static/js/app.js",
             "/static/assets/mms-logo.png",
-            "/favicon.ico",
         ).forEach {
-            assertFalse(isServerDrawnPage(it), "$it is the same for every reader and should keep its caching")
+            assertFalse(isServerDrawnPage(it), "$it is the same for every reader")
+            assertTrue(isStaticAsset(it), "$it must use the static revalidation policy")
+        }
+        listOf("/static", "/static/", "/static/assets/favicon.png").forEach {
+            assertTrue(isStaticAsset(it), "$it is below the static route")
+        }
+        listOf("/favicon.ico", "/files/example.png", "/static-other/app.css").forEach {
+            assertFalse(isStaticAsset(it), "$it is outside the static route")
         }
     }
 
-    /**
-     * The header has to be *sent*, not merely decided: the plugin is where the two halves of Stage 69 meet, and
-     * an edit that moves the four security lines around can silently drop the one that matters. Read the way the
-     * render tests read the stylesheet and the page script — the file on disk is the thing that ships. Positions
-     * rather than one big pattern, because what is being pinned is which block the call sits in, not how that
-     * block happens to be indented or wrapped.
-     */
     @Test
-    fun `the security plugin is the one that sends it, and only for those pages`() {
-        val source = File("src/main/kotlin/mn/murray/pts/web/plugin/SecurityHeaders.kt")
-            .readText().replace("\r\n", "\n")
-        val guard = source.indexOf("if (isServerDrawnPage(")
-        assertTrue(guard >= 0, "the emission no longer sits behind the page test at all")
-        val path = source.indexOf("call.request.path()", guard)
-        val sent = source.indexOf("call.response.header(\"Cache-Control\", \"no-store\")", guard)
-        assertTrue(path > guard, "the page test is not being run against the requested path")
-        assertTrue(sent > guard, "no-store is not sent on the answer the page test guards")
-        assertTrue(sent - guard < 160, "no-store is sent somewhere other than inside the block the page test opens")
-        assertTrue(source.indexOf('}', sent) - sent < 80, "the block that sends no-store does not close after it")
+    fun `every shipped static file is served with no-cache`() = testApplication {
+        application {
+            install(SecurityHeaders)
+            routing { staticResources("/static", "static") }
+        }
+
+        val required = listOf("/static/js/team.js", "/static/css/app.css")
+        required.forEach { path ->
+            assertTrue(File("src/main/resources$path").isFile, "the required test fixture $path is missing")
+        }
+        val root = File("src/main/resources/static")
+        val assets = root.walkTopDown().filter { it.isFile }
+            .map { "/static/${it.relativeTo(root).invariantSeparatorsPath}" }
+            .sorted()
+            .toList()
+        assertTrue(assets.containsAll(required), "the fixture inventory omitted a required asset")
+
+        assets.forEach { path ->
+            val response = client.get(path)
+            assertEquals(HttpStatusCode.OK, response.status, path)
+            val cacheControl = response.headers[HttpHeaders.CacheControl]
+            assertEquals("no-cache", cacheControl, "$path must be revalidated before reuse")
+            assertFalse(cacheControl.orEmpty().contains("max-age", ignoreCase = true), "$path is long-lived")
+            assertFalse(cacheControl.orEmpty().contains("immutable", ignoreCase = true), "$path is immutable")
+            assertSecurityHeaders(response)
+
+            if (path in required) {
+                val second = client.get(path)
+                assertEquals(HttpStatusCode.OK, second.status, "$path is not reusable")
+                assertEquals("no-cache", second.headers[HttpHeaders.CacheControl], "$path lost its policy")
+            }
+        }
+    }
+
+    @Test
+    fun `server-drawn pages still send no-store and the unchanged security headers`() = testApplication {
+        application {
+            install(SecurityHeaders)
+            routing {
+                get("/app/team") { call.respondText("Team") }
+            }
+        }
+
+        val response = client.get("/app/team")
+        assertEquals(HttpStatusCode.OK, response.status)
+        assertEquals("no-store", response.headers[HttpHeaders.CacheControl])
+        assertSecurityHeaders(response)
+    }
+
+    private fun assertSecurityHeaders(response: HttpResponse) {
+        assertEquals("nosniff", response.headers["X-Content-Type-Options"])
+        assertEquals("DENY", response.headers["X-Frame-Options"])
+        assertEquals("same-origin", response.headers["Referrer-Policy"])
+        assertEquals("geolocation=(), microphone=(), camera=()", response.headers["Permissions-Policy"])
+        assertEquals(
+            "default-src 'self'; img-src 'self' data:; style-src 'self'; " +
+                "style-src-attr 'unsafe-inline'; script-src 'self'; object-src 'none'; " +
+                "frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+            response.headers["Content-Security-Policy"],
+        )
     }
 }
