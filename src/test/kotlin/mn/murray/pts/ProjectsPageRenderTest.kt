@@ -9,6 +9,7 @@ import mn.murray.pts.domain.DEFAULT_PROJECT_BUCKETS
 import mn.murray.pts.domain.Member
 import mn.murray.pts.domain.PROJECT_TYPES
 import mn.murray.pts.domain.Project
+import mn.murray.pts.domain.STATUS_COMPLETED
 import mn.murray.pts.domain.TASK_STATUSES
 import mn.murray.pts.domain.TYPE_PREFIX
 import mn.murray.pts.repository.ChecklistRepository
@@ -882,17 +883,125 @@ class ProjectsPageRenderTest {
         fun order(sort: String) = render {
             projectsContent(
                 manager, "Site projects", canManage = true,
-                filter = ProjectBoardFilter(statusSort = sort),
+                filter = ProjectBoardFilter(statusSort = sort, doneOpen = setOf("Site projects")),
             )
         }
-        val progression = listOf("Not started", "In progress", "On hold", "Blocked", "Completed")
+        // Completed projects have their own folded table now; the picker still orders every row inside
+        // the active table exactly as it did before the fold.
+        val progression = listOf("Not started", "In progress", "On hold", "Blocked")
         val asc = order(BoardSort.ASC)
         val up = progression.map { asc.indexOf("Row $it") }
         assertTrue(up.all { it >= 0 }, "a stage's row is missing from the board: $up")
         assertEquals(up.sorted(), up, "the status sort is not the picker's order")
+        assertTrue(asc.contains("Row Completed"), "the expanded completed table lost its row")
         val desc = order(BoardSort.DESC)
         val down = progression.map { desc.indexOf("Row $it") }
         assertEquals(down.sorted().reversed(), down, "reversed should run the progression backwards")
+        assertTrue(desc.contains("Row Completed"), "the expanded completed table lost its row")
+    }
+
+    @Test
+    fun `completed projects fold by type and the URL keeps every open panel`() {
+        siteProject("S-02", "Yard handover", STATUS_COMPLETED, "EMP0003", "2028-01-01")
+        ProjectRepository.insert(
+            code = "R-01", name = "Pump teardown", status = STATUS_COMPLETED, progress = 100,
+            managerEmpNo = "EMP0002", due = "2028-02-01", type = "Repair/Maintenance/other services",
+        )
+        val collapsed = render { projectsContent(manager, null, canManage = true) }
+        assertEquals(2, occurrences(collapsed, "class=\"kcol-done-toggle\""), "a panel with finished work has no fold")
+        assertEquals(2, occurrences(collapsed, "class=\"kcol-done\" hidden=\"true\""), "finished work opened by default")
+        assertEquals(2, occurrences(collapsed, "▸ Completed 1"), "the folds do not count their projects")
+        // Like the kanban, the rows stay in the document inside the hidden block; they are not lost work.
+        assertTrue(collapsed.contains("Yard handover"), "the folded Site row is missing")
+        assertTrue(collapsed.contains("Pump teardown"), "the folded Repair row is missing")
+
+        val opened = render {
+            projectsContent(
+                manager, null, canManage = true,
+                filter = ProjectBoardFilter(doneOpen = setOf("Site projects")),
+            )
+        }
+        assertEquals(2, occurrences(opened, "class=\"kcol-done\""), "a completed panel lost its table")
+        assertEquals(1, occurrences(opened, "class=\"kcol-done\" hidden=\"true\""), "opening Site opened Repair too")
+        assertTrue(opened.contains("▾ Completed 1"), "the open panel does not offer to fold")
+        assertTrue(opened.contains("▸ Completed 1"), "the other panel did not stay folded")
+        val forms = Regex("<form[^>]*class=\"kcol-done-toggle\"[^>]*>.*?</form>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(opened).map { it.value }.toList()
+        val closeSite = forms.single { "▾ Completed 1" in it }
+        val openRepair = forms.single { "▸ Completed 1" in it }
+        assertTrue(closeSite.contains("action=\"/app/projects\""), "the fold posts instead of doing a GET")
+        assertTrue(closeSite.contains("method=\"get\""), "the fold is not a GET fallback")
+        assertTrue(closeSite.contains("data-live-target=\"#board-results\""), "the fold reloads the page")
+        assertTrue(
+            closeSite.contains("data-live-extra=\"#projectOpenPanels,#projectCreateOpenPanels\""),
+            "the next search or create would carry stale open panels",
+        )
+        assertTrue(closeSite.contains("data-live-url=\"true\""), "the open-panel URL is not kept")
+        assertFalse(closeSite.contains("name=\"showdone\""), "closing Site left it in the next open set")
+        assertTrue(openRepair.contains("name=\"showdone\" value=\"Site projects\""), "opening Repair closed Site")
+        assertTrue(
+            openRepair.contains("name=\"showdone\" value=\"Repair/Maintenance/other services\""),
+            "opening Repair did not ask for itself",
+        )
+
+        val carried = render {
+            projectsContent(
+                manager, "Site projects", canManage = true,
+                filter = ProjectBoardFilter(
+                    text = "Yard", statusSort = BoardSort.DESC, managerSort = BoardSort.ASC,
+                    doneOpen = setOf("Site projects", "Repair/Maintenance/other services"),
+                ),
+            )
+        }
+        val carriedForm = Regex("<form[^>]*class=\"kcol-done-toggle\"[^>]*>.*?</form>", RegexOption.DOT_MATCHES_ALL)
+            .find(carried)?.value ?: error("the expanded Site panel has no fold")
+        listOf("type\" value=\"Site projects\"", "q\" value=\"Yard\"", "sort_status\" value=\"desc\"", "sort_manager\" value=\"asc\"")
+            .forEach { field -> assertTrue(carriedForm.contains(field), "the fold dropped $field") }
+        assertTrue(carriedForm.contains("name=\"showdone\" value=\"Repair/Maintenance/other services\""), "the fold dropped another open panel")
+        val allTab = Regex("<a class=\"ftab\"[^>]*href=\"([^\"]*)\"").find(carried)?.groupValues?.get(1).orEmpty()
+        listOf("q=Yard", "sort_status=desc", "sort_manager=asc", "showdone=Site+projects", "showdone=Repair%2FMaintenance%2Fother+services")
+            .forEach { param -> assertTrue(allTab.contains(param), "the All tab dropped $param") }
+        // The next search/sort and a refused create each carry the open set in their own form. The toggle
+        // refreshes just these invisible spans, leaving the visible toolbar and popup untouched.
+        listOf(
+            "projectOpenPanels" to "showdone",
+            "projectCreateOpenPanels" to "board_showdone",
+        ).forEach { (carrier, name) ->
+            val carrierTag = Regex("<span[^>]*id=\"$carrier\"[^>]*>").find(carried)?.value.orEmpty()
+            assertTrue(carrierTag.contains("hidden=\"true\""), "$carrier would take visible layout space")
+            val controls = Regex("<span[^>]*id=\"$carrier\"[^>]*>(.*?)</span>", RegexOption.DOT_MATCHES_ALL)
+                .find(carried)?.groupValues?.get(1).orEmpty()
+            assertEquals(2, occurrences(controls, "name=\"$name\""), "$carrier did not carry both open panels")
+        }
+
+        val completedSearch = render {
+            projectsContent(
+                manager, null, canManage = false,
+                filter = ProjectBoardFilter(text = "handover"),
+            )
+        }
+        assertTrue(completedSearch.contains("No active projects."), "an all-completed search lost its panel")
+        assertTrue(completedSearch.contains("▸ Completed 1"), "search hid or auto-expanded the completed count")
+        assertTrue(completedSearch.contains("class=\"kcol-done\" hidden=\"true\""), "search expanded completed work")
+        assertEquals(1, occurrences(completedSearch, "class=\"grid projects-table\""), "the folded table is not the project table")
+        assertTrue(Regex("<span class=\"pill\">\\s*1<").containsMatchIn(completedSearch), "the pills stopped counting completed matches")
+        val completedId = ProjectRepository.findAll().single { it.code == "S-02" }.id
+        val completedOpen = render {
+            projectsContent(
+                manager, null, canManage = false,
+                filter = ProjectBoardFilter(text = "handover", doneOpen = setOf("Site projects")),
+            )
+        }
+        assertFalse(completedOpen.contains("No active projects."), "the expanded completed table still says no active projects")
+        assertTrue(completedOpen.contains("▾ Completed 1"), "showdone did not expand the completed table")
+        assertTrue(completedOpen.contains("<div class=\"kcol-done\">"), "showdone left the completed table hidden")
+        assertTrue(completedOpen.contains("href=\"/app/projects/$completedId\""), "the completed row lost its link")
+        assertTrue(completedOpen.contains("id=\"sheet-pin-$completedId\""), "the completed row lost its pin")
+
+        val activeOnly = render {
+            projectsContent(manager, null, canManage = false, filter = ProjectBoardFilter(text = "widening"))
+        }
+        assertFalse(activeOnly.contains("kcol-done-toggle"), "a panel without completed work grew a fold")
     }
 
     @Test
@@ -1737,5 +1846,206 @@ class ProjectsPageRenderTest {
             Regex("<span class=\"pct\">([^<]*)</span>").findAll(html).map { it.groupValues[1] }.toList(),
             "the board's bars are not what each project's cards add up to",
         )
+    }
+
+    @Test
+    fun `every projects table sits in the panel that scrolls it sideways`() {
+        val html = render { projectsContent(manager, null, canManage = true) }
+        // One <table> per category panel, so the count belongs to this page's fixture rather than
+        // to a pin here: what has to hold is that every one of them is panelled.
+        assertEveryTableScrollsInItsPanel(html, "<table class=\"grid projects-table\">")
+    }
+
+    private fun projectsPolishCss(): String {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        val start = css.indexOf("/* Projects sheet polish (Stage 147).")
+        assertTrue(start >= 0, "the Projects polish block is gone")
+        return css.substring(start, css.indexOf("\n.row-link {", start))
+    }
+
+    @Test
+    fun `the projects toolbar is one labelled compact filter surface`() {
+        val html = render { projectsContent(manager, null, canManage = true) }
+        assertTrue(
+            Regex("<label class=\"board-search-label\" for=\"projectSearch\">Search projects</label>").containsMatchIn(html),
+            "the search field lost its visible label",
+        )
+        val block = projectsPolishCss()
+        listOf(
+            "body:has(#projectSearch) .page-head h1 {",
+            "form.board-toolbar:has(#projectSearch) {",
+            "background: var(--card-bg);",
+            "border: 1px solid var(--input-border);",
+            "grid-template-columns: minmax(0, 1fr) auto;",
+            "form.board-toolbar:has(#projectSearch) .board-search input[type=\"text\"]:focus {",
+            "border-color: var(--focus-ring);",
+            "form.board-toolbar:has(#projectSearch) .board-key {",
+            "flex-direction: column;",
+        ).forEach { rule ->
+            assertTrue(rule in block, "the Projects toolbar lost \"$rule\"")
+        }
+        assertFalse(Regex("#[0-9A-Fa-f]{3,8}").containsMatchIn(block), "the Projects polish introduced a hard-coded colour")
+    }
+
+    @Test
+    fun `the projects category strip has a clear selected and count hierarchy`() {
+        val block = projectsPolishCss()
+        listOf(
+            "body:has(#projectSearch) .board-results > .filter-tabs .ftab {",
+            "min-height: 32px;",
+            "body:has(#projectSearch) .board-results > .filter-tabs .ftab:hover:not(.active)",
+            "body:has(#projectSearch) .board-results > .filter-tabs .ftab.active {",
+            "border-color: var(--accent);",
+            "body:has(#projectSearch) .board-results > .filter-tabs .ftab.active .pill {",
+        ).forEach { rule ->
+            assertTrue(rule in block, "the Projects category strip lost \"$rule\"")
+        }
+    }
+
+    @Test
+    fun `the projects table gives names metadata figures and pins a clear hierarchy`() {
+        val block = projectsPolishCss()
+        listOf(
+            "table.projects-table th {",
+            "background: var(--input-bg);",
+            "font-size: var(--fs-5);",
+            "table.projects-table td.c-name .pname {",
+            "font-weight: 700;",
+            "table.projects-table td.c-client,",
+            "color: var(--muted);",
+            "table.projects-table td.c-rev .money {",
+            "table.projects-table .pin-btn:hover {",
+            "background: var(--accent-soft);",
+        ).forEach { rule ->
+            assertTrue(rule in block, "the Projects table lost \"$rule\"")
+        }
+    }
+
+    @Test
+    fun `an empty projects board is a designed state rather than loose text`() {
+        val html = render {
+            projectsContent(manager, null, canManage = true, filter = ProjectBoardFilter(text = "haul missing"))
+        }
+        assertTrue(html.contains("Nothing here matches"), "the empty state lost its explanation")
+        assertTrue(html.contains("Clear the search and the sort"), "the empty state lost its way back")
+        val block = projectsPolishCss()
+        listOf(
+            ".board-results > .card-panel:not(:has(table)) {",
+            "text-align: center;",
+            "border-style: dashed;",
+            ".card-panel:not(:has(table)) .task-meta {",
+            "font-weight: 600;",
+            ".card-panel:not(:has(table)) .row-link {",
+            "color: var(--accent-ink);",
+        ).forEach { rule ->
+            assertTrue(rule in block, "the Projects empty state lost \"$rule\"")
+        }
+    }
+
+    @Test
+    fun `the projects polish reflows inside the two existing shell breakpoints`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        assertEquals(2, Regex("@media \\(max-width: (900|520)px\\)").findAll(css).count(), "the shell gained a width query")
+        val tablet = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
+        val phone = css.substringAfter("@media (max-width: 520px)")
+        listOf(
+            "form.board-toolbar:has(#projectSearch) .board-search { flex-basis: 100%; }",
+            "form.board-toolbar:has(#projectSearch) .board-key { flex: 1 1 160px; }",
+            ".board-results > .card-panel:has(table.projects-table) { padding: var(--sp-3); }",
+        ).forEach { rule ->
+            assertTrue(rule in tablet, "the Projects tablet layout lost \"$rule\"")
+        }
+        listOf(
+            "body:has(#projectSearch) .page-head { flex-wrap: wrap; gap: var(--sp-3); }",
+            "form.board-toolbar:has(#projectSearch) .board-key { flex: 0 1 35%; min-width: 0; }",
+            "body:has(#projectSearch) .board-results > .filter-tabs { margin-bottom: var(--sp-3); }",
+        ).forEach { rule ->
+            assertTrue(rule in phone, "the Projects phone layout lost \"$rule\"")
+        }
+    }
+
+    @Test
+    fun `a projects row answers pointer and keyboard focus with the team sheet's soft highlight`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        assertTrue(css.contains("table.projects-table tbody tr { cursor: pointer; }"), "a plain row does not invite a click")
+        assertTrue(css.contains("table.projects-table tbody tr:hover td,"), "the pointer highlight is gone")
+        assertTrue(
+            css.contains("table.projects-table tbody tr:focus-within td { background: var(--input-bg); }"),
+            "a focused link or pin no longer highlights its row",
+        )
+    }
+
+    @Test
+    fun `a plain projects cell opens the project without taking over links or controls`() {
+        val js = File("src/main/resources/static/js/app.js").readText()
+        val start = js.indexOf("function openProjectRow(e) {")
+        assertTrue(start >= 0, "the delegated project-row shortcut is gone")
+        val registration = "document.addEventListener('click', openProjectRow);"
+        val handler = js.substring(start, js.indexOf(registration, start))
+        listOf(
+            "e.defaultPrevented",
+            "e.button !== 0",
+            "e.ctrlKey",
+            "e.metaKey",
+            "e.shiftKey",
+            "e.altKey",
+            "target.closest('table.projects-table tbody tr')",
+            "target.closest('a, button, form, input, select, textarea, label')",
+            "selection && !selection.isCollapsed",
+            "row.querySelector('a.row-link[href]')",
+            "window.location.href = link.href",
+        ).forEach { guard ->
+            assertTrue(guard in handler, "the row shortcut lost \"$guard\"")
+        }
+        assertEquals(1, occurrences(js, registration), "the row shortcut must have one delegated listener")
+    }
+
+    @Test
+    fun `projects figures line up with tabular digits`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        assertTrue(
+            css.contains("table.grid.projects-table { font-variant-numeric: tabular-nums; }"),
+            "the projects grid lost its tabular figures",
+        )
+    }
+
+    @Test
+    fun `the app keeps its page scrollbar space when a filter shortens the board`() {
+        val css = File("src/main/resources/static/css/app.css").readText()
+        assertTrue(css.contains("html { scrollbar-gutter: stable; }"), "the page loses its reserved scrollbar space")
+    }
+
+    @Test
+    fun `a pin swaps the block the reader pressed in, and the sidebar's list with it`() {
+        val pinForm = "action=\"/app/projects/${project.id}/pin\""
+
+        // The detail head's pin is its own form as a swap target, because the label is the thing that goes
+        // stale -- "Pin for me" still printed above a list that already holds the project -- and the head
+        // around it holds a Delete button whose own confirm must not be traded for a fresh copy. The id is on
+        // the form rather than on a new wrapper because `.head-actions` is a flex row and a wrapper would be
+        // one more flex child in it.
+        val editor = render { projectDetailContent(manager, project, canEdit = true, canDelete = true) }
+        assertEquals(1, occurrences(editor, "id=\"detail-pin-${project.id}\""), editor)
+        assertEquals(1, occurrences(editor, "id=\"detail-pin-btn-${project.id}\""), "two buttons claim one id")
+        val editorPin = editor.substringAfter(pinForm).take(600)
+        assertTrue(editorPin.contains("data-live-target=\"#detail-pin-${project.id}\""), "the editor's pin navigates: $editorPin")
+        assertTrue(editorPin.contains("data-live-extra=\"#pinnedProjects\""), "the sidebar's list does not ride along: $editorPin")
+        assertTrue(editorPin.contains("class=\"opener-form pin-spot\""), "the form lost the class the pending dim is written against: $editorPin")
+
+        // The chip-less reader gets the same target from the read-only card's head. Both branches name the same
+        // id and only one of them is ever drawn, so a page can never carry two elements with it.
+        val reader = render { projectDetailContent(viewer, project, canEdit = false, canDelete = false) }
+        val readerPin = reader.substringAfter(pinForm).take(600)
+        assertTrue(readerPin.contains("data-live-target=\"#detail-pin-${project.id}\""), "the read-only pin navigates: $readerPin")
+        assertTrue(readerPin.contains("data-live-extra=\"#pinnedProjects\""), readerPin)
+
+        // The sheet's star is the opposite shape: it lives *inside* the results region, so the region is the
+        // target and the sidebar is the companion. Its button keeps an id because it survives its own write --
+        // only the label and the `on` class change -- and `swapBlock` hands the focus back by id.
+        val list = render { projectsContent(viewer, null, canManage = false) }
+        val listPin = list.substringAfter(pinForm).take(600)
+        assertTrue(listPin.contains("data-live-target=\"#board-results\""), "the sheet's star does not swap its own region: $listPin")
+        assertTrue(listPin.contains("data-live-extra=\"#pinnedProjects\""), listPin)
+        assertTrue(listPin.contains("id=\"sheet-pin-${project.id}\""), "the star cannot be given the focus back: $listPin")
     }
 }

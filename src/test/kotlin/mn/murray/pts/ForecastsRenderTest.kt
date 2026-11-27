@@ -693,4 +693,11 @@ class ForecastsRenderTest {
         assertTrue(march.contains("value=\"700,000\""), "March's own line did not reach its sheet")
         assertTrue(march.contains("<span class=\"fc-month\">Mar 2023</span>"))
     }
+
+    @Test
+    fun `both forecast sheets sit in the panel that scrolls them sideways`() {
+        val html = sheet()
+        assertTablesScrollInTheirPanel(html, "<table class=\"grid fc-table\">", 2)
+        assertEveryTableScrollsInItsPanel(html, "<table class=\"grid fc-done-table\">")
+    }
 }

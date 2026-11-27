@@ -143,6 +143,9 @@ fun DIV.otherTasksContent(
                 // picker below has swapped it, so the owner drags their card along this row the way they do
                 // anywhere else (Stage 103 retired the arrows that used to sit under it).
                 div("kanban") {
+                    // One bucket is one drag board: a status move may cross this row's columns, never another
+                    // bucket's row. The marker also lets the quiet refresh replace only the board that changed.
+                    attributes["data-kanban-board"] = "true"
                     TASK_STATUSES.forEach { status ->
                         val inCol = inBucket.filter { it.status == status }
                         div("kcol") {
@@ -185,8 +188,8 @@ fun DIV.otherTasksContent(
     // The board's status moves live in an external script (Stage 7): the markup contract is
     // .kcol[data-status], .kcard[draggable][data-id] and .kmove-btn[data-*]. Since Stage 57 the columns here
     // **are** statuses, and since Stage 58 a backlog card a reader may move carries `draggable`, so dragging it
-    // into another column of its bucket posts `/app/tasks/status` and reloads — the card comes back filed in the
-    // column it landed in under the same bucket heading. **Stage 103 retired the owner's `.kmove-btn` arrows from
+    // into another column of its bucket posts `/app/tasks/status`, moves immediately and quietly refreshes only
+    // that bucket board. **Stage 103 retired the owner's `.kmove-btn` arrows from
     // both status boards**, so the drag is the way: the contract above still names `.kmove-btn` because a
     // project's lane board prints its holder's ✓ Done / ↺ Reopen button and `kanban.js` binds the same delegated
     // handler for it. A drag changes status, never the bucket: which bucket a card belongs to is said in its
@@ -658,9 +661,10 @@ private fun DIV.otherCard(
         // to say so. `kanban.js` answers a status drop through whichever `.kcol[data-status]` the pointer is over
         // (which Stage 57 gave these columns, and Stage 94 made the handler find by delegation rather than bind
         // at load, so a board this page's picker has swapped in place still takes the drop), so the one thing that
-        // was missing was the drag source: a drop here posts the status and
-        // reloads, and the card comes back filed in the column it landed in **under the same bucket heading** —
-        // a status move never changes the bucket, which is the popup's Column picker's answer (Stage 49).
+        // was missing was the drag source: a drop here posts the status, moves the card immediately and quietly
+        // refreshes this bucket's board; a failed request reloads the authoritative page. The card comes back filed
+        // in the column it landed in **under the same bucket heading** — a status move never changes the bucket,
+        // which is the popup's Column picker's answer (Stage 49).
         if (canManage || mine) attributes["draggable"] = "true"
         div("ktitle") { +task.title }
         // The card's live region, the same id and the same contents an assigned card swaps when a step in its
@@ -709,7 +713,8 @@ private fun DIV.otherCard(
  * (`closest('.kcard[draggable="true"]')`) to the card that carries the `data-id`, so the drop still posts that
  * card's status; a plain click on the same button still submits the form and opens the popup. It is gated on
  * [mayMove] so only a reader the route would accept gets a grab handle, matching the `draggable` the card itself
- * prints under the same condition.
+ * prints under the same condition. `data-drag-handle` names this intentional exception to the script's rule that
+ * ordinary buttons, links and inputs never start a drag.
  */
 private fun DIV.openBacklogCard(task: TaskItem, showBucketId: Int, mayMove: Boolean) {
     form(action = "/app/other-tasks", method = FormMethod.get, classes = "kcard-open") {
@@ -724,9 +729,13 @@ private fun DIV.openBacklogCard(task: TaskItem, showBucketId: Int, mayMove: Bool
             attributes["aria-label"] = "Open ${task.title}"
             attributes["title"] = "Open this task"
             // The whole-card overlay makes this button the node the pointer actually grabs, so the drag has to
-            // start here — see the KDoc above. The card behind keeps its own `draggable` as the `data-id` carrier
-            // `kanban.js` climbs to.
-            if (mayMove) attributes["draggable"] = "true"
+            // start here — see the KDoc above. The explicit marker is the one control-drag exception; ordinary
+            // buttons and links still cannot begin a drag. The card behind keeps its own `draggable` as the
+            // `data-id` carrier `kanban.js` climbs to.
+            if (mayMove) {
+                attributes["draggable"] = "true"
+                attributes["data-drag-handle"] = "true"
+            }
         }
     }
 }

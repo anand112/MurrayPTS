@@ -58,11 +58,11 @@ import java.io.File
  * the four rules that choose between them and for the absence of any such choice inside the breakpoint: a theme is
  * not a width, so resizing must never swap the glyph.
  *
- * **Stage 130** gives that same corner button a desktop meaning: it hides the sidebar, and a slim tab on the page's
- * left edge brings it back. So the shell now prints a second disclosure *outside* `#appSidebar`, the stylesheet has
- * rules above the breakpoint that the breakpoint answers one for one, and `app.js` reads one `localStorage` key
- * before the first paint. Three more cases read exactly those three files; the drawer's cases above are unchanged,
- * because a phone reader gets precisely what Stage 128 left them with.
+ * **The desktop rail** supersedes Stage 130's complete hiding: the same corner button now switches between the full
+ * sidebar and a 64px icon rail, so no second opener is printed. Every nav link keeps its destination and gains its
+ * visible label as `title` / `aria-label`; the stylesheet animates the flex width and answers every rail rule inside
+ * the existing 900px breakpoint; `app.js` reads `pts-sidebar` before paint, maps legacy `hidden` to the rail, and
+ * keeps the one button's name and `aria-expanded` honest. The drawer itself remains Stage 128's.
  *
  * **Stage 134** finishes the checklist's third group, and it lands here because it lands in the same three files:
  * the phone's bottom tab bar is shell markup with a breakpoint hiding it, the drawer's second opener is the bar's
@@ -179,6 +179,17 @@ class ShellRenderTest {
      * which one is visible is the stylesheet's decision, pinned by the case after it.
      */
     @Test
+    fun `a project detail head without page actions keeps only the notification dropdown`() {
+        val html = createHTML().html {
+            appPage(UserSession(reader), "projects", "Haul road widening") { }
+        }
+        val head = html.substringAfter("<div class=\"page-head\">").substringBefore("<div class=\"content\">")
+        assertFalse(head.contains("class=\"page-actions\""), "the project head still carries a page action")
+        assertFalse(head.contains("+ New task"), "the project head still offers New task")
+        assertTrue(head.contains("id=\"notif\""), "the notification dropdown left the project head")
+    }
+
+    @Test
     fun `the drawer carries its own close button, behind the link it opens on`() {
         val html = page()
         val aside = html.substringAfter("<aside").substringBefore("</aside>")
@@ -189,10 +200,10 @@ class ShellRenderTest {
         assertTrue(button.contains("type=\"button\""), "the close button would submit a form it sits in")
         assertTrue(button.contains("aria-controls=\"appSidebar\""), "the close button does not name the drawer it closes: $button")
         assertTrue(button.contains("aria-label=\"Close navigation\""), "the close button has no name: $button")
-        // One control owns the state; the closer only ever acts on an open drawer, so it has nothing to report.
-        assertFalse(button.contains("aria-expanded"), "the close button repeats the opener's state: $button")
-        // The two drawings (Stage 129): the panel with its divider and a left chevron, once in strokes and once
-        // solid. The regexes must reach the closing tag — an opening-tag-only match cannot see a glyph.
+        // This one button reports the desktop rail state as well as closing an open phone drawer.
+        assertTrue(button.contains("aria-expanded=\"true\""), "the shell must start with the sidebar expanded: $button")
+        // The two drawings (Stage 129): the panel with its divider and both state chevrons, once in strokes and
+        // once solid. The regexes must reach the closing tag — an opening-tag-only match cannot see a glyph.
         val outline = Regex("<svg class=\"glyph-outline\"[^>]*>.*?</svg>", RegexOption.DOT_MATCHES_ALL)
             .find(button)?.value
             ?: error("the closer has no outlined drawing for the light theme")
@@ -203,13 +214,16 @@ class ShellRenderTest {
             outline.contains("fill=\"none\"") && outline.contains("stroke=\"currentColor\"") &&
                 outline.contains("<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/>") &&
                 outline.contains("<path d=\"M9 3v18\"/>") &&
-                outline.contains("<path d=\"m16 15-3-3 3-3\"/>"),
-            "the outlined drawing is not the panel-and-chevron glyph: $outline",
+                outline.contains("class=\"fold-chevron\" d=\"m16 15-3-3 3-3\"") &&
+                outline.contains("class=\"expand-chevron\" d=\"m10 9 3 3-3 3\""),
+            "the outlined drawing is not the panel with both directional chevrons: $outline",
         )
         assertTrue(
             filled.contains("fill=\"currentColor\"") && filled.contains("fill-rule=\"evenodd\"") &&
-                filled.contains("M9 3h1.6v18H9z") && filled.contains("M15.5 7.5 11 12l4.5 4.5h2L13 12l4.5-4.5z"),
-            "the solid drawing does not cut its own divider and chevron out of the block: $filled",
+                filled.contains("M9 3h1.6v18H9z") &&
+                filled.contains("class=\"fold-chevron\"") && filled.contains("M15.5 7.5 11 12l4.5 4.5h2L13 12l4.5-4.5z") &&
+                filled.contains("class=\"expand-chevron\"") && filled.contains("M10.5 7.5 15 12l-4.5 4.5h-2L13 12l-4.5-4.5z"),
+            "the solid drawing does not cut its divider and both chevrons out of the block: $filled",
         )
         // Its place in the drawer's own order, not just its presence: the logo link before it, the nav after it.
         val logo = aside.indexOf("mms-logo.png")
@@ -233,8 +247,9 @@ class ShellRenderTest {
         assertEquals(2, Regex("@media\\s*\\(").findAll(css).count(), "app.css grew or lost a width")
         assertTrue(css.contains("@media (max-width: 520px)"), "the detail strip lost the width it drops to one at")
         val block = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
-        assertTrue(css.contains(".nav-toggle, .nav-backdrop, .nav-close, .sidebar-tab { display: none; }"),
-            "the hamburger, the backdrop, the closer or the reopen tab prints before a rule has switched it on")
+        assertTrue(css.contains(".nav-toggle, .nav-backdrop, .nav-close { display: none; }"),
+            "the hamburger, backdrop or closer prints before a rule has switched it on")
+        assertFalse(css.contains("sidebar-tab"), "the retired desktop edge tab still competes with the one toggle")
         listOf(
             "html.js .sidebar",
             "transform: translateX(-100%)",
@@ -338,102 +353,94 @@ class ShellRenderTest {
     }
 
     /**
-     * The reopen tab (Stage 130), as markup: a disclosure outside the panel it opens, because a hidden sidebar
-     * cannot carry the only control that brings it back. It is a real `<button>` like the other two, it names
-     * `#appSidebar`, and its `aria-expanded` starts **true** — unlike the hamburger's false, because a desktop page
-     * ships with the sidebar in the layout until a reader asks for the width back.
+     * The rail keeps one real toggle and every destination. The old edge tab is gone because the panel itself is
+     * never removed; each nav link is still an anchor with its existing href and active class, and its visible
+     * label supplies both the hover title and the accessible name when the rail hides that label.
      */
     @Test
-    fun `the reopen tab is on the page, outside the panel it opens`() {
+    fun `one corner button owns the rail and every navigation link keeps its name`() {
         val html = page()
-        val tab = Regex("<button[^>]*id=\"sidebarTab\"[^>]*>.*?</button>", RegexOption.DOT_MATCHES_ALL)
-            .find(html)?.value
-            ?: error("a hidden sidebar would leave no way back")
-        assertTrue(tab.contains("class=\"sidebar-tab\""), "the tab is not styled by the stylesheet: $tab")
-        assertTrue(tab.contains("type=\"button\""), "the tab would submit a form it sits in")
-        assertTrue(tab.contains("aria-controls=\"appSidebar\""), "the tab does not name the panel it opens: $tab")
-        assertTrue(tab.contains("aria-expanded=\"true\""), "the shell ships with the sidebar already hidden: $tab")
-        assertTrue(tab.contains("aria-label=\"Show sidebar\""), "the tab has no name: $tab")
-        // One drawing, in strokes, like every other icon the shell draws — and pointing the way the panel comes from.
-        val svg = Regex("<svg[^>]*>.*?</svg>", RegexOption.DOT_MATCHES_ALL).find(tab)?.value
-            ?: error("the tab has no glyph")
-        assertTrue(
-            svg.contains("stroke=\"currentColor\"") && svg.contains("<path d=\"m13 9 3 3-3 3\"/>"),
-            "the tab's glyph is not a panel opening to the right: $svg",
-        )
-        assertFalse(svg.contains("glyph-"), "the tab grew the closer's two-face treatment: $svg")
-        // Its place in the document, not just its presence: a sibling of the sidebar, and the shell's only one.
         val aside = html.substringAfter("<aside").substringBefore("</aside>")
-        assertFalse(aside.contains("id=\"sidebarTab\""), "the reopen tab is inside the panel that hides with it")
-        assertEquals(1, Regex("id=\"sidebarTab\"").findAll(html).count(), "the shell printed the tab twice")
-        // …and the closer it partners with is still the drawer's, printed once, inside the panel.
-        assertEquals(1, Regex("id=\"navClose\"").findAll(html).count(), "the shell grew a second closer")
+        assertEquals(1, Regex("id=\"navClose\"").findAll(html).count(), "the shell must have exactly one rail toggle")
+        assertFalse(html.contains("sidebarTab") || html.contains("sidebar-tab"), "the retired edge tab still competes")
+        val button = Regex("<button[^>]*id=\"navClose\"[^>]*>.*?</button>", RegexOption.DOT_MATCHES_ALL)
+            .find(aside)?.value.orEmpty()
+        assertTrue(button.contains("type=\"button\""), "the rail toggle is not keyboard-operable as a button")
+        assertTrue(button.contains("aria-controls=\"appSidebar\""), "the toggle does not name its panel")
+        assertTrue(button.contains("aria-expanded=\"true\""), "the default expanded state is not reported")
+
+        val links = Regex("<a class=\"nav-item[^\"]*\"[^>]*>.*?</a>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(aside).map { it.value }.toList()
+        assertTrue(links.size > 1, "the fixture rendered no navigation destinations")
+        fun attribute(tag: String, name: String): String? = Regex("$name=\"([^\"]+)\"").find(tag)?.groupValues?.get(1)
+        links.forEach { link ->
+            val label = Regex("<span class=\"label\">([^<]+)</span>").find(link)?.groupValues?.get(1)
+                ?: error("a navigation link lost its visible label: $link")
+            assertTrue(attribute(link, "href")?.startsWith("/app") == true, "a nav item stopped being a link: $link")
+            assertEquals(label, attribute(link, "title"), "the rail hover title is not the existing label: $link")
+            assertEquals(label, attribute(link, "aria-label"), "the rail accessible name is not the existing label: $link")
+            assertTrue(link.contains("<svg"), "a navigation destination lost its icon: $link")
+            assertFalse(Regex("\\son[a-z]+=").containsMatchIn(link), "navigation grew an inline handler")
+        }
+        assertEquals(1, links.count { it.contains("class=\"nav-item active\"") }, "the current page lost its highlight")
     }
 
     /**
-     * The fold itself (Stage 130), read as the stylesheet's ordering: the desktop rules sit **above** the
-     * breakpoint and the breakpoint answers each one, so a phone page gets the drawer it had before — the panel
-     * back in the layout, the closer gated on an open drawer, and no edge tab on a screen where the hamburger is
-     * the opener. Same selector, later source, is what makes that true, which is why the order is the assertion.
+     * The desktop rail, read as geometry and cascade. The panel remains in the flex row at 64px, its icons stay
+     * centred at a comfortable size, long content disappears, counts become dots, and the one corner button points
+     * to the result of its next press. Width and flex basis animate with existing tokens; `main` needs no script or
+     * fixed width to take the space. The old hide-the-panel and edge-tab model is absent, not shadowed.
      */
     @Test
-    fun `a wide page folds the sidebar away and the breakpoint answers it back`() {
+    fun `a wide page folds the sidebar to a centred icon rail`() {
         val css = appCss()
-        // The whole at-rule, not `@media`: the stylesheet's own comments name the breakpoint in prose (line 77 is
-        // one of them), and cutting at the word alone would stop the read inside a sentence.
         val mediaAt = css.indexOf("@media (max-width: 900px)")
         assertTrue(mediaAt > 0, "the stylesheet lost the breakpoint the drawer depends on")
-        listOf(
-            "html.js body.sidebar-hidden .sidebar { display: none; }",
-            "html.js body.sidebar-hidden .sidebar-tab {",
-            "html.js .nav-close {",
-        ).forEach { rule ->
-            assertTrue(css.indexOf(rule) in 0 until mediaAt, "\"$rule\" belongs above the breakpoint, not inside it")
+        listOf("html.js .nav-close {", "html.js body.sidebar-rail .sidebar {").forEach { rule ->
+            assertTrue(css.indexOf(rule) in 0 until mediaAt, "\"$rule\" belongs above the drawer breakpoint")
         }
-        // The panel leaves the flex row rather than animating out of it, so `main` (flex: 1) takes the whole width.
-        val corner = css.substringBefore("@media (max-width: 900px)").substringAfter("html.js .nav-close {").substringBefore("}")
+        val corner = css.substringAfter("html.js .nav-close {").substringBefore("}")
         listOf(
             "display: inline-flex", "position: absolute", "top: 10px", "right: 10px",
             "width: 34px", "height: 34px", "border-radius: var(--r-md)",
         ).forEach {
-            assertTrue(corner.contains(it), "the desktop closer is not a chip in the sidebar's corner: missing $it")
+            assertTrue(corner.contains(it), "the one toggle moved or lost its button box: missing $it")
         }
-        val tab = css.substringAfter("html.js body.sidebar-hidden .sidebar-tab {").substringBefore("}")
+        val rail = css.substringAfter("html.js body.sidebar-rail .sidebar {").substringBefore("}")
+        listOf("width: 64px", "flex: 0 0 64px", "padding-left: 10px", "padding-right: 10px", "overflow-x: hidden")
+            .forEach { assertTrue(rail.contains(it), "the sidebar is not a narrow rail: missing $it") }
+        assertFalse(rail.contains("display: none"), "the rail removes the panel and its navigation with it")
+
+        val sidebar = css.substringAfter("html.js .sidebar {").substringBefore("}")
         listOf(
-            "display: inline-flex", "position: fixed", "top: 10px", "left: 0",
-            "width: 22px", "height: 72px", "border-radius: 0 var(--r-md) var(--r-md) 0",
-        ).forEach {
-            assertTrue(tab.contains(it), "the reopen tab is not a slim strip on the page's left edge: missing $it")
+            "width var(--dur-2) var(--ease-std)", "flex-basis var(--dur-2) var(--ease-std)",
+            "padding var(--dur-2) var(--ease-std)",
+        ).forEach { assertTrue(sidebar.contains(it), "the rail width does not use the shared motion tokens: $it") }
+        val reduced = baseCss().substringAfter("@media (prefers-reduced-motion: reduce)")
+        assertTrue(reduced.contains("transition-duration: .01ms !important"), "reduced motion does not stand the rail width down")
+        val main = css.substringAfter("\n.main {").substringBefore("}")
+        assertTrue(main.contains("flex: 1") && main.contains("min-width: 0"), "main cannot naturally take the freed width")
+
+        val hidden = css.substringAfter("html.js body.sidebar-rail .side-brand,").substringBefore("}")
+        listOf(".side-caption", ".pinned", ".side-foot", "display: none").forEach {
+            assertTrue(hidden.contains(it), "the rail still shows long sidebar content: missing $it")
         }
-        // Both cut-outs are the app's ordinary corner radius, and that claim is a token plus a pixel: the rules ask
-        // for `--r-md`, and `--r-md` is still the 8px they were drawn at.
-        stepIs("--r-md", "8px")
-        // Stage 131: the tab stays at the top of the edge, where the closer it answers to sits, rather than being
-        // floated to the middle of the window. `translateY(-50%)` against a `top: 50%` is what centred it.
-        listOf("top: 50%", "translateY", "transform").forEach {
-            assertTrue(!tab.contains(it), "the reopen tab is being placed by the middle of the edge again: $it")
+        val nav = css.substringAfter("html.js body.sidebar-rail .sidebar nav {").substringBefore("}")
+        assertTrue(nav.contains("margin-top: var(--sp-7)"), "the first icon would sit under the corner toggle")
+        val item = css.substringAfter("html.js body.sidebar-rail .nav-item {").substringBefore("}")
+        listOf("position: relative", "justify-content: center", "padding: 10px 0").forEach {
+            assertTrue(item.contains(it), "the rail links are not centred icon targets: missing $it")
         }
-        assertTrue(
-            Regex("top: (\\d+)px").find(corner)?.groupValues?.get(1) ==
-                Regex("top: (\\d+)px").find(tab)?.groupValues?.get(1),
-            "the reopen tab no longer starts at the height the closer does",
-        )
-        // Stage 134 gave app.css a second breakpoint, so "everything after the 900px query" is no longer a block:
-        // cut it at 520px or these three assertions would happily pass on a rule the fold had put in the phone's
-        // own block, which is exactly the leak they exist to catch.
-        val block = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
-        listOf(
-            "html.js body.sidebar-hidden .sidebar { display: flex; }",
-            "html.js .nav-close { display: none; }",
-            "html.js body.sidebar-hidden .sidebar-tab { display: none; }",
-        ).forEach { rule ->
-            assertTrue(block.contains(rule), "the breakpoint no longer answers \"$rule\"")
+        val icon = css.substringAfter("html.js body.sidebar-rail .nav-item svg {").substringBefore("}")
+        assertTrue(icon.contains("width: 20px") && icon.contains("height: 20px"), "the rail icons lost their comfortable size")
+        assertTrue(css.contains("html.js body.sidebar-rail .nav-item .label { display: none; }"), "rail labels still take space")
+        val pill = css.substringAfter("html.js body.sidebar-rail .nav-item .pill {").substringBefore("}")
+        listOf("position: absolute", "width: 8px", "height: 8px", "padding: 0", "font-size: 0").forEach {
+            assertTrue(pill.contains(it), "the count is not a compact rail badge: missing $it")
         }
-        // A hidden sidebar is a browser's memory, not anybody's data, so it must not reach the stylesheet as a
-        // width of its own: the fold *reads* `sidebar-hidden` in the 900px block — three times above, each one
-        // standing a desktop control down where the desktop has gone — and never *sets* it, and never gets a
-        // third block. Two breakpoints are the drawer's and the detail strip's, and both are named so a new one
-        // has to be added here deliberately rather than slipping in.
+        assertTrue(css.contains("html.js body.sidebar-rail .nav-close .fold-chevron { display: none; }"), "the rail still points inward")
+        assertTrue(css.contains("html.js body.sidebar-rail .nav-close .expand-chevron { display: inline; }"), "the rail toggle does not point outward")
+        assertFalse(css.contains("sidebar-hidden") || css.contains("sidebar-tab"), "the old hidden-sidebar model is still active")
         assertEquals(
             listOf("900px", "520px"),
             Regex("@media\\s*\\(max-width:\\s*(\\d+px)\\)").findAll(css).map { it.groupValues[1] }.toList(),
@@ -442,41 +449,69 @@ class ShellRenderTest {
     }
 
     /**
-     * The remembered fold (Stage 130), as script. Three things the markup and the stylesheet cannot say: the state
-     * is read from one key before anything is painted — the same argument Stage 119 makes for the `js` class — the
-     * two controls are one toggle, and the desktop half of that toggle stands down on a narrow page so the drawer's
-     * own close path is left exactly as Stage 128 shipped it.
+     * The remembered rail, as script. One per-browser key is read before the controls are wired; both the new
+     * `rail` value and Stage 130's legacy `hidden` value apply the rail before paint. One real button owns the
+     * desktop toggle and reports its state, while its narrow-screen half stands down so the shared drawer close
+     * path remains exactly the one Stage 128 shipped.
      */
     @Test
-    fun `the fold is remembered in one key, read before the paint`() {
+    fun `the rail is remembered before paint and its one toggle keeps ARIA honest`() {
         val js = appJs()
         listOf(
             "localStorage.getItem('pts-sidebar')",
-            "document.body.classList.add('sidebar-hidden')",
-            "classList.toggle('sidebar-hidden'",
+            "rememberedSidebar === 'rail' || rememberedSidebar === 'hidden'",
+            "document.body.classList.add('sidebar-rail')",
             "var SIDEBAR_KEY = 'pts-sidebar'",
-            "localStorage.setItem(SIDEBAR_KEY, 'hidden')",
+            "classList.toggle('sidebar-rail'",
+            "localStorage.setItem(SIDEBAR_KEY, 'rail')",
             "localStorage.removeItem(SIDEBAR_KEY)",
             "navClose.addEventListener('click', toggleSidebar)",
-            "sidebarTab.addEventListener('click', toggleSidebar)",
             "if (!isWide()) return;",
-            "aria-label', isWide() ? 'Hide sidebar' : 'Close navigation'",
-            "aria-expanded', sidebarHidden() ? 'false' : 'true'",
+            "navClose.setAttribute('aria-expanded', isWide() && sidebarRail() ? 'false' : 'true')",
+            "sidebarRail() ? 'Expand sidebar' : 'Collapse sidebar'",
         ).forEach { piece ->
             assertTrue(js.contains(piece), "app.js lost \"$piece\"")
         }
-        // One name the file knows, in two places: the pre-paint read, which cannot reach a constant declared below
-        // it, and the constant every write goes through.
         assertEquals(2, Regex("'pts-sidebar'").findAll(js).count(), "the sidebar state grew a second key")
-        // Before the controls are found, and so before the reader could see the panel they chose to hide.
+        assertFalse(js.contains("sidebarTab") || js.contains("sidebar-hidden"), "the retired second toggle still has script")
         val marked = js.indexOf("document.documentElement.classList.add('js')")
         val applied = js.indexOf("localStorage.getItem('pts-sidebar')")
         val wired = js.indexOf("getElementById('navClose')")
-        assertTrue(marked in 0 until applied, "the fold is read before the shell is marked as scripted")
-        assertTrue(applied < wired, "the remembered fold is applied only after the controls are wired, so the page jumps")
-        // And the drawer's own close path is untouched by a second listener on the same button.
+        assertTrue(marked in 0 until applied, "the rail is read before the shell is marked as scripted")
+        assertTrue(applied < wired, "the remembered rail is applied only after the controls are wired, so the page jumps")
         assertTrue(js.contains("navClose.addEventListener('click', closeNav)"),
             "the closer stopped handing an open drawer to the shared close")
+    }
+
+    /** A browser remembering the desktop rail must still get Stage 128's complete, labelled phone drawer. */
+    @Test
+    fun `a remembered rail leaves the phone drawer unchanged`() {
+        val css = appCss()
+        val block = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
+        listOf(
+            "html.js .sidebar {",
+            "width: 100%",
+            "transform: translateX(-100%)",
+            "html.js body.nav-open .sidebar { transform: none; }",
+            "html.js body.sidebar-rail .sidebar {",
+            "width: 100%; flex-basis: auto;",
+            "padding: var(--sp-5) 14px var(--sp-4);",
+            "html.js body.sidebar-rail .side-brand { display: inline; }",
+            "html.js body.sidebar-rail .nav-item .label { display: block; }",
+            "html.js body.sidebar-rail .nav-item .pill {",
+            "position: static",
+            "html.js body.sidebar-rail .nav-close .fold-chevron { display: inline; }",
+            "html.js body.sidebar-rail .nav-close .expand-chevron { display: none; }",
+            "html.js .nav-close { display: none; }",
+            "html.js body.nav-open .nav-close {",
+        ).forEach { rule ->
+            assertTrue(block.contains(rule), "the drawer breakpoint no longer restores \"$rule\"")
+        }
+        val drawerAt = block.indexOf("html.js .sidebar {")
+        val railResetAt = block.indexOf("html.js body.sidebar-rail .sidebar {")
+        val labelResetAt = block.indexOf("html.js body.sidebar-rail .nav-item .label { display: block; }")
+        assertTrue(drawerAt in 0 until railResetAt, "the rail reset must come after the drawer's own geometry")
+        assertTrue(railResetAt < labelResetAt, "the drawer labels are not restored by the rail reset")
     }
 
     @Test
@@ -814,6 +849,146 @@ class ShellRenderTest {
         assertTrue(
             css.contains(".pinned-row a { flex: 1; min-width: 0;"),
             "a long project name pushes the ID or the × out of the sidebar",
+        )
+    }
+
+    @Test
+    fun `the to-do board settles on a list, and lets a drag scroll it first`() {
+        // Comments out first, as everywhere in this file: the block's own prose names the selectors it is
+        // explaining, and a count taken over the prose would count the explanation as rules.
+        val css = appCss().replace(Regex("/\\*.*?\\*/", RegexOption.DOT_MATCHES_ALL), "")
+        val wide = css.substringAfter("@media (max-width: 900px)").substringBefore("@media (max-width: 520px)")
+        val desktop = css.substringBefore("@media (max-width: 900px)")
+
+        val board = wide.substringAfter(".todo-board {").substringBefore("}")
+        assertTrue(board.contains("scroll-snap-type: x proximity"),
+            "the to-do board scrolls sideways at this width, but a flick can stop between two lists: $board")
+        val list = wide.substringAfter(".todo-board .todo-list {").substringBefore("}")
+        assertTrue(list.contains("scroll-snap-align: start"),
+            "a snap container with nothing aligned to it settles nowhere: $list")
+
+        // Proximity and not the kanban row's mandatory: todo.js drags the lists along this same axis and
+        // scrolls the board to reach the next one, which a mandatory container would snap straight back.
+        assertFalse(board.contains("mandatory"),
+            "a mandatory snap would fight the edge-scroll todo.js runs on the board it is snapping")
+        assertTrue(wide.substringAfter(".kanban, .kanban-lanes {").substringBefore("}")
+            .contains("scroll-snap-type: x mandatory"),
+            "the kanban row lost the mandatory snap Stage 134 gave it")
+
+        // The scroll the snap needs is the desktop rule's, and it is unchanged: snap with no overflow-x is a
+        // declaration with nothing to act on, and a list that lost its basis is no longer a row to page.
+        assertTrue(desktop.substringAfter(".todo-board {").substringBefore("}").contains("overflow-x: auto"),
+            "the to-do board no longer scrolls sideways, so there is nothing for the snap to settle")
+        assertTrue(desktop.substringAfter(".todo-board .todo-list {").substringBefore("}")
+            .contains("flex: 0 0 330px"),
+            "the lists lost the fixed basis that makes them a row to page through")
+
+        // And still exactly two width breakpoints: this went into the shell's own block, not a new one.
+        assertEquals(2, Regex("@media \\(max-width: \\d+px\\)").findAll(css).count(),
+            "a third width breakpoint appeared")
+    }
+
+    @Test
+    fun `the sidebar's counts have an address a write can land on`() {
+        val html = page()
+
+        // A pill is addressed by the section it belongs to so that a form can name the count its own write
+        // moves and land it from the same response as the block the reader acted on. Which pill a form names
+        // is decided per action, from what that action really moves: the To-do figure counts the reader's
+        // to-dos, so the To-do page's writes carry it, while *Assigned tasks* counts every card finished ones
+        // included (Stage 54) -- so a status change moves no pill at all and names none.
+        listOf("todo", "assigned-tasks", "projects", "team", "forecasts", "lessons", "other-tasks").forEach {
+            val addressed = Regex("id=\"nav-pill-" + Regex.escape(it) + "\">\\d+</span>")
+            assertTrue(addressed.containsMatchIn(html), "the $it pill is not addressed, or prints no number: $html")
+            // Once. `swapBlock` answers `getElementById`, so a second copy of the id is a companion that only
+            // ever lands one of the two figures the reader can see.
+            assertEquals(1, html.split("id=\"nav-pill-$it\"").size - 1, "$it has more than one pill")
+        }
+        // Calendar, Access control and Settings carry no count and so draw no pill. They must not print an
+        // address for one either: an id nothing renders is an id a companion silently fails to find, and the
+        // framework's answer to a missing companion is to skip it -- which is indistinguishable from working.
+        listOf("calendar", "access-control", "settings").forEach {
+            assertFalse("nav-pill-$it" in html, "a pill that is not drawn has an address")
+        }
+    }
+
+    @Test
+    fun `a to-do write in flight is visible, and the focus is handed where the reader is going`() {
+        val css = appCss()
+        // The dim, and the transition that keeps it from arriving between two frames: the same `.55` and the
+        // same `--dur-1` the three blocks that already had one use, so the app has one idea of "busy" rather
+        // than four. Without these `sendToBlock` adds `pts-busy` to a block nothing answers, and a POST that
+        // has not come back yet looks exactly like one that has.
+        assertTrue(
+            ".todo-board, .todo-list, .todo-new-list { transition: opacity var(--dur-1) var(--ease-std); }" in css,
+            css,
+        )
+        assertTrue(
+            ".todo-board.pts-busy, .todo-list.pts-busy, .todo-new-list.pts-busy { opacity: .55; }" in css,
+            css,
+        )
+
+        val js = appJs()
+        // The focus hand-back, and the contract line that documents it. `swapBlock` gives the focus back to
+        // whichever control had it, which is right for a tick and wrong for the two writes that remove or
+        // empty the control the reader pressed, so a block form may name the destination instead.
+        assertTrue("[data-live-focus]" in js, "the markup contract does not document the attribute it honours")
+        assertTrue("getAttribute('data-live-focus')" in js, js)
+        assertTrue(
+            "focusNext.focus({ preventScroll: true })" in js,
+            "the hand-back scrolls the page to the control, which is a reload by another name",
+        )
+        // It runs after the companions: a named destination has to win over the control `swapBlock` already
+        // restored, or the two fight and which one lands depends on the order of a response's ids.
+        val send = js.substringAfter("function sendToBlock")
+        assertTrue(
+            send.indexOf("extraIds(form).forEach") in 1..send.indexOf("data-live-focus"),
+            "the focus is named before the blocks it lives in have been swapped",
+        )
+    }
+
+    @Test
+    fun `the pinned list is addressed, and each row hands the focus to a neighbour`() {
+        val haul = project("S-02", "Site fencing")
+        assertEquals(true, ProjectService.togglePin(colleague, haul), "the colleague's pin did not take")
+        val one = page(colleague)
+
+        // Addressed once, and on every page: `swapBlock` answers `getElementById`, and the block is in the
+        // sidebar, so a pin form anywhere in the app can name it as the companion its own write moves.
+        assertEquals(1, one.split("id=\"pinnedProjects\"").size - 1, "the pinned block is not addressed once")
+        assertTrue("data-live-target=\"#pinnedProjects\"" in one, one)
+        assertTrue("id=\"pinned-unpin-$haul\"" in one, one)
+        // The row goes, so the *block* is the target: a narrower one would be a row that is not in the response
+        // at all, and `sendToBlock` treats a missing target as a failed swap and navigates -- the reload this
+        // stage exists to remove. The sheet's star rides along when the reader is on the Projects page and is
+        // simply skipped elsewhere, which is what a companion is for.
+        val block = one.substringAfter("id=\"pinnedProjects\"").substringBefore("side-foot")
+        assertTrue("data-live-extra=\"#board-results\"" in block, "the sheet's star does not ride along: $block")
+        assertEquals(0, block.split("data-live-focus=").size - 1, "a lone row names a destination it does not have")
+
+        val crusher = project("S-03", "Crusher relocation")
+        assertEquals(true, ProjectService.togglePin(colleague, crusher), "the second pin did not take")
+        val two = page(colleague)
+        // Focus cannot come back to an × that is no longer there, so each row names a neighbour's: the next
+        // one, or the previous one when it was the last. Which of the two it is follows `pinnedIds`, so what is
+        // pinned here is that every row has a destination and that the destination is a row this page draws.
+        val destinations = Regex("data-live-focus=\"#pinned-unpin-(\\d+)\"")
+            .findAll(two).map { it.groupValues[1] }.toList()
+        assertEquals(2, destinations.size, "a row of two has no focus destination: $two")
+        destinations.forEach { assertTrue("id=\"pinned-unpin-$it\"" in two, "row $it names a destination that is not drawn") }
+        assertEquals(setOf("$haul", "$crusher"), destinations.toSet(), "the two rows do not point at each other")
+
+        val css = appCss()
+        // The dim, and the region that had a transition but no dim of its own: `sendToBlock` adds `pts-busy` to
+        // whatever block a form names, so a target with no rule behind it is a POST in flight that looks
+        // exactly like one that has already landed.
+        assertTrue(
+            ".pinned, .pin-spot, [data-live-region] { transition: opacity var(--dur-1) var(--ease-std); }" in css,
+            css,
+        )
+        assertTrue(
+            ".pinned.pts-busy, .pin-spot.pts-busy, [data-live-region].pts-busy { opacity: .55; }" in css,
+            css,
         )
     }
 }

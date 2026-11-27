@@ -159,6 +159,7 @@ class AssignedTasksRenderTest {
         val html = page(canManage = true)
         // Five columns and nothing else: a status board always prints all of them, empty ones included.
         assertEquals(TASK_STATUSES.size, occurrences(html, "kcol-head"), "the board is not five status columns")
+        assertEquals(1, occurrences(html, "data-kanban-board=\"true\""), "a quiet drop cannot find its board to refresh")
         TASK_STATUSES.forEach { assertTrue(html.contains(">$it<"), "the status column $it is missing") }
         assertEquals(TASK_STATUSES.size, occurrences(html, "data-status=\""), "a column cannot be a drag target")
         assertTrue(html.contains("Grade the haul road"), "the assigned card is not on the board")
@@ -296,6 +297,7 @@ class AssignedTasksRenderTest {
         assertFalse(html.contains("d-bucket"), "a backlog column head was drawn")
         // Both boards cut by the same five statuses, so ten columns and one popup shared between them.
         assertEquals(2 * TASK_STATUSES.size, occurrences(html, "kcol-head"), "both boards are not status boards")
+        assertEquals(2, occurrences(html, "data-kanban-board=\"true\""), "either Assigned board is missing its refresh marker")
     }
 
     @Test

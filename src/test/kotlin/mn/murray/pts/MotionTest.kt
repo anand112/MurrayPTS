@@ -18,8 +18,8 @@ import java.io.File
  *
  * What is checked, and why each check is the one worth having:
  *
- *  1. **The times live in one table** — the two lengths are the two the app already ran, and the literals they
- *     replaced are gone rather than shadowed by a token nobody uses.
+ *  1. **The times live in one table** — the original dim/drawer lengths and the kanban landing length, and the
+ *     literals they replaced are gone rather than shadowed by a token nobody uses.
  *  2. **No rule writes out a length of time the table names** — the same rot Stage A fenced against, one family
  *     later: a `150ms` typed beside `var(--dur-1)` makes the table decoration.
  *  3. **A popup's overlay fades and blurs, and still hides the way the scripts say** — those scripts set
@@ -142,6 +142,8 @@ class MotionTest {
         // the instant a cursor lands on it is the one control on that bar the reader would notice skipping.
         ".mtab" to ".mtab:hover",
         ".team-table tbody tr[data-emp] td" to ".team-table tbody tr[data-emp]:hover td",
+        "table.projects-table tbody tr td" to "table.projects-table tbody tr:hover td",
+        "table.projects-table .pin-btn" to "table.projects-table .pin-btn:hover",
     )
 
     /** The boxes a live swap replaces; an entrance on one of them would replay on every render. */
@@ -150,10 +152,11 @@ class MotionTest {
     // ---- 1 and 2. one table of times, and no second copy of it -----------------------------------------
 
     @Test
-    fun `the time the app moves in is one table, and its two lengths are the two it already ran`() {
+    fun `the time the app moves in is one table, including the kanban landing`() {
         val t = scale()
         assertEquals("120ms", t["--dur-1"], "--dur-1 must stay the length the board's dim already used")
         assertEquals("200ms", t["--dur-2"], "--dur-2 must stay the drawer's slide")
+        assertEquals("150ms", t["--dur-3"], "--dur-3 is the dropped card's short settle")
         assertEquals("cubic-bezier(.22, .61, .36, 1)", t["--ease-out"], "--ease-out is the entrance curve")
         assertEquals("cubic-bezier(.4, 0, .2, 1)", t["--ease-std"], "--ease-std is the state-change curve")
         // The claim is that these are the app's own numbers, so the literals they replaced are gone.
@@ -164,11 +167,19 @@ class MotionTest {
 
     @Test
     fun `no rule writes out a length of time the table names`() {
+        // One rule deliberately takes motion away: the captured drag image must not inherit the card's hover
+        // transition. Pin the exception to that exact selector, then account for every other declaration below.
+        assertEquals(1, Regex("transition\\s*:\\s*none").findAll(all).count(),
+            "only the captured drag image may have transition:none")
+        val stableDrag = Regex("(?:^|\\})\\s*\\.kcard\\.kcard-drag\\s*\\{[^}]*transition:\\s*none\\s*;")
+            .find(all)
+        assertTrue(stableDrag != null, "the stable drag image lost its exact transition:none exception")
         val moved = Regex("(?<![\\w-])(transition|animation)\\s*:\\s*(?<v>[^{}]*)[;}]").findAll(all).toList()
         assertTrue(moved.size >= 8,
             "only ${moved.size} transition/animation declarations — the app has more motion than that")
         val offenders = moved.filter { m ->
             val v = m.groups["v"]!!.value
+            if (m.range.first in stableDrag!!.range) return@filter false
             // Every one of them asks the table, and none of them writes a time or the keyword the curves replaced.
             !v.contains("var(--dur-") || !v.contains("var(--ease-") ||
                 Regex("[\\d.]+m?s(?![\\w-])").containsMatchIn(v) ||
@@ -189,7 +200,7 @@ class MotionTest {
             .toList() + Regex("[\\d.]+m?s(?![\\w-])").findAll(code(appCss)).toList()
         assertTrue(outside.isEmpty(),
             "a duration lives outside the table and the reduced-motion block: " + outside.map { it.value })
-        assertEquals(5, occurrences(base, "ms"), "120ms + 200ms in the table, three .01ms in the block")
+        assertEquals(6, occurrences(base, "ms"), "120ms + 200ms + 150ms in the table, three .01ms in the block")
     }
 
     // ---- 3. the overlay that is not there yet ---------------------------------------------------------
@@ -217,28 +228,33 @@ class MotionTest {
     // ---- 4. the card in the hand ----------------------------------------------------------------------
 
     @Test
-    fun `a card being dragged is lifted, and the script is what lifts it`() {
+    fun `a card being dragged has a stable image and a separately dimmed original`() {
         val lift = body(".kcard.kcard-drag")
-        listOf("opacity: .85", "transform: translateY(-2px) rotate(.4deg)", "box-shadow: 0 8px 18px").forEach {
-            assertTrue(it in lift, "the dragged card is not visibly in the hand: missing \"$it\"")
+        listOf("opacity: .92", "transform: none", "transition: none", "box-shadow: 0 8px 18px").forEach {
+            assertTrue(it in lift, "the drag image is not stable: missing \"$it\"")
         }
+        assertTrue("opacity: .38" in body(".kcard.kcard-ghost"), "the original card is not dimmed in place")
         val dark = Regex("(?:^|\\})\\s*html\\[data-theme=\"dark\"\\] \\.kcard\\.kcard-drag\\s*\\{([^}]*)\\}")
             .find(code(appCss))
-        assertTrue(dark != null && "box-shadow: 0 8px 18px rgba(0, 0, 0, .55)" in dark!!.groupValues[1],
+        assertTrue(dark != null && "box-shadow: 0 8px 18px rgba(0, 0, 0, .48)" in dark!!.groupValues[1],
             "the lift disappears on the dark theme, where a pale shadow is no shadow at all")
-        // The stylesheet cannot know a drag has started, so this is the stage's only script edit. It has to be
-        // the *start* handler that adds the class, and before the data is set, because the browser paints the
-        // drag image from the node as it stands when that handler returns.
-        val start = kanbanJs.substringAfter("addEventListener('dragstart'").substringBefore("});")
+        // The stylesheet cannot know a drag has started. The drag-image class must be added before setData, while
+        // the original's ghost class waits for the next frame so it cannot dim the captured image.
+        val start = code(kanbanJs).substringAfter("addEventListener('dragstart'").substringBefore("});")
         val end = kanbanJs.substringAfter("addEventListener('dragend'").substringBefore("});")
         assertTrue("card.classList.add('kcard-drag')" in start, "nothing ever puts the card in the hand")
         assertTrue("card.classList.remove('kcard-drag')" in end, "a dropped card stays lifted forever")
-        assertTrue(start.indexOf("kcard-drag") < start.indexOf("setData"),
+        assertTrue(start.indexOf("card.classList.add('kcard-drag')") < start.indexOf("e.dataTransfer.setData"),
             "the lift arrives after the drag image was painted, so the card being carried looks untouched")
+        assertTrue("requestAnimationFrame(function" in start && "card.classList.add('kcard-ghost')" in start,
+            "the original is dimmed in the same paint as the drag image")
         assertEquals(1, occurrences(kanbanJs, "classList.add('kcard-drag')"), "two handlers both lifting is two shapes")
         assertEquals(1, occurrences(kanbanJs, "classList.remove('kcard-drag')"), "the lift comes off in one place")
-        // The lift is a *state*, not a size: nothing else in the app may carry that class.
         assertEquals(2, Regex("kcard-drag").findAll(code(appCss)).count(), "one rule and its dark twin")
+        val settle = body(".kcard.kcard-settle")
+        assertTrue("animation: pts-kanban-settle var(--dur-3) var(--ease-out)" in settle,
+            "the dropped card has no short settle")
+        assertTrue("transform: scale(.98)" in frames("pts-kanban-settle"), "the settle no longer starts just below rest")
     }
 
     // ---- 5 and 6. arriving once -----------------------------------------------------------------------

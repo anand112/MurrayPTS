@@ -272,8 +272,10 @@ fun DIV.accessContent(
                                         }
                                     }
                                 }
+                            } else if (row.department.isBlank()) {
+                                +"—"
                             } else {
-                                +(row.department.ifBlank { "—" })
+                                span("chip dept-chip") { +row.department }
                             }
                         }
                         td {

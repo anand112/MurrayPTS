@@ -672,4 +672,9 @@ class LessonsRenderTest {
     private fun selectNamed(html: String, name: String): String =
         Regex("<select name=\"$name\"[^>]*>.*?</select>", RegexOption.DOT_MATCHES_ALL)
             .find(html)?.value ?: error("no select named $name")
+
+    @Test
+    fun `the lesson sheet sits in the panel that scrolls it sideways`() {
+        assertTablesScrollInTheirPanel(sheet(), "<table class=\"grid lessons-table\">", 1)
+    }
 }

@@ -657,10 +657,11 @@ class AccessControlRenderTest {
         assertFalse(readOnly.contains("department-pick-"), "a reader without the pair was offered the picker")
         assertTrue(readOnly.contains("<th>Department</th>"), "the department column left with the picker it did not have")
         assertEquals(
-            "IT / Systems",
+            "<span class=\"chip dept-chip\">IT / Systems</span>",
             readOnly.substringAfter("id=\"department-cell-$owner\">").substringBefore("</td>"),
-            "the department stopped printing as words",
+            "the read-only department stopped printing as a shared badge",
         )
+        assertEquals(7, occurrences(readOnly, "class=\"chip dept-chip\""), "a read-only department lost the shared badge system")
 
         // A person already filed under one of the nine opens on that word and needs no placeholder.
         TeamRepository.upsert(Member(worker, "Bat-Erdene Tudev", "Finance", "Engineer"))

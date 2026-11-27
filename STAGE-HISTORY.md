@@ -10452,8 +10452,13 @@ part of the window edge rather than as a stray control at `top: 50%`. The tab's 
 **[Stage 131](#stage-131)**'s business now — it is placed at the top of the edge — and the corner chip beside the logo
 is still the reader's to look at.
 
+**Superseded in part by [Stage 145](#stage-145):** the reader later asked for the folded sidebar to remain as an
+icon rail. That reverses the icon-rail prohibition below and retires the hidden panel, edge tab and two-control
+state; the optional per-browser choice, one breakpoint and no server-side state still stand.
+
 **Never re-propose:** auto-folding at some width, which is the surprise the ask ruled out by saying *optional*; an icon
-rail or a hover-reveal strip, when the choice made was the column leaving and the page taking the row; remembering the
+rail or a hover-reveal strip, when the choice made was the column leaving and the page taking the row (**superseded by
+Stage 145**, at the reader's request); remembering the
 fold on the account, in a column or a cookie — it is a window arrangement, per browser, like the theme is; a second
 `@media` block for the desktop half, which would make the fold and the drawer two breakpoints that can disagree; a
 `width`/`visibility` fold that keeps the flex track and leaves a 240px gutter of nothing; `aria-expanded` on both the
@@ -11132,7 +11137,7 @@ Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
 
 **What changed.** `.ktitle` now breaks long words, clamps the visible title to two lines, and exposes the full title through its native hover text. `.kmeta` wraps and can shrink inside the card. The CSS continues to use the destination's existing type token; card heights remain content-driven and no breakpoint was added.
 
-**Verified.** `.\gradlew.bat test` passed **782 tests / 55 classes / 0 failures**. `TaskBoardRenderTest` pins title wrapping and clamping, metadata wrapping, and the full-title attribute. `DesignTokensTest` and `MotionTest` also passed. No distribution was installed.
+**Verified.** `.\gradlew.bat test` passed **782 tests / 55 classes / 0 failures**. `TaskBoardRenderTest` pins title wrapping and clamping, metadata wrapping, and the full-title attribute. `DesignTokensTest` and `MotionTest` also passed. No distribution was installed then; all four went live together on 2026-11-23.
 
 **Never re-propose:** restoring fixed or equal card heights; applying word-breaking to dense tables or sheets; or adding a media query for this card behavior.
 
@@ -11142,7 +11147,7 @@ Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
 
 **What changed.** Each list now has a stable block id. Its list-done and item-done forms target that block through the existing `app.js` fetch-and-swap behavior, so only the affected list is refreshed. Checkbox ids let the shared swap helper return focus after replacement. A failed fetch still falls back to the existing full request.
 
-**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins the list target, form actions, autosubmit markers and focus-restoration ids. No distribution was installed.
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins the list target, form actions, autosubmit markers and focus-restoration ids. No distribution was installed then; all four went live together on 2026-11-23.
 
 **Never re-propose:** reloading the To-do page for a single list or item tick when the existing live-block request can update that list; a failed fetch retains the full-request fallback.
 
@@ -11152,7 +11157,7 @@ Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
 
 **What changed.** The form now targets the existing `#notif` block. `app.js` follows the route's redirect and swaps the updated bell and inbox into the page; the existing `back` field is preserved, and delegated listeners keep the refreshed bell interactive.
 
-**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `NotificationBellRenderTest`, which pins the live target. No distribution was installed.
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `NotificationBellRenderTest`, which pins the live target. No distribution was installed then; all four went live together on 2026-11-23.
 
 **Never re-propose:** reloading the full page solely to refresh the bell after “Mark all read”; the existing block response can update it while retaining the originating page.
 
@@ -11162,11 +11167,223 @@ Stage 132's ink and Stage 133's one pointer rule, and the fold spends neither.
 
 **What changed.** List deletion asks for confirmation naming the list and its tasks; item deletion names the task. Both use the shared `data-confirm` listener in `app.js`, with the existing POST as the confirmed action.
 
-**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins both prompts. No distribution was installed.
+**Verified.** The full suite passed **782 tests / 55 classes / 0 failures**, including `TodoPageRenderTest`, which pins both prompts. No distribution was installed then; all four went live together on 2026-11-23.
 
 **Never re-propose:** presenting delete as reversible or offering undo for To-do data while deletion is a hard delete with no restore capability.
 
-## Stage 139 — Dashboard landing page highlights urgent work (2026-11-17, no migration, Kotlin + CSS + tests)
+**Deploy: live since 2026-11-23 09:41.** Stages 135–138 were each recorded without a distribution; all four went out
+together here. Nothing had to be stopped first — no `mn.murray.pts.ApplicationKt` JVM was alive and 8080 had no
+listener — so `installDist` ran against a quiet machine and the README's warning about installing over a running
+distribution did not apply. The database was backed up **in place** beforehand as
+`data/pts.pre-stages135-138-20261123-094119.db{,-wal,-shm}` (471,040 / 0 / 32,768 bytes, last written 2026-11-20).
+No migration ran; Flyway stays **v22**. The new `murray-pts-2.0.0.jar` is **2,011,118** bytes, against the
+2,010,630-byte build of 2026-11-16 that was still sitting installed. Live PID **27744**, answering 200 on
+`http://127.0.0.1:8080/` three seconds after launch.
+
+**Read back from the port, not from the build.** The suite was re-run first: **782 tests / 55 classes / 0 failures /
+0 errors / 0 skipped**, `BUILD SUCCESSFUL in 1m 5s`, with `DesignTokensTest` 8/8 and `MotionTest` 8/8, and 55 XML
+result files whose own totals agree with the console. Then the served bytes: `/static/css/app.css` (152,194 B),
+`/static/css/base.css` (9,509 B) and `/static/js/app.js` (32,789 B) are each byte-identical to disk; the served
+`app.css` carries Stage 135's `-webkit-line-clamp: 2` and still holds exactly two width queries, 900 and 520; and the
+installed jar's compiled classes carry what only these four stages put there — `todo-list-toggle-`, `and its tasks?`,
+`Delete task ` and `#todo-list-` in `TodoKt.class`, `#notif` in `NotificationsKt.class`, `ktitle` in
+`TaskBoardKt.class`. Permission gating was not re-argued but re-counted: `Application.kt` and everything under
+`web/` are untouched between `496e88b` and HEAD, and both revisions carry the same **94** `session.may(Permission…)`
+checks, so no stage added a second opinion about who may see what. Signed out, `/app/projects`, `/app/todo` and
+`/app/forecasts` each answer **302 to `/`**, and the served CSP still reads `script-src 'self'` with no inline-script
+exception. `app.css` changed, so a browser still holding the 2026-11-16 sheet needs **Ctrl+F5**; `app.js` did not
+change and needs nothing.
+
+**Not tested here.** Nothing behind the sign-in was exercised. Dragging and completing a task, opening and closing
+every popup, search, the 375px / 768px / 1280px pass, both themes and keyboard-only use are the reader's own eyes, and
+no credential was typed, read or invented to reach them. What is proven above is narrower and complete: the build now
+serving is the build these four stages describe, the suite is green on it, and the routes still refuse a signed-out
+caller.
+
+## Stage 139 — The To-do board settles on a list when a phone swipes it (2026-11-23, no migration, CSS + test)
+
+**Audit.** The 900px breakpoint already gives the Kanban board `scroll-snap-type: x mandatory` and each of its columns
+`scroll-snap-align: start`, so a swipe lands on a column instead of between two. The To-do board is the shell's other
+sideways scroller — `.todo-board` with `overflow-x: auto` and `.todo-board .todo-list` at `flex: 0 0 330px` — and it
+had no snap at all, so the same gesture on the same phone stopped wherever the finger happened to lift.
+
+**What changed.** Two declarations inside the existing `@media (max-width: 900px)` block, next to the Kanban rule they
+answer: `.todo-board { scroll-snap-type: x proximity; }` and `.todo-board .todo-list { scroll-snap-align: start; }`.
+`proximity` rather than the Kanban's `mandatory` is the whole decision. `todo.js` drags `:scope > .todo-list`
+horizontally *and* auto-scrolls the container itself — `board.scrollLeft += 14` / `-= 14` while the pointer is within
+70px of an edge — and a `mandatory` container would snap that deliberate edge-scroll straight back, so dragging a task
+to the next list would fight the reader's own hand. `kanban.js` contains no `scrollLeft`, `scrollTo`, `scrollBy` or
+`scrollIntoView` and moves *cards* between columns (`col.insertBefore(card, anchor)`), which is why `mandatory` is
+safe there and not here. The 330px basis, the `overflow-x: auto` and both breakpoints are untouched: no third width
+query was added, and the two that exist stay the only two in the file.
+
+**Verified.** The full suite passed **789 tests / 55 classes / 0 failures / 0 errors / 0 skipped**, including
+`DesignTokensTest` 8/8 and `MotionTest` 8/8. `ShellRenderTest` gained a case that strips comments, slices the 900px
+block and the desktop part separately, and pins `x proximity` on `.todo-board`, `scroll-snap-align: start` on
+`.todo-board .todo-list`, the absence of the word `mandatory` anywhere in the board's snap, the Kanban's `mandatory`
+still standing, the desktop `.todo-board` still `overflow-x: auto` with `.todo-list` still `flex: 0 0 330px`, and
+`assertEquals(2, ...)` width queries in the whole stylesheet. `TodoPageRenderTest` gained the other half: the page
+really prints `class="todo-board"`, a `card-panel todo-list` inside it, and the `data-list` the snap aligns.
+
+**Never re-propose:** `scroll-snap-type: x mandatory` on `.todo-board`, or any snap that overrides the container's own
+`scrollLeft` while `todo.js` is edge-scrolling a drag.
+
+## Stage 140 — Every wide sheet is pinned inside the panel that scrolls it (2026-11-23, no migration, tests only)
+
+**Audit.** The wide tables keep a floor on their width — `table.fc-table` 1280px, `table.fc-done-table` 1100px,
+`table.projects-table` 1040px, `table.team-sheet` and `table.lessons-table` 1000px — and depend on the *panel around
+them* for the sideways scroll: `.card-panel:has(table.grid), .board-results:has(table.grid),
+.card-panel:has(table.calendar-grid) { overflow-x: auto; }`. `ShellRenderTest` asserted the text of that wrapper rule,
+so the stylesheet half was covered, but nothing pinned the markup half: a table moved out of its panel into a plain
+`div` would leave a phone with the document pushed past its own width and every test still green. That is the same
+shape as Stage 134's fold, which named one of the two copies of a row.
+
+**What changed.** No production code — this stage is a pin on an arrangement that already holds. `TestBoards.kt`
+gained `divAncestorsOf`, which walks the rendered HTML tracking `<div>` depth and returns the class list of every
+ancestor of each occurrence of a needle, outermost first, so the answer is the table's real parent rather than the
+nearest class name that happens to appear earlier in the page; plus `assertTablesScrollInTheirPanel` for a sheet whose
+copy count is fixed and `assertEveryTableScrollsInItsPanel` for one whose count belongs to its page's fixture. Both
+refuse to pass on nothing. One case each in `ProjectsPageRenderTest` (`grid projects-table`, one `<table>` per
+category panel), `SettingsRenderTest` (`team-sheet`), `ForecastsRenderTest` (`fc-table` ×2 and `fc-done-table`),
+`LessonsRenderTest` (`lessons-table`) and `CalendarRenderTest` (`calendar-grid`). All six sheets were read as passing
+before the pin was written: Projects, Lessons, Settings, both Forecasts tables and the Calendar's two grids each sit
+inside a `.card-panel` or `.board-results`.
+
+**Verified.** **789 tests / 55 classes / 0 failures / 0 errors / 0 skipped**, `BUILD SUCCESSFUL in 9m 32s`,
+`DesignTokensTest` 8/8 and `MotionTest` 8/8. Two bugs of my own surfaced on the way and are worth recording because
+both compiled cleanly: a `Regex` written with a single backslash before `b` is a *backspace* in a Kotlin string, so
+the div walker silently matched nothing and every ancestor chain came back empty; and `?.groupValues?.[1]` is not
+Kotlin, because a safe call cannot precede an index selector.
+
+**Never re-propose:** re-deriving this from the Kotlin sources or from a nearest-class-name search, and never pinning
+a copy count for `projects-table` as a constant — the board prints one `<table>` per category panel.
+
+**Deploy: live since 2026-11-23 10:56.** The distribution that had been serving Stages 135–138 was
+stopped first — PID **27744**, read off `netstat -ano` for the 8080 listener and confirmed against its own
+command line (`-cp ...\build\install\murray-pts\lib\*` `mn.murray.pts.ApplicationKt`) before `Stop-Process`, never
+`deploy/stop.bat` — and the database was then backed up **in place** as
+`data/pts.pre-stages139-140-20261123-105411.db{,-wal,-shm}` (471,040 / 0 / 32,768 bytes), so `installDist` ran
+against a quiet machine with no listener on 8080. The new `murray-pts-2.0.0.jar` is **2,011,673** bytes against the
+2,011,118 build of 09:41. Relaunched detached through `deploy/run.bat`, which polls the login page rather than
+guessing a wait: live PID **6060**, up on 8080, started 10:56:21. No migration ran and Flyway stays **v22**; Stage 140
+changed no production file at all. Because Stage 139 changed `app.css`, an open tab needs **Ctrl+F5** — a browser
+holding the cached 152,194-byte sheet will keep swiping the To-do board with no snap and nothing on the page will say
+why.
+
+**Read back from the port, not from the build.** `/static/css/app.css` answers 200 at **153,859** bytes and is
+sha256-identical to the file on disk; the served sheet carries `scroll-snap-type: x proximity` and the
+`.todo-board .todo-list { scroll-snap-align: start; }` that goes with it, still carries the Kanban's
+`scroll-snap-type: x mandatory`, and still holds exactly two width queries, **900** and **520**.
+`/static/css/base.css` (9,509 B) and `/static/js/app.js` (32,789 B) are byte-identical to disk, which is what
+"CSS only" looks like from the outside. The login page answers 200 with `Content-Security-Policy: script-src 'self'`
+and no `unsafe-inline` in it. Permission gating was re-counted rather than re-argued: signed out, `/app/projects`,
+`/app/forecasts` and `/app/settings` each answer **302** with `Location: /`.
+
+**Not tested here.** The snap itself — whether a 375px swipe really settles on a list, and whether dragging a task
+to the next list still edge-scrolls smoothly now that the container has an opinion about where it rests — is the
+reader's own eyes on a signed-in page, and no credential was typed, read or invented to reach it. What is proven above
+is narrower and complete: the sheet being served is the sheet Stage 139 wrote, the Kanban's snap survived next to it,
+the two breakpoints are still the only two, and the suite is green at **789 tests / 55 classes** on the sources this
+jar was built from.
+
+<a id="stage-145"></a>
+## Stage 145 — The desktop sidebar folds to an icon rail instead of disappearing (2026-11-24, live, no migration, Kotlin + CSS + JS + test)
+
+**The ask:** *"On desktop, the sidebar fold button should shrink the sidebar to a narrow icon-only rail instead of
+hiding it completely. In the rail, every navigation icon stays visible and clickable, and the same button expands it
+back to full width."* This supersedes Stage 130's hidden-panel model and retires Stage 131's edge tab.
+
+**One control, one panel.** `#navClose` stays in the sidebar's top-right corner and switches the flex column between
+240px and 64px. The logo caption, labels, Pinned projects and footer leave the rail; every nav anchor, active state
+and icon remains, with 20px centred icons and count pills reduced to dots. Each anchor's existing label now supplies
+`title` and `aria-label`. The same button carries `aria-expanded` and changes between *Collapse sidebar* and *Expand
+sidebar*; its two theme drawings each carry both chevrons, so the arrow points to the next state.
+
+**State and motion.** `pts-sidebar` still lives in `localStorage`, is applied before paint, stores `rail`, and removes
+itself when expanded. Stage 130's `hidden` value is accepted as the same rail state. Width, flex basis and padding use
+`--dur-2` / `--ease-std`; `main` remains `flex: 1` and takes the freed space naturally. The existing reduced-motion
+rule removes the duration. The 900px block explicitly restores the complete drawer, labels, counts and left-pointing
+close arrow; the only width queries remain 900px and 520px. No route, permission, navigation order, id, `data-*`,
+service, repository or schema changed.
+
+**Verified: 796 tests / 55 classes / 0 failures, errors or skipped**, `BUILD SUCCESSFUL in 6m 13s`; the final
+`./gradlew test` was run once. Focused checks passed first: `ShellRenderTest` 25/25, `DesignTokensTest` 8/8 and
+`MotionTest` 8/8; `app.js` also passed a Node syntax check. The tests cover the single keyboard button, ARIA,
+accessible nav names, rail geometry and badges, legacy storage, prepaint ordering, and the unchanged phone drawer.
+A same-origin browser fixture added **14 computed-layout checks** at 1280/375/768 and **7 real-script checks** for
+collapse/expand, ARIA, legacy `hidden`, and the hamburger/drawer closer; all passed, and the browser's prior sidebar
+key was restored afterwards.
+
+**Live since 2026-11-24 12:34.** PID **13884** was stopped by its verified JVM command line after `netstat` named it,
+with 8080 confirmed free. The database was backed up in place as
+`data/pts.db.pre-stage145-20261124-123419.db{,-wal,-shm}` (471,040 / 346,112 / 32,768 bytes). `installDist` produced a
+**2,012,884-byte** jar; detached relaunch is PID **3088**, login **200**, and the served `app.css` (**155,558 bytes**)
+and `app.js` (**32,425 bytes**) are byte-identical to disk. No migration, commit or push.
+
+**Still the reader's eyes on.** No credential was typed, read or invented for a signed-in visual check. Confirm at
+1280px that the rail icons and dots are comfortable, the arrow and label match each direction, focus stays on the
+one button, and `main` widens without a jump; at 375px and 768px confirm the drawer still shows its full labels and
+hamburger behaviour. **Ctrl+F5 once** after these static-file changes.
+
+**Never re-propose:** hiding the desktop panel completely or bringing back the edge tab; a second desktop toggle;
+auto-folding on resize; letting remembered rail rules leak into the phone drawer; animating a fixed `main` width
+instead of the sidebar's flex basis; or moving focus away from the still-visible rail button when it is pressed.
+
+<a id="stage-146"></a>
+
+## Stage 146 — Projects rows answer the pointer without giving up their real links (2026-11-24, live, no migration, CSS + JS + test)
+
+**The ask:** UI-only polish for the Projects sheet: a Team-sheet-style row highlight and hand cursor, plain-cell navigation, tabular figures and a reserved page scrollbar. None of the four existed for the whole Projects table, so all four were added; no Kotlin markup, route, permission, form, id, class or `data-*` changed.
+
+**Additions only.** Row cells use `--input-bg` on `:hover` and `:focus-within`, and join the one pointer-transition rule. One delegated `app.js` listener opens the row's existing ID/name destination only for an unmodified primary click on a non-interactive cell with no selection; links, fields, forms, buttons, middle clicks and modified clicks keep their browser behaviour. The table uses `tabular-nums`, and `html { scrollbar-gutter: stable; }` keeps filter changes from moving the page sideways. The only width queries remain 900px and 520px; reduced motion still comes from `base.css`.
+
+**Verified: 800 tests / 55 classes / 0 failures, errors or skipped**, `BUILD SUCCESSFUL in 7m 36s`; the final `./gradlew test` ran once. Focused `ProjectsPageRenderTest` + `MotionTest` passed 63/63, including one new test per addition and the motion pointer-control list; Node parsed `app.js`. A browser fixture confirmed light/dark token-matched hover and focus highlights, pointer cursor, tabular figures, stable gutter and no page-level horizontal overflow at 314px. Twelve click cases passed (plain cell, ID, name, pin, four modifiers, middle button, selection, prevented event and a row inserted after load); trusted plain-cell, selected-text, link and pin clicks also behaved correctly. Main/toolbar geometry stayed fixed when a 2000px block appeared and removed the page scrollbar.
+
+**Live since 2026-11-24 14:49.** Stopped verified PID 3088, confirmed 8080 free, and backed up in place as `data/pts.pre-stage146-20261124-144942.db{,-wal,-shm}` (471,040 / 0 / 32,768 bytes). `installDist` produced a **2,013,423-byte** jar; detached relaunch is PID **27056**, login **200**, and served `app.css` (**156,188 bytes**) / `app.js` (**33,398 bytes**) are byte-identical to disk. No migration, commit or push. **Ctrl+F5 once** before the signed-in manual check.
+
+**Never re-propose:** a progress-bar grow-in; a sticky Projects header; `content-visibility` on its panels; turning the whole row into an anchor; a per-row listener; taking over links, pins, fields, modified clicks or selected text; a second motion duration/table; another width query; or restyling the Projects columns at 900px.
+
+<a id="stage-147"></a>
+
+## Stage 147 — the Projects sheet reads as one designed enterprise interface (2026-11-24, live, no migration, CSS + markup + test)
+
+**The ask:** polish the whole Projects presentation after Stage 146, using Team as the reference, without changing a route, permission, id, class, `data-*`, form field, link or behaviour. History was audited first; the completed row work was left alone. The only markup addition is a visible **Search projects** label tied to the existing `#projectSearch`; `app.js` is unchanged.
+
+**One scoped filter surface and a quieter sheet.** The search/sort form is a compact card with stacked labels, aligned controls and a token-coloured focus ring. Category tabs and count pills now have a clear selected/hover hierarchy, group heads have a quiet divider, and the table gives project names, metadata, dates, revenue and pins distinct weight without adding cards or badges. The no-match panel is a centred dashed state with its existing explanation and real clear link. Rules are scoped to Projects with `body:has(#projectSearch)` / `form.board-toolbar:has(#projectSearch)`, so Search and Forecasts do not inherit them; the 1040px table floor and sideways panel scroll remain. The 900px block keeps search on its own row and shares the sort row; the 520px block keeps both sorts and Clear together on a 375px phone. Pin hover joined the existing shared pointer-transition list.
+
+**Verified: 805 tests / 55 classes / 0 failures, errors or skipped**, `BUILD SUCCESSFUL in 5m 30s`; the final `./gradlew test` ran once. Focused Projects, Motion, Shell and DesignTokens tests passed 100/100, including five new Projects regressions. Browser fixtures at 1280px, 768px and 375px in both themes confirmed the labelled toolbar, selected/count states, table hierarchy, light/dark pin and tab hover, input focus ring and designed empty state. There was no page-level horizontal overflow; the 1040px sheet stayed inside its scrolling panel, and the phone filter pair plus Clear shared one row. Trusted plain-cell, ID-link, name-link and pin clicks retained their Stage 146 behaviour.
+
+**Live since 2026-11-24 16:02.** Stopped verified PID 27056, confirmed 8080 free, and backed up in place as `data/pts.pre-stage147-20261124-160217.db{,-wal,-shm}` (471,040 / 0 / 32,768 bytes). `installDist` produced a **2,014,874-byte** jar; detached relaunch is PID **31128**, login **200**, and served `app.css` (**162,736 bytes**) / `app.js` (**33,398 bytes**) are byte-identical to disk. No migration, commit or push. **Ctrl+F5 once**, then confirm the signed-in sheet at 1280/768/375 in both themes.
+
+**Never re-propose:** extra decorative cards, badges, icons or gradients; plain default-looking empty-state text; leaking Projects rules into Search or Forecasts; a third width query; shrinking the dense table instead of scrolling its panel; replacing real project links with scripted navigation; or changing backend, data, permission or form contracts for presentation.
+
+<a id="stage-148"></a>
+
+## Stage 148 — visible text shares one professional typography system (2026-11-24, live, no migration, CSS + test)
+
+**The ask:** make all visible text look designed and consistent across titles, labels, names, IDs, tables, forms, dates, metadata and empty or informational messages, while preserving every word, value, id, class, `data-*`, route and behaviour. History was audited first: Stage 132's Inter-first stack, token scale, accent contrast and focus ring were already complete and were not redone; Stage 147's Projects composition was left intact.
+
+**One shared rhythm, not per-page overrides.** `base.css` now gives the page a 14px/1.5 body line box in `--title`, makes controls inherit the UI face, theme colour and a compact 1.4 line box, and keeps login/app headings on the existing scale with deliberate line height, tracking and balanced wrapping. Labels use scale spacing and a 1.35 line box; placeholders keep full opacity. In `app.css`, captions, table cells and headers, project/task/search names, IDs, metadata, field help/errors, notes, banners and empty messages now have consistent line boxes. Missing assignees and empty states use quiet theme ink instead of italics. Modal headings use `--fs-14`; no font, dependency, wording, markup contract or backend logic changed, and the only width queries remain 900px and 520px.
+
+**Verified: 810 tests / 56 classes / 0 failures, errors or skipped**, `BUILD SUCCESSFUL in 5m 57s`; the final `./gradlew test` ran once after the existing Search CSS assertion was updated for the new line-height declarations. Focused Typography, DesignTokens, Projects and Motion tests passed 81/81, and the Search/Typography rerun passed 14/14. Representative same-origin fixtures at 1280px, 768px and 375px in both themes confirmed the computed type/colour hierarchy, one-column phone forms, no page-level horizontal overflow and the preserved scrolling table floor. The live login page was also checked in both themes at phone width with no console errors; no credential was typed, read or invented for a signed-in page.
+
+**Live since 2026-11-24 17:12.** Stopped verified PID 31128, confirmed 8080 free, and backed up in place as `data/pts.pre-stage148-20261124-171146.db{,-wal,-shm}` (471,040 / 0 / 32,768 bytes). `installDist` produced a **2,015,090-byte** jar; detached relaunch is PID **22672**, login **200**, and served `base.css` (**9,980 bytes**), `app.css` (**163,242 bytes**) and `app.js` (**33,398 bytes**) are byte-identical to disk. No migration, commit or push. **Ctrl+F5 once**, then confirm the signed-in pages at 1280/768/375 in both themes.
+
+**Never re-propose:** another font download or type-scale rebuild; blanket bold/oversized text; per-page copies of the same typography rules; italic empty-state copy; changing wording, values, ids, classes, `data-*`, permissions or backend logic for presentation; shrinking dense tables instead of scrolling their panels; adding a width query; or redoing completed Stage 132 token/font/contrast work or Stage 147 Projects composition.
+
+<a id="stage-149"></a>
+
+## Stage 149 — statuses and labels share one compact semantic system (2026-11-25, deployed to 127.0.0.1:8080, no migration, CSS + view markup + test)
+
+**The ask:** objective 1, a consistent compact badge style for project/task status, priority, department/category, role and existing tags or chips, readable in both themes without heavy saturation and without changing any status value or class. History was audited first: Stage 96's status vocabulary, Stage 132's single token table, Stage 147's restraint about extra badges and Stage 148's typography were left intact.
+
+**One geometry, one ink-driven fill.** The shared compact rule now covers status chips, lane statuses, priorities, categories, roles, departments, lesson/calendar/other tags, project and bucket codes, department headings/counts and existing numeric count pills. Nine fixed semantic badge inks were added to `base.css` because the accent tokens follow the reader's choice and cannot carry fixed state/category meaning; each has a dark-theme lift. The background is only 8% of the same ink over the active card surface. Progress/on-track is amber, blocked/at-risk red, completed/done green, not-started/planning violet and on-hold orange; categories retain nine distinct low-saturation tones. The existing `chip ontrack ts-you` markup keeps a green YOU marker through a specificity-safe `.chip.ts-you`, zero counts no longer fade through opacity, and nonblank department values wear `dept-chip` while the Team page's blank cell stays empty. Ellipsis for long card codes and the sidebar rail's count dots remain intentional layout exceptions. No JS was needed; no backend, route, permission, id, `data-*`, form, control, wording or value changed, no `!important`, dependency or inline script was added, and the only width queries remain 900px and 520px.
+
+**Verified:** the combined focused suite passed **99/99**, including five new label-system tests for shared geometry, semantic mappings, variant restraint and measured AA contrast across light/dark and green/blue/amber accents, plus Settings, Team, Access Control, DesignTokens and Motion regressions. The final full `./gradlew test` passed **816 tests / 57 classes / 0 failures, errors or skipped** (`BUILD SUCCESSFUL in 7m 32s`). Scoped `git diff --check` passed; edited files retain their expected CRLF/LF bytes. **Deployed 2026-11-25 12:47:** `data/pts.db{,-wal,-shm}` was backed up in place as `data/pts.pre-stage149-20261125-124711.db{,-wal,-shm}` with no JVM on 8080, followed by one `installDist` and a detached launch. PID **22588** serves `http://127.0.0.1:8080/` with HTTP 200; signed-out `/app/projects` answers its own 302 with `Location: /`; and the served `base.css` and `app.css` match disk byte-for-byte with the Stage 149 badge tokens and shared rule present. No commit, push or migration.
+
+**Never re-propose:** saturated solid badge fills; a second token table in `app.css`; per-page copies of badge geometry; status/category/role meaning driven by the reader-selected accent; new status words or renamed classes; dimming zero counts with opacity; extra decorative badges; or changing backend, data, permission or form contracts for presentation.
+
+## Stage 150 — Dashboard landing page highlights urgent work (2026-11-17, no migration, Kotlin + CSS + tests)
 
 **Audit.** The app had no dashboard landing page; `/app` redirected to Projects, so there was no at-a-glance view of overdue work, tasks due this week, or project progress.
 

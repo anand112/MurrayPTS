@@ -585,4 +585,9 @@ class CalendarRenderTest {
         assertTrue(link != null && link.contains("min-width: 0"),
             "the bar's label cannot shrink, so it forces its column open instead of ellipsising: $link")
     }
+
+    @Test
+    fun `the month grid sits in the panel that scrolls it sideways`() {
+        assertTablesScrollInTheirPanel(page(manager), "<table class=\"calendar-grid\">", 1)
+    }
 }

@@ -467,8 +467,9 @@ class SettingsRenderTest {
     @Test
     fun `the last four columns print the department, the job, the address and the count`() {
         val html = adminPage()
-        assertTrue(row(html, worker).contains("<td class=\"t-department\">Projects</td>"), "the roster's department was not printed")
+        assertTrue(row(html, worker).contains("<td class=\"t-department\"><span class=\"chip dept-chip\">Projects</span></td>"), "the roster's department was not printed as a shared badge")
         assertTrue(row(html, noDepartment).contains("<td class=\"t-department\">—</td>"), "a blank department printed as an empty cell")
+        assertEquals(6, occurrences(html, "class=\"chip dept-chip\""), "a nonblank department lost the shared badge system")
         // The catalog entry an account is filed under beats the roster's free-text word, and a row with
         // neither falls back to the same words the Access control page prints — so the column never blanks.
         assertTrue(row(html, positioned).contains("<td class=\"t-position\">Site Supervisor</td>"), "the roster's word beat the catalog link")
@@ -1573,5 +1574,10 @@ class SettingsRenderTest {
             page(mailStatus = PasswordStatus.MAIL_REFUSED).contains("Only somebody who manages email settings can turn outbound mail"),
             "a refused switch press has no line of its own",
         )
+    }
+
+    @Test
+    fun `the team sheet sits in the panel that scrolls it sideways`() {
+        assertTablesScrollInTheirPanel(page(), "<table class=\"grid team-sheet\">", 1)
     }
 }

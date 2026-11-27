@@ -426,9 +426,20 @@ flick settles on a column instead of stopping between two. The project page's fi
 to a row below 900px and one below 520px, and the calendar's month grid scrolls
 sideways like the other wide sheets instead of crushing its seven days into a phone's width.
 
-The suite is green at **779 tests in 54 classes**, and this is live since 2026-11-16 (PID **12248**, jar
-**2,010,630** bytes). An open tab needs **Ctrl+F5** once — both stylesheets, `app.js`, `kanban.js` and the
-Kotlin all changed.
+The suite is green at **789 tests in 55 classes**. What is live since 2026-11-23 10:56 (PID **6060**, jar
+**2,011,673** bytes) is **Stages 135–140**; the four that went up at 09:41 needed one **Ctrl+F5** because
+`app.css` and the Kotlin changed while `app.js` did not: a Kanban card clamps a long title to two lines and
+wraps its metadata, a To-do tick refreshes only its own list, *Mark all read* refreshes only the bell, and
+deleting a To-do list or task asks before removing data. The class those four added is `TodoPageRenderTest`;
+`TaskBoardRenderTest` now carries 80.
+
+**Stages 139 and 140 are the other seven tests, and no new class.** Stage 139 gives the To-do board a swipe snap
+inside the existing 900px block — `x proximity`, not the Kanban's `mandatory`, because `todo.js` edge-scrolls a
+drag itself and a mandatory container would snap that scroll back. Stage 140 pins in five page tests what the
+stylesheet already assumed: that every wide sheet sits inside the `.card-panel` or `.board-results` that scrolls
+it. Stage 140 changed no production file. Both went out in the 10:56 deploy, so `app.css` — **153,859** bytes,
+sha256-identical from the port — is the one that carries the snap, and an open tab needs **Ctrl+F5** to see it.
+`TodoPageRenderTest` is at three cases.
 
 ## Projects and categories
 
@@ -2445,7 +2456,7 @@ configuration, and it is the one to settle first: it decides what you can safely
      the `*.jar` rule — in gitignore the last match wins, so as it sat before line 44 it could never
      take effect, which is why the wrapper jar had never been committed and a fresh clone could not run
      `./gradlew`.
-2. `./gradlew test installDist` is green (779 tests in 54 classes), on schema v22.
+2. `./gradlew test installDist` is green (789 tests in 55 classes), on schema v22.
 3. `.env` exists on the host, is not world-readable, and sets:
    - `PTS_ENV=production`
    - `PTS_SESSION_SECRET` — fresh `openssl rand -hex 32`, unique per environment
@@ -3099,7 +3110,7 @@ configuration, and it is the one to settle first: it decides what you can safely
 ./gradlew test
 ```
 
-779 tests in 54 classes — 113 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
+789 tests in 55 classes — 123 more than **Stage 109** closed with (666 in 44 classes). Three classes arrived with
 **Stage 110**'s role model; the later growth is the Assigned create's lane cases (**Stage 111**), the tab icon's
 one render test (**Stage 112**), the tab's title case (**Stage 115**), the assignment notice's two status-blind cases
 (**Stage 116**) and the department picker's five cases (**Stage 117**) and the People sheet department picker's two cases (**Stage 118**) and the responsive shell's three cases (**Stage 119**) and the dense sheets' readable-width case (**Stage 120**), the login password toggle's case (**Stage 121**) and

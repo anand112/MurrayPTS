@@ -246,7 +246,7 @@ fun HTML.appPage(
                 // Named so the page head's hamburger can say what it opens (`aria-controls`) and so the
                 // drawer's own script has one element to look for (Stage 119).
                 id = "appSidebar"
-                a(href = "/app") {
+                a(href = "/app", classes = "side-brand") {
                     img(src = "/static/assets/mms-logo.png", alt = "MURRAY Mining Services Mongolia") {
                         attributes["class"] = "logo-img side-logo"
                     }
@@ -260,13 +260,28 @@ fun HTML.appPage(
                     navItemsFor(session.employeeNumber).forEach { item ->
                         a(classes = if (item.id == section) "nav-item active" else "nav-item") {
                             href = item.path
+                            // The same visible label names the destination when the desktop rail hides its text.
+                            attributes["title"] = item.label
+                            attributes["aria-label"] = item.label
                             unsafe { +item.icon }
                             span("label") { +item.label }
-                            item.count?.let { span("pill") { +"$it" } }
+                            // Stage 141: the pill is addressed by the section it belongs to, because a
+                            // write that changes a count and a write that changes a board are the same
+                            // write, and one response has to be able to land both. Which pill a form names
+                            // is decided per action, from what that action really moves: the To-do figure
+                            // counts the reader's to-dos, so adding or deleting one rides along with the
+                            // list it changed, while *Assigned tasks* counts every card finished ones
+                            // included, so a status change moves no pill at all.
+                            item.count?.let { span("pill") { id = "nav-pill-${item.id}"; +"$it" } }
                         }
                     }
                 }
+                /* Stage 142: the block is a swap target in its own right, because a pin writes *this* list and
+                   nothing else on the page: the row appears or goes, and the sheet's star on the Projects page
+                   flips to match. It is in the sidebar, so it is in the response of every page the reader can be
+                   on, which is what makes it safe to name as a companion from a pin form anywhere in the app. */
                 div("pinned") {
+                    id = "pinnedProjects"
                     h2 { +"Pinned projects" }
                     val pinned = pinnedIds(session.employeeNumber).mapNotNull { pid -> DemoData.projects.firstOrNull { it.id == pid } }
                     if (pinned.isEmpty()) {
@@ -274,7 +289,7 @@ fun HTML.appPage(
                             +"No pinned projects yet. Pin a project from its board, or from the list on the Projects page, to see it here."
                         }
                     } else {
-                        pinned.forEach { project ->
+                        pinned.forEachIndexed { index, project ->
                             div("pinned-row") {
                                 // **Stage 127: the ID comes first, and it is the same one the Projects sheet's ID
                                 // column prints** — `projects.code`, the number a reader actually quotes. The name
@@ -283,7 +298,24 @@ fun HTML.appPage(
                                 span("code") { +project.code }
                                 a(href = "/app/projects/${project.id}") { +project.name }
                                 form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
-                                    button(type = ButtonType.submit, classes = "pin-btn on") { +"×" }
+                                    // The row goes, so the block does: a target narrower than the list would be
+                                    // a row that is not in the response at all, and `sendToBlock` treats that as
+                                    // a failed swap and navigates. The sheet's own star is part of the same write
+                                    // and rides along when the reader is on the Projects page; elsewhere the id is
+                                    // simply not in the response and the framework skips it.
+                                    attributes["data-live-target"] = "#pinnedProjects"
+                                    attributes["data-live-extra"] = "#board-results"
+                                    // Focus cannot come back to an × that is no longer there, so it goes to the
+                                    // next row's, or the previous one's when this was the last. With one row the
+                                    // attribute is left off and the empty state is what the reader is looking at.
+                                    (pinned.getOrNull(index + 1) ?: pinned.getOrNull(index - 1))?.let { neighbour ->
+                                        attributes["data-live-focus"] = "#pinned-unpin-${neighbour.id}"
+                                    }
+                                    button(type = ButtonType.submit, classes = "pin-btn on") {
+                                        id = "pinned-unpin-${project.id}"
+                                        attributes["title"] = "Unpin ${project.code} from my list"
+                                        +"×"
+                                    }
                                 }
                             }
                         }
@@ -340,14 +372,9 @@ fun HTML.appPage(
                 id = "navBackdrop"
                 attributes["aria-hidden"] = "true"
             }
-            // The desktop reopen tab (Stage 130), and the reason it is not inside the sidebar: the button that
-            // hides the column lives in that column, so once it is hidden there is nothing left in it to press.
-            // Fixed to the left edge, and shown by `app.css` only while a script has hidden the panel.
-            sidebarTab()
-            // The phone's own row of tabs (Stage 134), a sibling of the drawer's backdrop for the same reason
-            // the reopen tab is: it belongs to the page, not to the panel it can open. `app.css` hides it above
-            // 900px, where the sidebar is already on screen and a second copy of it would be a second answer to
-            // a question nobody asked.
+            // The phone's own row of tabs (Stage 134), a sibling of the drawer's backdrop because it belongs to
+            // the page, not to the panel it can open. `app.css` hides it above 900px, where the sidebar is already
+            // on screen and a second copy of it would be a second answer to a question nobody asked.
             mobileTabBar(session, section)
         }
         themeScript()
@@ -450,72 +477,35 @@ private fun FlowContent.mobileTabBar(session: UserSession, section: String) {
 }
 
 /**
- * The drawer's own close button (Stage 128): a phone reader who opened the menu gets to shut it from where
- * their thumb already is, instead of hunting for the hamburger behind the panel they just slid over.
+ * The drawer's close button and the desktop rail's one toggle (Stages 128–130, superseded by the rail stage).
  *
- * It is printed inside `#appSidebar`, after the logo and caption and before the nav links, for two reasons.
- * `app.js` opens the drawer by focusing `navDrawer.querySelector('a, button')`, and the logo link still has
- * to be that first answer — a reader sent to a close button on opening is being told to leave before they
- * have read anything. And it lives in the panel rather than beside the hamburger because the panel is what it
- * acts on: **since Stage 130 the same button answers at the other width too**, where it sits in
- * the sidebar's own top-right corner and a press hides the column so the page takes the whole row. The
- * stylesheet keeps the two meanings apart without a second breakpoint — a default `display: none` for a reader
- * with no script to hide anything with, the desktop rule before the `@media` block, and the drawer's own rules
- * inside it, where they outrank it.
+ * It stays inside `#appSidebar`, after the brand and before the nav links, so opening the drawer can still focus
+ * the logo first. On a phone it closes the drawer; above 900px it switches the same panel between its full column
+ * and the narrow icon rail. Because the rail never removes the panel, this control is always available and there
+ * is no second edge tab. The stylesheet keeps the meanings apart without another breakpoint.
  *
- * Like [navToggle] it is a real `<button>` with `aria-controls`, not a link — it is a disclosure, and it
- * carries no destination. It does not repeat `aria-expanded`: the state belongs to the control that is always
- * there to be asked — the hamburger on a phone page, the reopen tab on a desktop one. The `aria-label` printed
- * here is the drawer's meaning, because that is the only meaning markup can know: `app.js` calls it *Hide
- * sidebar* once it can see the window is wide.
+ * It is a real `<button>` with `aria-controls` and `aria-expanded`. Markup starts expanded; `app.js` updates both
+ * attributes for the current width and rail state, including *Collapse sidebar* / *Expand sidebar* on desktop.
  *
- * It prints **two** drawings of one glyph (Stage 129), and only one of them is ever visible: `app.css` gives
- * the light theme the outlined panel, where a stroke reads crisply against a pale card, and the dark theme the
- * solid one, where weight is what survives a dark background. The button's own box, name and behaviour are the
- * same in either case — the theme chooses the ink, not the control.
+ * It prints **two** drawings of one glyph (Stage 129), and only one is visible: outlined on light, solid on dark.
+ * Each drawing carries both chevrons; the state stylesheet shows the left one for collapsing or closing and the
+ * right one for expanding, so the arrow points to what the press will do without changing the panel's divider.
  */
 private fun FlowContent.navCloseButton() {
     button(type = ButtonType.button, classes = "nav-close") {
         id = "navClose"
         attributes["aria-controls"] = "appSidebar"
+        attributes["aria-expanded"] = "true"
         attributes["aria-label"] = "Close navigation"
         unsafe {
             +icon(
-                """<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m16 15-3-3 3-3"/>""",
+                """<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path class="fold-chevron" d="m16 15-3-3 3-3"/><path class="expand-chevron" d="m10 9 3 3-3 3"/>""",
                 classes = "glyph-outline",
             )
             +iconFilled(
-                """<path fill-rule="evenodd" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M9 3h1.6v18H9z M15.5 7.5 11 12l4.5 4.5h2L13 12l4.5-4.5z"/>""",
+                """<path fill-rule="evenodd" d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z M9 3h1.6v18H9z"/><path class="fold-chevron" fill-rule="evenodd" d="M15.5 7.5 11 12l4.5 4.5h2L13 12l4.5-4.5z"/><path class="expand-chevron" fill-rule="evenodd" d="M10.5 7.5 15 12l-4.5 4.5h-2L13 12l-4.5-4.5z"/>""",
                 classes = "glyph-filled",
             )
-        }
-    }
-}
-
-/**
- * The desktop reopen tab (Stage 130): the slim control on the page's left edge that brings the sidebar back
- * after the corner button in [navCloseButton] has hidden it.
- *
- * It is printed as a sibling of the sidebar rather than inside it for the one reason that matters — the panel it
- * opens is the thing that would have to hold it while being absent. `app.css` gives it to the page only under
- * `html.js body.sidebar-hidden`, the state `app.js` reads from `localStorage` before the first paint, so a
- * reader who hid the column is not shown a reopen control they cannot act on, and a reader with no script at all
- * is never shown one. The same rule is inside the drawer's own breakpoint: below 900px the sidebar is a drawer
- * that the hamburger opens, whatever this browser remembered from a wider window.
- *
- * Unlike [navToggle], whose `aria-expanded` starts false because the drawer starts shut, this one is the desktop
- * opener for a panel that is *in the page* until asked to leave, so it starts true and `app.js` flips it with the
- * state. It carries one drawing, in strokes, like every other icon in the shell: Stage 129's two-face treatment
- * belongs to the button the reader asked about, and the chevron here points the way the panel comes from.
- */
-private fun DIV.sidebarTab() {
-    button(type = ButtonType.button, classes = "sidebar-tab") {
-        id = "sidebarTab"
-        attributes["aria-controls"] = "appSidebar"
-        attributes["aria-expanded"] = "true"
-        attributes["aria-label"] = "Show sidebar"
-        unsafe {
-            +icon("""<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m13 9 3 3-3 3"/>""")
         }
     }
 }

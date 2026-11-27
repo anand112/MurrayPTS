@@ -64,19 +64,21 @@ object BoardSort {
 }
 
 /**
- * What the board's search bar and its two sort pickers currently say.
+ * The board's search, sort and completed-panel state.
  *
  * The search is scoped to the tab the reader is on — the category tab stays the scope and this narrows
  * inside it — and it matches the number, description, client, manager and category label, word by word:
  * every space-separated word has to appear somewhere in one of those, so "haul road" finds the project
  * but "haul missing" finds nothing. Sorting composes the two keys in the fixed order status then manager,
  * with the end date and then the project number as tie-breaks, so setting both reads as "group by status,
- * and inside each status by manager".
+ * and inside each status by manager". Expanded Completed panels ride along separately as [doneOpen].
  */
 data class ProjectBoardFilter(
     val text: String = "",
     val statusSort: String = BoardSort.NONE,
     val managerSort: String = BoardSort.NONE,
+    /** Project types whose Completed rows are expanded, carried as repeated `showdone` query keys. */
+    val doneOpen: Set<String> = emptySet(),
 ) {
     val isActive: Boolean get() = text.isNotBlank() || statusSort != BoardSort.NONE || managerSort != BoardSort.NONE
 
@@ -130,6 +132,7 @@ data class ProjectBoardFilter(
             if (text.isNotBlank()) add("q=" + urlEncode(text))
             if (statusSort != BoardSort.NONE) add("sort_status=$statusSort")
             if (managerSort != BoardSort.NONE) add("sort_manager=$managerSort")
+            doneOpen.forEach { add("showdone=" + urlEncode(it)) }
         }
         return "/app/projects" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
     }
@@ -203,7 +206,8 @@ fun DIV.projectsContent(
                     val where = typeFilter?.let { " in $it" }.orEmpty()
                     span("task-meta") { +"Nothing here matches$wanted$where." }
                     +" "
-                    a(classes = "row-link", href = "/app/projects" + (typeFilter?.let { "?type=" + urlEncode(it) } ?: "")) {
+                    val reset = filter.copy(text = "", statusSort = BoardSort.NONE, managerSort = BoardSort.NONE)
+                    a(classes = "row-link", href = reset.hrefFor(typeFilter)) {
                         span("pname") { +"Clear the search and the sort" }
                     }
                 } else {
@@ -215,12 +219,25 @@ fun DIV.projectsContent(
             // panels below — the board is one page and its bars must agree with each other.
             val measured = TaskService.progressByProject()
             visible.forEach { (type, projects) ->
+                val active = projects.filter { it.status != STATUS_COMPLETED }
+                val completed = projects.filter { it.status == STATUS_COMPLETED }
                 div("card-panel") {
                     div("group-head") {
                         span("chip ${typeChipClass(type)}") { +type }
                         span("pill") { +"${projects.size}" }
                     }
-                    projectTable(projects, session, measured)
+                    if (active.isEmpty()) {
+                        if (type !in filter.doneOpen) p("board-empty-line") { +"No active projects." }
+                    } else {
+                        projectTable(active, session, measured)
+                    }
+                    if (completed.isNotEmpty()) {
+                        projectDoneToggle(type, completed.size, type in filter.doneOpen, filter, typeFilter)
+                        div("kcol-done") {
+                            if (type !in filter.doneOpen) attributes["hidden"] = "true"
+                            projectTable(completed, session, measured)
+                        }
+                    }
                 }
             }
         }
@@ -228,6 +245,44 @@ fun DIV.projectsContent(
     // Only management gets the popup at all; `POST /app/projects` re-checks the role, so a Viewer
     // who posts this form's action by hand is redirected rather than served a project.
     if (canManage) projectCreateModal(form ?: ProjectForm(suggestions = ProjectService.suggestedCodes()), filter)
+}
+
+/**
+ * The kanban's completed-row fold, carried by one `showdone=<type>` key per expanded project panel.
+ * The form is a real GET fallback; app.js swaps the results region and the two invisible open-panel
+ * carriers, then writes the fetched view URL.
+ */
+private fun DIV.projectDoneToggle(
+    type: String,
+    completed: Int,
+    expanded: Boolean,
+    filter: ProjectBoardFilter,
+    typeFilter: String?,
+) {
+    val nextOpen = if (expanded) filter.doneOpen - type else filter.doneOpen + type
+    form(action = "/app/projects", method = FormMethod.get, classes = "kcol-done-toggle") {
+        attributes["data-live-target"] = "#board-results"
+        attributes["data-live-extra"] = "#projectOpenPanels,#projectCreateOpenPanels"
+        attributes["data-live-url"] = "true"
+        buildList<Pair<String, String>> {
+            if (typeFilter != null) add("type" to typeFilter)
+            if (filter.text.isNotBlank()) add("q" to filter.text)
+            if (filter.statusSort != BoardSort.NONE) add("sort_status" to filter.statusSort)
+            if (filter.managerSort != BoardSort.NONE) add("sort_manager" to filter.managerSort)
+            nextOpen.forEach { add("showdone" to it) }
+        }.forEach { (name, value) ->
+            input(type = InputType.hidden, name = name) { this.value = value }
+        }
+        button(type = ButtonType.submit, classes = "kdone-btn") {
+            id = "projectDone${PROJECT_TYPES.indexOf(type)}"
+            attributes["title"] = if (expanded) {
+                "Hide the $completed completed ${if (completed == 1) "project" else "projects"} in this panel"
+            } else {
+                "Show the $completed completed ${if (completed == 1) "project" else "projects"} in this panel"
+            }
+            +("${if (expanded) "▾" else "▸"} Completed $completed")
+        }
+    }
 }
 
 /**
@@ -241,12 +296,24 @@ fun DIV.projectsContent(
  * form is still a real GET form, which is what makes all of it safe to remove: with JavaScript off, with
  * the fetch failing, or with the session having lapsed, the browser performs the plain page load this
  * markup was written for. Every link on the board comes back through [ProjectBoardFilter.hrefFor], so the
- * knobs keep showing what is actually filtered.
+ * knobs keep showing what is actually filtered. A Completed toggle swaps only the hidden open-panel
+ * carrier, so the next search or sort keeps the expanded panels without replacing this toolbar.
  */
 private fun DIV.projectBoardToolbar(filter: ProjectBoardFilter, typeFilter: String?) {
     form(action = "/app/projects", method = FormMethod.get, classes = "board-toolbar") {
         if (typeFilter != null) input(type = InputType.hidden, name = "type") { value = typeFilter }
+        span {
+            id = "projectOpenPanels"
+            attributes["hidden"] = "true"
+            filter.doneOpen.forEach { typeOpen ->
+                input(type = InputType.hidden, name = "showdone") { value = typeOpen }
+            }
+        }
         div("board-search") {
+            label("board-search-label") {
+                htmlFor = "projectSearch"
+                +"Search projects"
+            }
             input(type = InputType.text, name = "q") {
                 id = "projectSearch"
                 value = filter.text
@@ -269,7 +336,7 @@ private fun DIV.projectBoardToolbar(filter: ProjectBoardFilter, typeFilter: Stri
                 attributes["data-autosubmit"] = "true"
                 sortOption(BoardSort.NONE, "—", filter.statusSort)
                 sortOption(BoardSort.ASC, "Not started first", filter.statusSort)
-                sortOption(BoardSort.DESC, "Completed first", filter.statusSort)
+                sortOption(BoardSort.DESC, "Blocked first", filter.statusSort)
             }
         }
         label("board-key") {
@@ -283,7 +350,8 @@ private fun DIV.projectBoardToolbar(filter: ProjectBoardFilter, typeFilter: Stri
             }
         }
         if (filter.isActive) {
-            a(classes = "board-reset", href = "/app/projects" + (typeFilter?.let { "?type=" + urlEncode(it) } ?: "")) {
+            val reset = filter.copy(text = "", statusSort = BoardSort.NONE, managerSort = BoardSort.NONE)
+            a(classes = "board-reset", href = reset.hrefFor(typeFilter)) {
                 +"Clear"
             }
         }
@@ -337,9 +405,17 @@ private fun DIV.projectCreateModal(state: ProjectForm, filter: ProjectBoardFilte
                 // A rejected create re-renders this page, and the board behind the popup should still be
                 // the board the reader was looking at. These ride along so the route can rebuild the
                 // filter; `board_` because the create form already owns `type`, `status` and `manager`.
+                // The open-panel carrier has its own id so a Completed toggle can refresh it invisibly.
                 input(type = InputType.hidden, name = "board_q") { value = filter.text }
                 input(type = InputType.hidden, name = "board_sort_status") { value = filter.statusSort }
                 input(type = InputType.hidden, name = "board_sort_manager") { value = filter.managerSort }
+                span {
+                    id = "projectCreateOpenPanels"
+                    attributes["hidden"] = "true"
+                    filter.doneOpen.forEach { typeOpen ->
+                        input(type = InputType.hidden, name = "board_showdone") { value = typeOpen }
+                    }
+                }
                 div("form-grid") {
                     div("field") {
                         label { +"Project type" }
@@ -942,7 +1018,16 @@ fun DIV.projectTable(shown: List<Project>, session: UserSession, measured: Map<S
                     td("c-pin") {
                         form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
                             val pinned = pinnedIds(session.employeeNumber).contains(project.id)
+                            /* Stage 142: a pin is the reader's own list, so the write moves two blocks that are
+                               not nested in each other -- this sheet's star and the sidebar's Pinned projects.
+                               The region is the target rather than the cell because the star's own label is
+                               inside it, and one response has to carry both halves of the same write. */
+                            attributes["data-live-target"] = "#board-results"
+                            attributes["data-live-extra"] = "#pinnedProjects"
                             button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
+                                // An id so the swap hands the focus back to the same star: `swapBlock` remembers
+                                // the active element by id, and this button survives its own write.
+                                id = "sheet-pin-${project.id}"
                                 +(if (pinned) "★ Pinned" else "☆ Pin")
                             }
                         }
@@ -1033,9 +1118,18 @@ fun DIV.projectDetailContent(
             }
             div("head-actions") {
                 if (canEdit) {
-                    form(action = "/app/projects/${project.id}/pin", method = FormMethod.post, classes = "opener-form") {
+                    form(action = "/app/projects/${project.id}/pin", method = FormMethod.post, classes = "opener-form pin-spot") {
                         val pinned = pinnedIds(session.employeeNumber).contains(project.id)
+                        // Stage 142: the form is its own swap target. The label is the thing that goes stale --
+                        // `☆ Pin for me` still printed above a list that already holds the project -- and the
+                        // head around it holds a Delete button whose id must not be traded for a copy. The id is
+                        // on the form rather than on a new wrapper because `.head-actions` is a flex row and a
+                        // wrapper would be one more flex child in it.
+                        id = "detail-pin-${project.id}"
+                        attributes["data-live-target"] = "#detail-pin-${project.id}"
+                        attributes["data-live-extra"] = "#pinnedProjects"
                         button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
+                            id = "detail-pin-btn-${project.id}"
                             +(if (pinned) "★ Pinned" else "☆ Pin for me")
                         }
                     }
@@ -1201,9 +1295,15 @@ fun DIV.projectDetailContent(
                 span("chip ${chipClass(project.status)}") { +project.status }
                 // Stage 127: the read-only head keeps its pin, and says the same thing the editable head's does —
                 // this list is the reader's own, not a change to the project.
-                form(action = "/app/projects/${project.id}/pin", method = FormMethod.post) {
+                form(action = "/app/projects/${project.id}/pin", method = FormMethod.post, classes = "pin-spot") {
                     val pinned = pinnedIds(session.employeeNumber).contains(project.id)
+                    // The same swap target as the editable head's pin: one page renders one of the two, so the
+                    // id is not duplicated by both branches naming it (Stage 142).
+                    id = "detail-pin-${project.id}"
+                    attributes["data-live-target"] = "#detail-pin-${project.id}"
+                    attributes["data-live-extra"] = "#pinnedProjects"
                     button(type = ButtonType.submit, classes = if (pinned) "pin-btn on" else "pin-btn") {
+                        id = "detail-pin-btn-${project.id}"
                         +(if (pinned) "★ Pinned" else "☆ Pin for me")
                     }
                 }
@@ -1363,8 +1463,8 @@ fun DIV.projectDetailContent(
     // half: a `.kcol[data-lane]` drop posts to `/app/tasks/bucket` and moves the card node in place, with no
     // reload under the reader's hands. Only [mayWriteLanes]'s cards carry `draggable`, so the board offers the
     // drag to exactly the people whose hand-built POST the service would accept. A card's **status** is a
-    // different write from a different control — the Done button and the popup's Status field, both of which
-    // reload the page the way a status board's drag does.
+    // different write from a different control — the Done button and the popup's Status field still reload the
+    // page, while a status board's drag moves immediately and quietly refreshes its board.
     script(src = "/static/js/kanban.js") {}
 }
 

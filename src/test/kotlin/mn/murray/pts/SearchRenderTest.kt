@@ -351,8 +351,8 @@ class SearchRenderTest {
         listOf(
             ".search-said { margin-top: 0; }",
             ".search-list { display: flex; flex-direction: column; }",
-            ".search-title { font-size: var(--fs-11); font-weight: 600; }",
-            ".search-detail { font-size: var(--fs-8); color: var(--muted); }",
+            ".search-title { font-size: var(--fs-11); font-weight: 600; line-height: 1.4; }",
+            ".search-detail { font-size: var(--fs-8); line-height: 1.45; color: var(--muted); }",
             ".search-list .search-row:last-child { border-bottom: none; }",
         ).forEach { rule ->
             assertTrue(css.contains(rule), "app.css no longer answers \"$rule\"")
