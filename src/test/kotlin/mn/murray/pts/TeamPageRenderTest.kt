@@ -598,7 +598,7 @@ class TeamPageRenderTest {
     /** Dismissal is delegated and registered once, so replacing the popup's HTML cannot orphan its closer. */
     @Test
     fun `the member popup closes from its button outside click and Escape without stacking listeners`() {
-        val js = File("src/main/resources/static/js/team.js").readText()
+        val js = File("src/main/resources/static/js/team.js").readText().replace("\r\n", "\n")
         val finalBind = js.lastIndexOf("bind();")
         assertTrue(finalBind >= 0, "the Team rows are never bound")
         val loadTime = js.substring(finalBind + "bind();".length)
